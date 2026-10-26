@@ -42,8 +42,9 @@ jobs:
           foreach ($b in $blocks) {
             $lines = ($b -split "\r?\n") | Where-Object { $_.Trim() -ne "" }
             if ($lines.Count -gt 0 -and $lines[0] -match "^(FAIL|ERROR): ") {
-              $last = ($lines | Where-Object { $_ -notmatch "^-{60,}$" -and $_ -notmatch "^Ran \d+ tests" } | Select-Object -Last 1)
-              $sum.Add($lines[0].Substring(0, [Math]::Min(110, $lines[0].Length)) + "  =>  " + $last.Substring(0, [Math]::Min(170, $last.Length)))
+              $keep = @($lines | Where-Object { $_ -notmatch "^-{60,}$" -and $_ -notmatch "^Ran \d+ tests" -and $_ -notmatch "^private key written|^public key|ResourceWarning|^sys:1" })
+              $last = ($keep | Select-Object -Last 4) -join " // "
+              $sum.Add($lines[0].Substring(0, [Math]::Min(110, $lines[0].Length)) + "  =>  " + $last.Substring(0, [Math]::Min(420, $last.Length)))
             }
           }
           $sum.Add("RESULT exit=$code " + (($t -split "\r?\n") | Where-Object { $_ -match "^Ran \d+ tests|^(OK|FAILED)" }) -join " ; ")
@@ -59,6 +60,7 @@ jobs:
         shell: powershell
         run: |
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
+          $global:LASTEXITCODE = 0
           & { .\scripts\clean_install_test.ps1 -Installer $i } *>&1 | Tee-Object -FilePath ci-logs\clean_install.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real GUI launch, real setup wizard engine (real model download), real inference, firewall-blocked offline inference
@@ -66,6 +68,7 @@ jobs:
         shell: powershell
         run: |
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
+          $global:LASTEXITCODE = 0
           & { .\scripts\ci_real_model_test.ps1 -Installer $i -LogDir ci-logs } *>&1 | Tee-Object -FilePath ci-logs\real_model_step.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Collect install-check results (runs even if an earlier step failed)

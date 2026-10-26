@@ -118,7 +118,7 @@ def parse_manifest(d) -> dict:
 
 def code_hash(folder: Path) -> str:
     h = hashlib.sha256()
-    for p in sorted(x for x in Path(folder).rglob("*") if x.is_file()):
+    for p in sorted(x for x in Path(folder).rglob("*") if x.is_file() and not x.is_symlink()):
         h.update(p.relative_to(folder).as_posix().encode() + b"\x00")
         h.update(hashlib.sha256(p.read_bytes()).digest())
     return h.hexdigest()
@@ -192,9 +192,11 @@ def review(folder: str | Path) -> dict:
         blockers.append(f"entry file {man['entry']} is missing")
     imports, risky = set(), []
     for py in sorted(folder.glob("*.py")):
+        if py.is_symlink():          # already a blocker (_scan_folder); never follow a link out of the plugin folder, and a dangling one must not crash the review
+            continue
         try:
             tree = ast.parse(py.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError, ValueError) as e:
+        except (SyntaxError, UnicodeDecodeError, ValueError, OSError) as e:
             blockers.append(f"{py.name} cannot be parsed ({type(e).__name__}); it would not run")
             continue
         for node in ast.walk(tree):

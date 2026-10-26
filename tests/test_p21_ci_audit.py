@@ -39,6 +39,31 @@ class CliNetworkErrors(unittest.TestCase):
         self.assertNotIn("Download failed", err)   # otherwise the CI firewall proof could pass without any firewall
 
 
+class PluginReviewLinks(unittest.TestCase):
+    """Windows CI run 7: a plugin folder holding a symbolic link whose target does not exist (always the case for '/etc/passwd' on Windows)
+    crashed the review with FileNotFoundError instead of blocking it. The review must never follow a link."""
+    def test_dangling_symlink_is_blocked_not_a_crash(self):
+        import json
+        import tempfile
+        from jarvis.dev import plugins as PL
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "manifest.json").write_text(json.dumps({"name": "linky", "version": "1.0.0", "description": "x", "license": "MIT", "entry": "plugin.py",
+                                                         "inputs": {"text": {"type": "str", "description": "t", "max_len": 50}}, "outputs": "n",
+                                                         "permissions": ["compute"], "tests": []}), encoding="utf-8")
+            (d / "plugin.py").write_text("def run(args):\n    return 'ok'\n", encoding="utf-8")
+            try:
+                (d / "evil.py").symlink_to(d / "does-not-exist.py")
+            except OSError:
+                self.skipTest("symlinks cannot be created here")
+            try:
+                rev = PL.review(d)
+            except OSError as e:
+                self.fail(f"review crashed on a dangling link: {e}")
+            self.assertFalse(rev["ok"])
+            self.assertTrue(any("symbolic link" in b for b in rev["blockers"]), rev["blockers"])
+
+
 class CiScripts(unittest.TestCase):
     def test_workflow_has_timeouts_and_collects_logs_always(self):
         wf = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")   # no PyYAML on the Windows build venv
@@ -87,6 +112,15 @@ class CiScripts(unittest.TestCase):
             sect = sect[:sect.index('\n}\n') if '\n}\n' in sect else 600]
             self.assertIn("$p.Handle", sect, name)
             self.assertIn("WaitForExit", sect, name)
+
+    def test_ci_scripts_end_with_an_explicit_exit_and_the_workflow_resets_the_exit_code(self):
+        # Run 7: every install check passed, yet the step failed because $LASTEXITCODE still held 2 from the expected-to-fail "chat" call.
+        for name in ("clean_install_test.ps1", "ci_real_model_test.ps1"):
+            t = (ROOT / "scripts" / name).read_text(encoding="utf-8").rstrip().splitlines()
+            self.assertTrue(t[-1].startswith("exit 0"), name)
+            self.assertIn("exit 1", "\n".join(t[-4:]), name)
+        wf = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")
+        self.assertGreaterEqual(wf.count("$global:LASTEXITCODE = 0"), 2)
 
     def test_windows_build_declares_the_time_zone_database(self):
         self.assertIn("tzdata", (ROOT / "pyproject.toml").read_text(encoding="utf-8"))

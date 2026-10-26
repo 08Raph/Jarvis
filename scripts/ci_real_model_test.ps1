@@ -103,3 +103,4 @@ Check "silent_uninstall_keeps_data" {
 $results | ConvertTo-Json -Depth 4 | Out-File "$LogDir\ci-real-model-results.json" -Encoding utf8
 Get-Content "$LogDir\ci-real-model-results.json"
 if ($results.Values | Where-Object { -not $_.ok }) { exit 1 }
+exit 0   # explicit: a stale $LASTEXITCODE from the last native command (for example "chat" expected to exit 2) must not decide the verdict
