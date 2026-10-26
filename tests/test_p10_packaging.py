@@ -193,7 +193,7 @@ class InstallerScriptRules(unittest.TestCase):
 
     def test_shortcuts_are_disclosed_and_desktop_one_is_unchecked(self):
         self.assertIn('Name: "desktopicon"; Description: "Create a &desktop shortcut"; Flags: unchecked', self.T)
-        self.assertIn("InfoBeforeInstallFile=..\\docs\\INSTALLER_NOTICE.txt", self.T)
+        self.assertIn("InfoBeforeFile=..\\docs\\INSTALLER_NOTICE.txt", self.T)
         notice = (ROOT / "docs" / "INSTALLER_NOTICE.txt").read_text(encoding="utf-8")
         for needle in ("Start menu", "desktop shortcut only if you tick", "Does NOT start", "LOCALAPPDATA", "Uninstalling asks"):
             self.assertIn(needle, notice)
