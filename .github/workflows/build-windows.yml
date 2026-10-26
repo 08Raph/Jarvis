@@ -74,6 +74,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force ci-logs | Out-Null
           foreach ($f in "$env:TEMP\jarvis-clean-install-results.json","$env:TEMP\jarvis-install.log","$env:TEMP\jarvis-gui-selftest.txt") { if (Test-Path $f) { Copy-Item $f ci-logs\ } }
+      - name: Surface install log tail
+        if: failure()
+        shell: powershell
+        run: |
+          foreach ($f in "$env:TEMP\jarvis-install.log","ci-logs\install.log") { if (Test-Path $f) { $t = (Get-Content $f -Tail 40) -join "%0A"; Write-Host "::warning title=tail of $f::$t" } }
       - name: Surface failure details as annotations (the log download is not reachable from the monitoring session)
         if: failure()
         shell: powershell

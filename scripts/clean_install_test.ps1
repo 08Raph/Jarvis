@@ -12,7 +12,18 @@ function Check($name, $block) {
 $app = Join-Path $env:LOCALAPPDATA "Programs\ProjectJarvis"
 $data = Join-Path $env:LOCALAPPDATA "ProjectJarvis"
 
-Check "silent_install" { Start-Process $Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=$env:TEMP\jarvis-install.log" -Wait -PassThru | ForEach-Object { if ($_.ExitCode -ne 0) { throw "exit $($_.ExitCode)" }; "exit 0" } }
+Check "silent_install" {
+    $log = "$env:TEMP\jarvis-install.log"
+    $p = Start-Process $Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=$log" -PassThru
+    $null = $p.Handle          # Windows PowerShell 5.1: without caching the handle, ExitCode can come back empty after WaitForExit
+    $p.WaitForExit()
+    $code = $p.ExitCode
+    if ($code -ne 0) {
+        $tail = if (Test-Path $log) { (Get-Content $log -Tail 25) -join " | " } else { "no install log was written (the installer may not have started)" }
+        throw "installer exit code '$code' (installer: $Installer). Log tail: $tail"
+    }
+    "exit 0"
+}
 Check "exe_present" { if (-not (Test-Path "$app\jarvis.exe")) { throw "missing $app\jarvis.exe" }; "ok" }
 Check "version" { & "$app\jarvis.exe" version }
 Check "local_ai_runtime_present" {

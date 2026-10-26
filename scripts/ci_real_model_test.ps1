@@ -13,7 +13,9 @@ function Check($name, $block) {
 }
 function Run-Logged($exe, $argList, $logName) {
     # Runs a native program, captures stdout+stderr to a log file, returns the exit code.
-    $psi = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$LogDir\$logName.out.txt" -RedirectStandardError "$LogDir\$logName.err.txt"
+    $psi = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -PassThru -RedirectStandardOutput "$LogDir\$logName.out.txt" -RedirectStandardError "$LogDir\$logName.err.txt"
+    $null = $psi.Handle; $psi.WaitForExit()
+    if ($null -eq $psi.ExitCode) { throw "no exit code for $exe $argList" }
     return $psi.ExitCode
 }
 $app = Join-Path $env:LOCALAPPDATA "Programs\ProjectJarvis"
@@ -35,7 +37,12 @@ public class WinList {
 }
 "@
 
-Check "silent_install" { $p = Start-Process $Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=$LogDir\install.log" -Wait -PassThru; if ($p.ExitCode -ne 0) { throw "exit $($p.ExitCode)" }; "exit 0" }
+Check "silent_install" {
+    $p = Start-Process $Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=$LogDir\install.log" -PassThru
+    $null = $p.Handle; $p.WaitForExit(); $code = $p.ExitCode
+    if ($code -ne 0) { throw "installer exit code '$code'" }
+    "exit 0"
+}
 Check "artifact_facts" { @("jarvis.exe","jarvis-gui.exe") | ForEach-Object { $x = Get-Item "$app\$_"; "{0} {1} bytes sha256={2}" -f $_, $x.Length, (Get-FileHash $x.FullName -Algorithm SHA256).Hash } | Out-String }
 Check "no_python_needed" { $savedPath = $env:PATH; try { $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"; $c = Run-Logged "$app\jarvis.exe" "version" "version" } finally { $env:PATH = $savedPath }; if ($c -ne 0) { throw "version exit $c" }; Get-Content "$LogDir\version.out.txt" -Raw }
 Check "ai_runtime_loads" { $c = Run-Logged "$app\jarvis.exe" "runtime --require" "runtime"; if ($c -ne 0) { throw "runtime exit $c : $(Get-Content "$LogDir\runtime.out.txt" -Raw)" }; Get-Content "$LogDir\runtime.out.txt" -Raw }

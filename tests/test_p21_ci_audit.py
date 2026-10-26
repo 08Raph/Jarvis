@@ -79,6 +79,15 @@ class CiScripts(unittest.TestCase):
         names = {l.split("=", 1)[0].strip() for l in sect.splitlines() if "=" in l and not l.lstrip().startswith(";")}
         self.assertEqual(names - known, set())
 
+    def test_installer_exit_code_is_read_reliably_and_logged(self):
+        # Run 6: the silent install reported "exit " (empty ExitCode, PS 5.1) and left no diagnosis.
+        for name in ("clean_install_test.ps1", "ci_real_model_test.ps1"):
+            t = (ROOT / "scripts" / name).read_text(encoding="utf-8")
+            sect = t[t.index('Check "silent_install"'):]
+            sect = sect[:sect.index('\n}\n') if '\n}\n' in sect else 600]
+            self.assertIn("$p.Handle", sect, name)
+            self.assertIn("WaitForExit", sect, name)
+
     def test_windows_build_declares_the_time_zone_database(self):
         self.assertIn("tzdata", (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertIn('collect_data_files("tzdata")', (ROOT / "packaging/jarvis.spec").read_text(encoding="utf-8"))
