@@ -1,0 +1,11 @@
+Project JARVIS - what this installer does
+
+Installs the program files for your user account (no administrator rights needed unless you choose a folder that requires them).
+Adds Start menu entries; a desktop shortcut only if you tick it.
+Does NOT start Project JARVIS at login, add a service or scheduled task, change system settings, or contact the internet.
+No AI model is included. Models are downloaded later, only if you ask, with a size and licence shown first.
+
+Your data (models, memory, missions, schedules, logs, settings) lives in %LOCALAPPDATA%\ProjectJarvis, outside the program folder.
+Upgrading keeps it. Uninstalling asks before deleting it and removes nothing outside that folder and the program folder.
+
+This is a preview release. See docs\RELEASE_NOTES.md for what is and is not verified.

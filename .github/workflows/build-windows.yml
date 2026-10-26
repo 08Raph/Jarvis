@@ -1,0 +1,53 @@
+# Free Windows build for public repositories (GitHub-hosted runners). NOT YET RUN - a green run here is the first real evidence of a Windows build - commit it and watch the Actions tab.
+name: build-windows
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build (runs the tests first, then PyInstaller, then Inno Setup)
+        shell: powershell
+        run: |
+          $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
+          .\scripts\build_windows.ps1 -SkipTorch
+      - name: Silent install / launch / uninstall check on the runner
+        shell: powershell
+        run: |
+          $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
+          .\scripts\clean_install_test.ps1 -Installer $i
+      - name: Real GUI launch, real setup wizard engine (real model download), real inference, firewall-blocked offline inference
+        shell: powershell
+        run: |
+          $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
+          .\scripts\ci_real_model_test.ps1 -Installer $i -LogDir ci-logs
+      - name: Record the build environment
+        shell: powershell
+        run: |
+          Get-Content build_info.json
+          (Get-CimInstance Win32_OperatingSystem).Caption
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ProjectJarvis-ci-logs
+          path: |
+            ci-logs/**
+            build_info.json
+            dist/*.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ProjectJarvis-installer
+          path: |
+            dist/installer/*.exe
+            dist/installer/SHA256SUMS.txt

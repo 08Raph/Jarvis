@@ -1,0 +1,17 @@
+<!-- Windows Sandbox config: a disposable clean Windows 11 for install testing. NOT YET RUN.
+     1. Put ProjectJarvis-Setup-<version>.exe and scripts\clean_install_test.ps1 in C:\jarvis-share (read-only below).
+     2. Enable "Windows Sandbox" (Windows 11 Pro/Enterprise), then double-click this file.
+     Networking is disabled: the installed app must work with no network at all. -->
+<Configuration>
+  <Networking>Disable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\jarvis-share</HostFolder>
+      <SandboxFolder>C:\share</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -NoExit -ExecutionPolicy Bypass -File C:\share\clean_install_test.ps1 -Installer C:\share\ProjectJarvis-Setup-0.6.0.exe</Command>
+  </LogonCommand>
+</Configuration>

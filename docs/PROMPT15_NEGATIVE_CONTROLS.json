@@ -1,0 +1,261 @@
+[
+ {
+  "mutation": "CONTROL unmodified",
+  "rc": 0,
+  "tests": 96,
+  "failing": []
+ },
+ {
+  "mutation": "N1 adult opt-in gate removed from validation",
+  "area": "adult opt-in",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_cli_default_and_opt_in_flow",
+   "test_controller_default_set_normal_reset_and_adult_confirmation",
+   "test_corrupt_or_hostile_files_fall_back_to_normal_never_to_something_stronger",
+   "test_adult_styles_need_explicit_opt_in",
+   "test_validation_rejects_bad_values",
+   "test_minor_claim_switches_adult_styles_off_and_stores_no_age"
+  ]
+ },
+ {
+  "mutation": "N2 default style is not Normal",
+  "area": "Normal default",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_first_launch_prompt_is_normal",
+   "test_guest_session_ignores_and_never_saves_persona",
+   "test_cli_default_and_opt_in_flow",
+   "test_controller_default_set_normal_reset_and_adult_confirmation",
+   "test_corrupt_or_hostile_files_fall_back_to_normal_never_to_something_stronger",
+   "test_finish_labels_and_guards",
+   "test_normal_prompt_has_no_style_text_and_default_traits_still_apply",
+   "test_preview_shows_real_instructions_not_a_fake_sample",
+   "test_prompt_injection_through_saved_settings_is_impossible",
+   "test_adult_styles_need_explicit_opt_in",
+   "test_normal_is_the_default_on_first_launch"
+  ]
+ },
+ {
+  "mutation": "N3 saved settings no longer validated on load",
+  "area": "invalid config handling",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_corrupt_or_hostile_files_fall_back_to_normal_never_to_something_stronger",
+   "test_prompt_injection_through_saved_settings_is_impossible"
+  ]
+ },
+ {
+  "mutation": "N4 corrupt config falls back to the MOST aggressive style",
+  "area": "no silent escalation",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_corrupt_or_hostile_files_fall_back_to_normal_never_to_something_stronger",
+   "test_prompt_injection_through_saved_settings_is_impossible"
+  ]
+ },
+ {
+  "mutation": "N5 stop requests ignored",
+  "area": "stop/return to Normal",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_stop_request_in_chat_returns_to_normal_before_the_model_answers",
+   "test_controller_notifies_and_chat_stop_updates_the_window_state",
+   "test_flirty_respects_stop_and_never_flirts_when_asked",
+   "test_stop_requests_return_to_normal_and_persist"
+  ]
+ },
+ {
+  "mutation": "N6 distress/emergency override removed",
+  "area": "crisis override",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_distress_in_savage_mode_gets_the_safety_prompt_and_no_memory_and_no_label",
+   "test_finish_labels_and_guards",
+   "test_distress_overrides_every_style_and_ends_roleplay_styles",
+   "test_emergency_overrides_style_with_plain_serious_guidance",
+   "test_therapist_style_hands_crisis_to_the_safety_path"
+  ]
+ },
+ {
+  "mutation": "N7 emergency-only guidance never used",
+  "area": "emergency override",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_distress_in_savage_mode_gets_the_safety_prompt_and_no_memory_and_no_label",
+   "test_distress_overrides_every_style_and_ends_roleplay_styles",
+   "test_emergency_overrides_style_with_plain_serious_guidance",
+   "test_therapist_style_hands_crisis_to_the_safety_path"
+  ]
+ },
+ {
+  "mutation": "N8 savage keeps saved personal notes (memory policy off)",
+  "area": "private memory not ammunition",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_savage_prompt_excludes_saved_personal_notes_so_they_cannot_be_ammunition",
+   "test_preview_shows_real_instructions_not_a_fake_sample"
+  ]
+ },
+ {
+  "mutation": "N9 assistant ignores the memory policy",
+  "area": "private memory not ammunition",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_distress_in_savage_mode_gets_the_safety_prompt_and_no_memory_and_no_label",
+   "test_savage_prompt_excludes_saved_personal_notes_so_they_cannot_be_ammunition"
+  ]
+ },
+ {
+  "mutation": "N10 fixed safety rules not appended to style prompts",
+  "area": "safety block",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_every_non_normal_prompt_ends_with_the_fixed_safety_rules"
+  ]
+ },
+ {
+  "mutation": "N11 minor-claim handling removed",
+  "area": "age safeguard",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_minor_claim_switches_adult_styles_off_and_stores_no_age"
+  ]
+ },
+ {
+  "mutation": "N12 harmful-output guard disabled",
+  "area": "output guard",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_harmful_model_output_is_replaced_in_edgy_styles",
+   "test_finish_labels_and_guards"
+  ]
+ },
+ {
+  "mutation": "N13 streaming guard removed",
+  "area": "output guard (stream)",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_harmful_model_output_is_replaced_in_edgy_styles"
+  ]
+ },
+ {
+  "mutation": "N14 structural roleplay label removed",
+  "area": "roleplay labelling",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_the_model_is_told_the_selected_style_and_switching_back_removes_it",
+   "test_finish_labels_and_guards"
+  ]
+ },
+ {
+  "mutation": "N15 revoking opt-in leaves the adult style active",
+  "area": "adult opt-in",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_adult_styles_need_explicit_opt_in"
+  ]
+ },
+ {
+  "mutation": "N16 language field accepts arbitrary text (prompt injection)",
+  "area": "config injection",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_cli_default_and_opt_in_flow",
+   "test_invalid_values_rejected_and_old_settings_kept",
+   "test_prompt_injection_through_saved_settings_is_impossible",
+   "test_validation_rejects_bad_values"
+  ]
+ },
+ {
+  "mutation": "N17 intensity range widened",
+  "area": "validation",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_cli_default_and_opt_in_flow",
+   "test_corrupt_or_hostile_files_fall_back_to_normal_never_to_something_stronger",
+   "test_invalid_values_rejected_and_old_settings_kept",
+   "test_validation_rejects_bad_values"
+  ]
+ },
+ {
+  "mutation": "N19 speech-rate clamp removed",
+  "area": "voice rate hook",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_broken_hint_never_breaks_speech",
+   "test_rate_hint_applies_and_is_clamped"
+  ]
+ },
+ {
+  "mutation": "N20 persona imports the desktop policy (separation)",
+  "area": "permission separation",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_no_import_path_between_personality_and_the_execution_layer"
+  ]
+ },
+ {
+  "mutation": "N21 executor imports personality (separation)",
+  "area": "permission separation",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_no_import_path_between_personality_and_the_execution_layer"
+  ]
+ },
+ {
+  "mutation": "N22 driving cue ignored",
+  "area": "hands-busy brevity",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_driving_makes_tutor_calm_coach_brief"
+  ]
+ },
+ {
+  "mutation": "N23 stop phrases no longer include flirting",
+  "area": "stop flirting",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_flirty_respects_stop_and_never_flirts_when_asked",
+   "test_stop_requests_return_to_normal_and_persist"
+  ]
+ },
+ {
+  "mutation": "N18a guest persona: persist flag flipped (path still None, so defence in depth: expected NOT detected)",
+  "area": "guest privacy",
+  "detected": false,
+  "tests": 96,
+  "failing": []
+ },
+ {
+  "mutation": "N18b guest persona: reads/writes the real profile folder",
+  "area": "guest privacy",
+  "detected": true,
+  "tests": 96,
+  "failing": [
+   "test_guest_session_ignores_and_never_saves_persona"
+  ]
+ }
+]

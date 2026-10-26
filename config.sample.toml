@@ -1,0 +1,16 @@
+# NOTE (Project JARVIS 0.6.0): this file is a reference only. Jarvis does NOT read a config.toml yet; nothing you put here changes its behaviour.
+# Real settings live in %LOCALAPPDATA%\ProjectJarvis and are changed with commands (`jarvis desktop enable ...`, `jarvis models ...`, `jarvis privacy`).
+# If a future version reads this file, write Windows paths with forward slashes ("C:/Users/me/JarvisData") or single quotes ('C:\Users\me'),
+# because TOML treats a backslash inside double quotes as an escape character.
+[paths]
+data_dir = "jarvis_data"
+
+[generation]
+max_new_tokens = 128
+temperature = 0.8
+top_k = 40
+
+# Apps the assistant may launch (after you confirm each launch). Windows only.
+[apps]
+notepad = "notepad.exe"
+calculator = "calc.exe"

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.sqlite
+*.pt
+jarvis_data/
+build/
+dist/
+*.egg-info/
+.venv/
+model_out/
+build_info.json

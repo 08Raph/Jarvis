@@ -1,0 +1,316 @@
+[
+ {
+  "mutation": "CONTROL unmodified",
+  "rc": 0,
+  "tests": 203,
+  "failing": [],
+  "first_run": "NOT DETECTED; a test was added and the mutation re-run"
+ },
+ {
+  "mutation": "M1 slash command detection disabled",
+  "area": "explicit stop control",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_slash_normal_streaming_and_during_a_crisis_message_order",
+   "test_slash_normal_works_in_every_style_without_calling_the_model",
+   "test_commands_are_exact",
+   "test_stop",
+   "test_harness_passes_with_a_cooperative_scripted_model"
+  ]
+ },
+ {
+  "mutation": "M2 persona.command does nothing",
+  "area": "explicit stop control",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_slash_normal_streaming_and_during_a_crisis_message_order",
+   "test_slash_normal_works_in_every_style_without_calling_the_model"
+  ]
+ },
+ {
+  "mutation": "M3 assistant still calls the model for a control command",
+  "area": "explicit stop control",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_slash_normal_works_in_every_style_without_calling_the_model"
+  ]
+ },
+ {
+  "mutation": "M4 stop phrases ignored (selected style wins)",
+  "area": "stop priority",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_stop_request_in_chat_returns_to_normal_before_the_model_answers",
+   "test_controller_notifies_and_chat_stop_updates_the_window_state",
+   "test_flirty_respects_stop_and_never_flirts_when_asked",
+   "test_stop_requests_return_to_normal_and_persist",
+   "test_stop_has_priority_over_a_selected_style_in_the_same_message",
+   "test_harness_passes_with_a_cooperative_scripted_model"
+  ]
+ },
+ {
+  "mutation": "M5 uncertain age no longer fails closed",
+  "area": "fail-closed adult",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_uncertain_age_cues_also_fail_closed"
+  ]
+ },
+ {
+  "mutation": "M6 minor statements ignored",
+  "area": "fail-closed adult",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_minor_claim_switches_adult_styles_off_and_stores_no_age",
+   "test_every_minor_phrase_revokes_the_opt_in_and_needs_a_new_one",
+   "test_uncertain_age_cues_also_fail_closed"
+  ]
+ },
+ {
+  "mutation": "M7 history keeps program labels (drift)",
+  "area": "drift",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_history_never_contains_program_labels_and_old_style_cannot_pin_the_new_one"
+  ]
+ },
+ {
+  "mutation": "M8 'follow ONLY this style' line removed",
+  "area": "drift",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_history_never_contains_program_labels_and_old_style_cannot_pin_the_new_one"
+  ]
+ },
+ {
+  "mutation": "M9 harmful-output guard only for non-Normal styles",
+  "area": "output guard",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_harmful_phrases_are_replaced_in_normal_mode_and_in_safety_overrides_too"
+  ]
+ },
+ {
+  "mutation": "M10 headline claims success without a recorded self-test",
+  "area": "readiness honesty",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_runtime_present_but_not_selftested"
+  ]
+ },
+ {
+  "mutation": "M11 recorded self-test accepted for another model",
+  "area": "readiness honesty",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_recorded_selftest_counts_only_for_the_same_model_and_only_if_passed"
+  ]
+ },
+ {
+  "mutation": "M12 tool calling reported as verified",
+  "area": "readiness honesty",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_recorded_selftest_counts_only_for_the_same_model_and_only_if_passed",
+   "test_this_sandbox_real_execution_has_no_model_no_runtime"
+  ]
+ },
+ {
+  "mutation": "M13 offline reported as verified",
+  "area": "readiness honesty",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_this_sandbox_real_execution_has_no_model_no_runtime"
+  ]
+ },
+ {
+  "mutation": "M14 hardware reported as verified",
+  "area": "readiness honesty",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_voice_levels_real_sandbox_nothing_verified",
+   "test_voice_levels_with_everything_present_still_not_hardware_verified"
+  ]
+ },
+ {
+  "mutation": "M15 spoken replies on by default",
+  "area": "no unintended audio",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_voice_levels_real_sandbox_nothing_verified",
+   "test_speech_is_off_by_default_nothing_is_spoken",
+   "test_voice_settings_new_fields"
+  ]
+ },
+ {
+  "mutation": "M16 speak ignores the opt-in flag",
+  "area": "no unintended audio",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_speech_is_off_by_default_nothing_is_spoken"
+  ]
+ },
+ {
+  "mutation": "M17 Stop button does not silence speech",
+  "area": "speech cancellation",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_stop_button_return_to_normal_emergency_stop_and_shutdown_all_silence_speech"
+  ]
+ },
+ {
+  "mutation": "M18 return-to-Normal does not stop reply/speech",
+  "area": "speech cancellation",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_stop_button_return_to_normal_emergency_stop_and_shutdown_all_silence_speech"
+  ]
+ },
+ {
+  "mutation": "M19 closing the window does not silence speech",
+  "area": "speech cancellation",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_stop_button_return_to_normal_emergency_stop_and_shutdown_all_silence_speech"
+  ]
+ },
+ {
+  "mutation": "M20 speech rate not clamped",
+  "area": "speech rate",
+  "detected": true,
+  "tests": 203,
+  "failing": [
+   "test_speech_rate_is_clamped_and_bad_factors_are_ignored"
+  ],
+  "first_run": "NOT DETECTED; a test was added and the mutation re-run"
+ },
+ {
+  "mutation": "M21 raw reply spoken (code/paths/links not removed)",
+  "area": "speakable filter",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_reply_is_spoken_once_turned_on_with_cleaned_text_and_style_rate"
+  ]
+ },
+ {
+  "mutation": "M22 window voice_set may change microphone options",
+  "area": "no background recording",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_voice_set_validates_and_persists_and_refuses_microphone_options"
+  ]
+ },
+ {
+  "mutation": "M23 console n key does not cancel speech",
+  "area": "speech cancellation",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_n_key_failure_and_missing_callback_still_cancel_speech",
+   "test_n_key_silences_speech_first_then_returns_to_normal"
+  ]
+ },
+ {
+  "mutation": "M24 adult confirmation not required in controller",
+  "area": "adult opt-in",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_controller_default_set_normal_reset_and_adult_confirmation"
+  ]
+ },
+ {
+  "mutation": "M25 window banner says 'Model ready' again",
+  "area": "readiness honesty (UI)",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_banner_never_says_model_ready_and_status_page_has_the_levels_table"
+  ]
+ },
+ {
+  "mutation": "M26 distress detector loses 'want to die'",
+  "area": "detector regression",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_distress_in_savage_mode_gets_the_safety_prompt_and_no_memory_and_no_label",
+   "test_finish_labels_and_guards",
+   "test_distress_overrides_every_style_and_ends_roleplay_styles",
+   "test_safety_signals_unit",
+   "test_slash_normal_streaming_and_during_a_crisis_message_order",
+   "test_distress",
+   "test_crisis_reply_is_spoken_at_normal_speed_even_in_calm"
+  ]
+ },
+ {
+  "mutation": "M27 emergency detector loses 'chest pain'",
+  "area": "detector regression",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_emergency_overrides_style_with_plain_serious_guidance",
+   "test_safety_signals_unit",
+   "test_emergency_beats_roleplay_text_in_the_user_message",
+   "test_emergency"
+  ]
+ },
+ {
+  "mutation": "M28 stop detector loses 'lay off'",
+  "area": "detector regression",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_stop"
+  ]
+ },
+ {
+  "mutation": "M29 self-check fact check always passes",
+  "area": "self-check harness",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_harness_detects_a_model_that_loses_the_facts"
+  ]
+ },
+ {
+  "mutation": "M30 emergency stop ties into persona (clears style) - dependency injected",
+  "area": "independence of stop and style",
+  "detected": true,
+  "tests": 202,
+  "failing": [
+   "test_emergency_stop_does_not_change_the_persona_and_return_to_normal_does_not_clear_the_stop"
+  ]
+ },
+ {
+  "mutation": "M31 clear_stop resets persona",
+  "area": "independence of stop and style",
+  "detected": true,
+  "tests": 203,
+  "failing": [
+   "test_emergency_stop_does_not_change_the_persona_and_return_to_normal_does_not_clear_the_stop"
+  ],
+  "first_run": "NOT DETECTED; a test was added and the mutation re-run"
+ }
+]

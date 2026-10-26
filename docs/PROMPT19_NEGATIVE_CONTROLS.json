@@ -1,0 +1,207 @@
+[
+ {
+  "mutation": "CONTROL unmodified",
+  "rc": 0,
+  "tests": 100,
+  "failing": []
+ },
+ {
+  "mutation": "N1 typo tolerance removed",
+  "area": "typo",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_retrieval_primitives"
+  ]
+ },
+ {
+  "mutation": "N2 synonym table disabled",
+  "area": "semantic",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_floor_on_held_out_test_split"
+  ]
+ },
+ {
+  "mutation": "N3 plural -ies stemming removed",
+  "area": "morph",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_retrieval_primitives"
+  ]
+ },
+ {
+  "mutation": "N4 n_gpu_layers always passed",
+  "area": "plumbing",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_gpu_layers_only_passed_when_requested",
+   "test_memory_changes_the_prompt_not_the_model",
+   "test_named_profile_gets_its_own_folder_and_memory",
+   "test_no_evidence_questions_never_reach_the_model",
+   "test_stream_path_handles_memory_commands_too",
+   "test_summaries_are_opt_in_redacted_and_saved_as_visible_memory"
+  ]
+ },
+ {
+  "mutation": "N5 pinned model that does not fit is accepted",
+  "area": "no silent substitution",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_pinned_model_that_cannot_fit_exits_nonzero_and_is_not_replaced",
+   "test_pinned_model_that_does_not_fit_is_never_replaced"
+  ]
+ },
+ {
+  "mutation": "N6 acceleration 'verified' without measurement",
+  "area": "accel honesty",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_gpu_chosen_only_with_backend",
+   "test_quality_vs_speed_preference",
+   "test_three_acceleration_states_are_separate"
+  ]
+ },
+ {
+  "mutation": "N7 GPU counted without backend",
+  "area": "tier",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_gpu_without_backend_is_not_counted_in_tier"
+  ]
+ },
+ {
+  "mutation": "N8 simulated run counted as real validation",
+  "area": "real vs fake",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_simulated_run_can_never_be_real_validation"
+  ]
+ },
+ {
+  "mutation": "N9 checksum not compared",
+  "area": "integrity",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_checksum_mismatch_fails_integrity"
+  ]
+ },
+ {
+  "mutation": "N10 end-to-end stage passes with no task",
+  "area": "stage honesty",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_no_end_to_end_task_means_not_run_not_passed"
+  ]
+ },
+ {
+  "mutation": "N11 unmeasured area gets a score",
+  "area": "no invented scores",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_no_model_means_not_measured"
+  ]
+ },
+ {
+  "mutation": "N12 abstention scorer accepts anything",
+  "area": "scorer",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_wrong_answers_are_rejected"
+  ]
+ },
+ {
+  "mutation": "N13 unconfirmed catalog note says confirmed",
+  "area": "metadata honesty",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_records_do_not_claim_verification"
+  ]
+ },
+ {
+  "mutation": "N14 matrix fabricates a quality result",
+  "area": "no fabricated matrix",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_matrix_has_no_fabricated_results"
+  ]
+ },
+ {
+  "mutation": "N15 zip-bomb guard removed",
+  "area": "documents",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_zip_bomb_docx_is_refused"
+  ]
+ },
+ {
+  "mutation": "N16 xlsx treated as readable text",
+  "area": "documents",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_unsupported_office_formats_are_refused_not_faked"
+  ]
+ },
+ {
+  "mutation": "N17 long-context filler shortened",
+  "area": "benchmark size",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_long_context_prompts_are_actually_long"
+  ]
+ },
+ {
+  "mutation": "N18 min_score ignored in memory search",
+  "area": "abstention",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_stricter_threshold_trades_recall_for_fewer_false_positives",
+   "test_forget_deletes_the_single_match_or_asks",
+   "test_lexical_ranking_and_relevance_threshold"
+  ]
+ },
+ {
+  "mutation": "N19 acceleration message hides missing backend",
+  "area": "accel honesty",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_three_acceleration_states_are_separate"
+  ]
+ },
+ {
+  "mutation": "N21 plan always exits 0",
+  "area": "cli",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_pinned_model_that_cannot_fit_exits_nonzero_and_is_not_replaced"
+  ]
+ },
+ {
+  "mutation": "N20 tier ignores RAM",
+  "area": "tier",
+  "detected": true,
+  "tests": 100,
+  "failing": [
+   "test_gpu_without_backend_is_not_counted_in_tier"
+  ]
+ }
+]

@@ -1,0 +1,38 @@
+"""What goes into the Windows application folder - the SINGLE list used by the PyInstaller spec, by scripts/check_release_assets.py and by the tests.
+Pure Python (no PyInstaller import) so it can be checked on any machine. Paths are relative to the project root."""
+from __future__ import annotations
+
+# (source relative to project root, destination folder inside the app folder)
+DATAS = [
+    ("src/jarvis/telemetry/endpoint.txt", "jarvis/telemetry"),     # empty unless the build was given a server address; users must still opt in
+    ("src/jarvis/desktop/ocr_winrt.ps1", "jarvis/desktop"),        # Windows OCR helper script
+    ("config.sample.toml", "."),                                   # configuration template; real settings live in %LOCALAPPDATA%\ProjectJarvis
+    ("LICENSE", "."),
+    ("THIRD_PARTY_NOTICES.md", "."),
+    ("CHANGELOG.md", "."),
+    ("build_info.json", "."),                                      # written by scripts/release_tools.py build-info just before the build
+]
+# user-facing documentation shipped with the app (maintainer review notes and test checklists stay in the source repository)
+DOCS = ["RELEASE_NOTES.md", "TROUBLESHOOTING.md", "MODEL_DISTRIBUTION.md", "PRIVACY_AND_NETWORK.md", "LOCAL_MODEL.md", "DESKTOP_CONTROL.md",
+        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md"]
+
+# Files that MUST exist in the built folder (relative to dist/ProjectJarvis)
+REQUIRED_IN_DIST = ["jarvis.exe", "jarvis-gui.exe", "LICENSE", "THIRD_PARTY_NOTICES.md", "build_info.json", "config.sample.toml",
+                    "docs/RELEASE_NOTES.md", "docs/MODEL_DISTRIBUTION.md"]
+
+# Names/patterns that must NEVER appear in the built folder or the installer (secrets, user data, development leftovers)
+FORBIDDEN_PATTERNS = ["*.pem", "*.key", "*private*", "*.sqlite", "*.sqlite-wal", ".env", ".env.*", "*.pt", "*.gguf", "*.safetensors", "jarvis_data",
+                      "crash.log", "STOP", "desktop_audit*.jsonl", "*.pyc.bak", "requirements-lock.txt"]
+FORBIDDEN_TOP_LEVEL = ["tests", "server", ".github", "scripts", "src", ".venv", "build"]
+
+# Python modules the frozen app needs although PyInstaller cannot see them statically (dynamic imports); optional ones are included only if installed
+HIDDEN_REQUIRED = ["jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop"]
+OPTIONAL_PACKAGES = ["llama_cpp", "sounddevice", "_sounddevice_data", "vosk", "comtypes", "psutil", "pypdf"]
+MANDATORY_PACKAGES_FOR_RELEASE = ["PySide6", "numpy", "cryptography"]    # the build FAILS if these are missing
+
+# Qt modules this application never uses; excluding them keeps the folder smaller and the LGPL surface smaller
+QT_EXCLUDES = ["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick", "PySide6.QtQml", "PySide6.QtQuick",
+               "PySide6.QtQuickWidgets", "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets",
+               "PySide6.QtCharts", "PySide6.QtDataVisualization", "PySide6.QtSql", "PySide6.QtTest", "PySide6.QtBluetooth", "PySide6.QtNfc",
+               "PySide6.QtPositioning", "PySide6.QtSensors", "PySide6.QtSerialPort", "PySide6.QtWebSockets", "PySide6.QtPdf", "PySide6.QtPdfWidgets"]
+EXCLUDES = ["tkinter", "pytest"] + QT_EXCLUDES

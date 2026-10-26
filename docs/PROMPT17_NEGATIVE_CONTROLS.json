@@ -1,0 +1,420 @@
+[
+ {
+  "mutation": "CONTROL unmodified",
+  "rc": 0,
+  "tests": 283,
+  "failing": []
+ },
+ {
+  "mutation": "M1 duplicate-utterance guard removed",
+  "area": "no duplicate processing",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_duplicate_utterance_is_not_processed_twice"
+  ]
+ },
+ {
+  "mutation": "M2 own-voice echo filter removed",
+  "area": "does not answer itself",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_jarvis_does_not_answer_its_own_voice"
+  ]
+ },
+ {
+  "mutation": "M3 post-speech guard removed",
+  "area": "does not hear itself",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_frames_right_after_speech_are_ignored"
+  ]
+ },
+ {
+  "mutation": "M4 wake phrase inside own reply no longer ignored",
+  "area": "no self-wake",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_wake_phrase_inside_its_own_reply_does_not_self_trigger_or_interrupt"
+  ]
+ },
+ {
+  "mutation": "M5 reply delivered even after mute/cancel",
+  "area": "mute/cancel during inference",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_reply_arriving_after_mute_is_dropped"
+  ]
+ },
+ {
+  "mutation": "M6 session ignores speaker mute",
+  "area": "speaker mute",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_speaker_mute_is_separate_from_mic_mute",
+   "test_speaker_muted_session_speaks_nothing_but_answers_in_text"
+  ]
+ },
+ {
+  "mutation": "M7 speaker mute does not silence current speech",
+  "area": "speaker mute",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_session_speaker_mute_silences_speech_in_progress_and_leaves_mic_alone"
+  ]
+ },
+ {
+  "mutation": "M8 frames during thinking not observed (talks over user)",
+  "area": "does not talk over user",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_reply_is_not_spoken_over_a_user_who_started_talking_during_inference"
+  ]
+ },
+ {
+  "mutation": "M9 Listening shown without checking the mic stream or recognizer",
+  "area": "status honesty",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_status_never_says_listening_when_the_stream_is_closed"
+  ]
+ },
+ {
+  "mutation": "M10 Listening shown while recognizer not loaded",
+  "area": "status honesty",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_status_never_says_listening_when_the_stream_is_closed"
+  ]
+ },
+ {
+  "mutation": "M11 recognizer not preloaded before Listening",
+  "area": "model load before Listening",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_enabled_voice_starts_by_itself_and_reports_listening_only_when_measured",
+   "test_missing_speech_model_files"
+  ]
+ },
+ {
+  "mutation": "M12 microphone lock not taken",
+  "area": "one microphone owner",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_another_process_holding_the_microphone_lock"
+  ]
+ },
+ {
+  "mutation": "M13 mic mute not persisted",
+  "area": "mute survives restart",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_mute_is_saved_and_unmute_resumes_listening"
+  ]
+ },
+ {
+  "mutation": "M14 mute command does not close the microphone",
+  "area": "mute stops capture",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_mic_mute_really_stops_capture",
+   "test_mute_during_inference_leaves_the_mic_closed_and_state_muted",
+   "test_mute_is_saved_and_unmute_resumes_listening"
+  ]
+ },
+ {
+  "mutation": "M15 disable not persisted",
+  "area": "disable survives restart",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_disable_releases_the_microphone_thread_and_lock"
+  ]
+ },
+ {
+  "mutation": "M16 cancel command does not return session to listening",
+  "area": "cancel",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_cancel_while_the_user_is_mid_utterance_returns_to_listening"
+  ]
+ },
+ {
+  "mutation": "M17 spoken 'return to normal' not mapped",
+  "area": "spoken /normal",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_spoken_normal_returns_to_normal_and_is_not_sent_as_roleplay"
+  ]
+ },
+ {
+  "mutation": "M18 voice turn ignores a busy typed chat",
+  "area": "no concurrent assistant use",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_busy_typed_chat_blocks_a_voice_turn_politely"
+  ]
+ },
+ {
+  "mutation": "M19 shutdown does not stop the worker",
+  "area": "clean shutdown",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_init_is_idempotent_one_thread_one_loop",
+   "test_enable_disable_cycles_do_not_leak_threads_or_locks",
+   "test_disable_releases_the_microphone_thread_and_lock",
+   "test_shutdown_closes_everything_without_leaks",
+   "test_no_microphone_device"
+  ]
+ },
+ {
+  "mutation": "M20 no text-only degradation when speaker is missing",
+  "area": "degrade honestly",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_text_only_degradation_when_speaker_missing"
+  ]
+ },
+ {
+  "mutation": "M21 microphone device check removed",
+  "area": "no mic device",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_no_microphone_device",
+   "test_retry_after_fixing_the_cause_reaches_listening"
+  ]
+ },
+ {
+  "mutation": "M22 guest session may use voice",
+  "area": "guest",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_guest_session_never_starts_voice"
+  ]
+ },
+ {
+  "mutation": "M23 autostart ignores the saved enable setting",
+  "area": "no mic unless enabled",
+  "detected": false,
+  "tests": 283,
+  "failing": []
+ },
+ {
+  "mutation": "M23b autostart AND start() both ignore the saved enable setting",
+  "area": "no mic unless enabled",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_default_settings_keep_the_microphone_off",
+   "test_disabled_voice_never_touches_the_microphone"
+  ]
+ },
+ {
+  "mutation": "M24 Stop does not cancel voice speech",
+  "area": "Stop/Return to Normal/emergency stop",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_cancel_during_inference_abandons_the_reply_and_speaks_nothing"
+  ]
+ },
+ {
+  "mutation": "M25 shutdown does not stop voice",
+  "area": "clean shutdown",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_init_is_idempotent_one_thread_one_loop",
+   "test_enable_disable_cycles_do_not_leak_threads_or_locks",
+   "test_disable_releases_the_microphone_thread_and_lock",
+   "test_shutdown_closes_everything_without_leaks",
+   "test_no_microphone_device"
+  ]
+ },
+ {
+  "mutation": "M26 voice turn allowed while typed chat is busy",
+  "area": "no concurrent assistant use",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_busy_typed_chat_blocks_a_voice_turn_politely"
+  ]
+ },
+ {
+  "mutation": "M27 typed-chat speech ignores speaker mute",
+  "area": "speaker mute",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_typed_chat_speech_respects_speaker_mute"
+  ]
+ },
+ {
+  "mutation": "M28 start-with-Windows enabled without confirmation",
+  "area": "consent",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_controller_start_with_windows_is_consent_gated_and_guest_blocked",
+   "test_enable_needs_explicit_confirmation"
+  ]
+ },
+ {
+  "mutation": "M29 start-with-Windows writes HKLM",
+  "area": "consent/safe scope",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_registry_backend_uses_only_the_current_user_run_key"
+  ]
+ },
+ {
+  "mutation": "M30 start-with-Windows disable does not remove the value",
+  "area": "safe removal",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_controller_start_with_windows_is_consent_gated_and_guest_blocked",
+   "test_enable_writes_one_visible_value_and_disable_removes_it"
+  ]
+ },
+ {
+  "mutation": "M31 window checkbox does not ask first",
+  "area": "consent",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_start_with_windows_checkbox_only_enables_after_a_yes"
+  ]
+ },
+ {
+  "mutation": "M32 autostart never called",
+  "area": "automatic init",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_autostart_is_called_once_after_show_and_only_there"
+  ]
+ },
+ {
+  "mutation": "M33 readiness always says microphone not used",
+  "area": "readiness honesty",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_readiness_row_reflects_the_saved_setting"
+  ]
+ },
+ {
+  "mutation": "M34 hands-free ON by default",
+  "area": "mic off by default",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_default_settings_keep_the_microphone_off",
+   "test_readiness_row_reflects_the_saved_setting",
+   "test_startup_does_not_enable_the_microphone",
+   "test_mute_closes_stream_and_blocks_everything",
+   "test_defaults_are_safe",
+   "test_validation_and_roundtrip_and_corrupt"
+  ]
+ },
+ {
+  "mutation": "M35 speaker_muted not validated",
+  "area": "settings validation",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_new_settings_validate"
+  ]
+ },
+ {
+  "mutation": "M36 CLI voice run ignores the microphone lock",
+  "area": "one microphone owner",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_cli_voice_run_refuses_when_the_window_already_owns_the_microphone"
+  ]
+ },
+ {
+  "mutation": "M37 service writes raw audio to disk",
+  "area": "no raw audio",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_no_raw_audio_is_written_anywhere"
+  ]
+ },
+ {
+  "mutation": "M38 service imports a network module",
+  "area": "no network",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_no_network_modules_in_voice_code"
+  ]
+ },
+ {
+  "mutation": "M39 service imports the desktop executor",
+  "area": "no executor from voice",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_voice_code_never_imports_the_executor_or_missions"
+  ]
+ },
+ {
+  "mutation": "M40 session mute leaves the microphone open",
+  "area": "mute stops capture",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_mic_mute_really_stops_capture",
+   "test_mute_during_inference_leaves_the_mic_closed_and_state_muted",
+   "test_mute_through_session_closes_device_and_ignores_wake",
+   "test_mute_closes_stream_and_blocks_everything",
+   "test_every_state_event_reports_the_real_mic_state",
+   "test_mute_closes_stream_and_unmute_reopens"
+  ]
+ },
+ {
+  "mutation": "M41 mic_unmute does not clear the saved mute",
+  "area": "mute survives restart",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_mute_is_saved_and_unmute_resumes_listening"
+  ]
+ },
+ {
+  "mutation": "M42 enable not idempotent (second thread allowed)",
+  "area": "idempotent init",
+  "detected": true,
+  "tests": 283,
+  "failing": [
+   "test_init_is_idempotent_one_thread_one_loop",
+   "test_no_microphone_device"
+  ]
+ }
+]

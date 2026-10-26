@@ -1,0 +1,434 @@
+{
+ "note": "Prompt 14 negative controls. round1 = first run; rerun = C22, C23, C26 after new tests were added. Linux only; disposable copies.",
+ "round1": [
+  {
+   "mutation": "CONTROL unmodified",
+   "rc": 0,
+   "tests": 184,
+   "failing": []
+  },
+  {
+   "mutation": "C1 allowlist: name check AND handler binding both removed (anything with risk observe qualifies)",
+   "area": "allowlist enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_an_unlisted_read_tool_is_checked_once_whatever_the_plan_asks",
+    "test_a_check_cannot_be_polled_unless_the_check_tool_is_a_listed_read",
+    "test_every_tool_that_is_not_listed_gets_zero_retries_whatever_the_plan_says",
+    "test_names_that_sound_safe_do_not_make_a_tool_safe",
+    "test_screenshot_like_and_wait_tools_are_deliberately_not_repeatable",
+    "test_removed_tools_get_no_retries",
+    "test_a_saved_skill_task_cannot_poll_a_check_tool_that_is_not_on_the_table",
+    "test_a_scheduled_mission_cannot_use_retry_flags_either",
+    "test_a_different_handler_under_an_allowlisted_name_is_not_eligible",
+    "test_a_look_alike_name_object_cannot_match_the_table",
+    "test_objects_that_are_not_tool_specs_fail_closed"
+   ]
+  },
+  {
+   "mutation": "C2 allowlist: handler binding alone removed",
+   "area": "allowlist enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_different_handler_under_an_allowlisted_name_is_not_eligible",
+    "test_objects_that_are_not_tool_specs_fail_closed"
+   ]
+  },
+  {
+   "mutation": "C3 allowlist: name check alone removed (handler binding still stands)",
+   "area": "allowlist enforcement (defence in depth: expected NOT detected)",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_look_alike_name_object_cannot_match_the_table"
+   ]
+  },
+  {
+   "mutation": "C4 allowlist: exact-str check removed (look-alike name objects)",
+   "area": "allowlist enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_look_alike_name_object_cannot_match_the_table"
+   ]
+  },
+  {
+   "mutation": "C5 allowlist: a removed dangerous tool (system_info) is put back",
+   "area": "allowlist enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_removed_tools_get_no_retries",
+    "test_the_audited_set_is_exactly_the_documented_one"
+   ]
+  },
+  {
+   "mutation": "C6 argument-dependent risk/target rejection removed",
+   "area": "argument-dependent risk rejection",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_listed_tool_whose_risk_or_target_depends_on_its_arguments_is_not_eligible",
+    "test_a_tool_that_looks_read_only_but_changes_with_an_argument_gets_no_retry_even_if_listed_by_mistake",
+    "test_malformed_metadata_fails_closed"
+   ]
+  },
+  {
+   "mutation": "C7 risk class check removed",
+   "area": "allowlist enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_even_a_wrong_trusted_registration_cannot_repeat_a_risky_tool",
+    "test_malformed_metadata_fails_closed"
+   ]
+  },
+  {
+   "mutation": "C8 registration no_retry ignored",
+   "area": "allowlist enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_registration_can_forbid_retries_even_for_a_listed_tool",
+    "test_malformed_metadata_fails_closed"
+   ]
+  },
+  {
+   "mutation": "C9 runner repeats by calling the handler directly (bypasses the executor)",
+   "area": "central executor enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_the_mission_wide_attempt_limit_still_wins",
+    "test_retry_decisions_logs_and_unknown_reasons_hold_no_secret",
+    "test_each_automatic_attempt_goes_through_the_executor_again",
+    "test_retries_stop_at_the_ceiling_even_when_the_plan_asks_for_more",
+    "test_a_timeout_of_an_idempotent_read_may_be_repeated_within_the_limit",
+    "test_each_attempt_is_authorised_again_a_mode_switched_between_attempts_stops_the_retry",
+    "test_each_attempt_is_authorised_again_a_permission_switched_off_between_attempts_stops_the_retry",
+    "test_attempt_limit_for_the_whole_mission",
+    "test_repeatable_read_retries_without_any_plan_flag",
+    "test_retries_of_a_repeatable_read_stop_at_the_limit",
+    "test_no_code_or_shell_execution_in_the_mission_package",
+    "test_timeout_of_a_repeatable_read_is_retried_within_limit"
+   ]
+  },
+  {
+   "mutation": "C10 executor approves anything (confirmation bypass)",
+   "area": "central executor enforcement",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_declined_confirmation_is_a_stop_not_a_retry",
+    "test_unattended_declined_confirmation_is_not_auto_accepted"
+   ]
+  },
+  {
+   "mutation": "C11 plan retries/retry_safe decide (policy bypassed in runner)",
+   "area": "central policy",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_idempotent_read_retries_and_the_log_names_attempt_and_reason",
+    "test_a_valid_approval_does_not_override_a_prohibited_retry",
+    "test_command_execution_tool_is_not_repeated",
+    "test_destructive_tool_is_not_repeated",
+    "test_even_a_wrong_trusted_registration_cannot_repeat_a_risky_tool",
+    "test_file_modifying_tool_is_not_repeated",
+    "test_keyboard_mouse_tool_is_not_repeated",
+    "test_network_tool_is_not_repeated",
+    "test_a_secret_in_a_tool_error_does_not_reach_the_record_or_the_reason",
+    "test_a_manual_retry_is_recorded_as_the_persons_decision_not_an_automatic_retry",
+    "test_timeout_of_a_changing_tool_is_unknown_and_never_repeated",
+    "test_a_scheduled_mission_cannot_use_retry_flags_either",
+    "test_a_tool_that_looks_read_only_but_changes_with_an_argument_gets_no_retry_even_if_listed_by_mistake",
+    "test_unknown_outcome_text_is_redacted_when_shown_to_the_person",
+    "test_error_after_a_changing_tool_started_is_unknown_not_failed",
+    "test_a_plan_flag_cannot_make_a_changing_tool_repeat",
+    "test_changing_step_without_retry_safe_is_not_retried",
+    "test_failed_verification_stops_and_is_not_retried_for_changes",
+    "test_timeout_of_a_change_is_unknown_and_not_retried"
+   ]
+  },
+  {
+   "mutation": "C12 check polling ignores the policy",
+   "area": "central policy",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_an_unlisted_read_tool_is_checked_once_whatever_the_plan_asks",
+    "test_a_saved_skill_task_cannot_poll_a_check_tool_that_is_not_on_the_table"
+   ]
+  },
+  {
+   "mutation": "C13 UNKNOWN: error after start on a changing tool treated as plain failure",
+   "area": "UNKNOWN-outcome handling",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_command_execution_tool_is_not_repeated",
+    "test_destructive_tool_is_not_repeated",
+    "test_even_a_wrong_trusted_registration_cannot_repeat_a_risky_tool",
+    "test_file_modifying_tool_is_not_repeated",
+    "test_keyboard_mouse_tool_is_not_repeated",
+    "test_network_tool_is_not_repeated",
+    "test_a_secret_in_a_tool_error_does_not_reach_the_record_or_the_reason",
+    "test_a_manual_retry_is_recorded_as_the_persons_decision_not_an_automatic_retry",
+    "test_a_tool_that_looks_read_only_but_changes_with_an_argument_gets_no_retry_even_if_listed_by_mistake",
+    "test_unknown_outcome_text_is_redacted_when_shown_to_the_person",
+    "test_error_after_a_changing_tool_started_is_unknown_not_failed",
+    "test_a_plan_flag_cannot_make_a_changing_tool_repeat",
+    "test_changing_step_without_retry_safe_is_not_retried"
+   ]
+  },
+  {
+   "mutation": "C14 UNKNOWN: timeout of a changing tool recorded as failed",
+   "area": "UNKNOWN-outcome handling",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_accepting_an_unknown_step_does_not_run_it_again",
+    "test_a_timeout_of_an_idempotent_read_may_be_repeated_within_the_limit",
+    "test_timeout_of_a_changing_tool_is_unknown_and_never_repeated",
+    "test_timeout_of_a_change_is_unknown_and_not_retried"
+   ]
+  },
+  {
+   "mutation": "C15 UNKNOWN: intent not saved before acting",
+   "area": "UNKNOWN-outcome handling",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_restart_with_an_uncertain_step_never_runs_it_by_itself",
+    "test_crash_after_the_side_effect_but_before_success_was_recorded",
+    "test_accept_after_restart_does_not_run_it_again_and_goes_on",
+    "test_repeated_restarts_and_scheduler_ticks_never_run_an_uncertain_step",
+    "test_retry_after_restart_is_the_persons_decision_and_is_recorded_as_manual",
+    "test_skip_after_restart_never_runs_the_uncertain_step_and_does_not_run_its_dependents",
+    "test_crash_mid_step_leaves_unknown_and_nothing_is_repeated_after_restart"
+   ]
+  },
+  {
+   "mutation": "C16 UNKNOWN: restart recovery does not mark the running step unknown",
+   "area": "UNKNOWN-outcome handling",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_restart_with_an_uncertain_step_never_runs_it_by_itself",
+    "test_crash_after_the_side_effect_but_before_success_was_recorded",
+    "test_accept_after_restart_does_not_run_it_again_and_goes_on",
+    "test_repeated_restarts_and_scheduler_ticks_never_run_an_uncertain_step",
+    "test_retry_after_restart_is_the_persons_decision_and_is_recorded_as_manual",
+    "test_skip_after_restart_never_runs_the_uncertain_step_and_does_not_run_its_dependents",
+    "test_crash_mid_step_leaves_unknown_and_nothing_is_repeated_after_restart"
+   ]
+  },
+  {
+   "mutation": "C17 forged approval: steps changed after approval are run (hash mismatch ignored)",
+   "area": "forged approval resistance",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_changing_a_retry_field_after_approval_stops_the_run",
+    "test_changing_arguments_after_approval_stops_the_run",
+    "test_changing_checks_and_dependencies_after_approval_stops_the_run",
+    "test_changing_limits_after_approval_stops_the_run",
+    "test_reordering_steps_after_approval_stops_the_run",
+    "test_a_schedule_edited_to_carry_retry_flags_is_refused_as_changed"
+   ]
+  },
+  {
+   "mutation": "C18 forged approval: approval hash not compared to the plan on a fresh start",
+   "area": "forged approval resistance",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_forged_hash_without_a_matching_approval_is_not_enough",
+    "test_an_approval_that_names_a_stale_hash_is_refused",
+    "test_approval_for_a_different_plan_is_useless"
+   ]
+  },
+  {
+   "mutation": "C19 forged approval: approval never used up",
+   "area": "forged approval resistance",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_the_approval_is_single_use_so_a_second_run_does_not_repeat_the_step",
+    "test_a_stale_loser_cannot_spend_the_single_use_approval_again",
+    "test_approval_is_single_use_and_bound_to_the_plan"
+   ]
+  },
+  {
+   "mutation": "C20 forged approval: consequential check always false",
+   "area": "forged approval resistance",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_an_approval_that_names_a_stale_hash_is_refused",
+    "test_a_valid_approval_does_not_override_a_prohibited_retry",
+    "test_a_forged_hash_without_a_matching_approval_is_not_enough",
+    "test_the_approval_is_single_use_so_a_second_run_does_not_repeat_the_step",
+    "test_a_stale_loser_cannot_spend_the_single_use_approval_again",
+    "test_approval_for_a_different_plan_is_useless",
+    "test_approval_is_single_use_and_bound_to_the_plan",
+    "test_read_only_mission_runs_without_approval_but_consequential_does_not"
+   ]
+  },
+  {
+   "mutation": "C21 cancellation: cancel flag ignored",
+   "area": "cancellation propagation",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_cancel_between_attempts_stops_before_the_next_attempt",
+    "test_cancel_between_attempts_never_makes_another_attempt",
+    "test_cancel_request_during_a_running_step_is_applied_after_it_not_dropped",
+    "test_cancel_requested_during_a_step_takes_effect_after_it_and_says_so"
+   ]
+  },
+  {
+   "mutation": "C22 emergency stop: runner control ignores the stop",
+   "area": "emergency-stop propagation",
+   "detected": false,
+   "tests": 184,
+   "failing": []
+  },
+  {
+   "mutation": "C23 emergency stop: stop.wait no longer checks the stop",
+   "area": "emergency-stop propagation",
+   "detected": false,
+   "tests": 184,
+   "failing": []
+  },
+  {
+   "mutation": "C24 concurrency: run lock not taken",
+   "area": "duplicate/concurrent execution",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_many_workers_still_execute_it_once",
+    "test_the_single_use_approval_cannot_be_spent_twice_by_racing_workers",
+    "test_two_workers_on_one_mission_execute_the_step_once",
+    "test_many_threads_through_separate_runner_objects_execute_a_step_once",
+    "test_second_process_cannot_run_the_same_mission"
+   ]
+  },
+  {
+   "mutation": "C25 concurrency: in-process lock registry removed",
+   "area": "duplicate/concurrent execution",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_the_lock_is_released_when_a_run_ends_or_crashes",
+    "test_two_workers_on_one_mission_execute_the_step_once"
+   ]
+  },
+  {
+   "mutation": "C26 concurrency: mission read before the lock is held (stale approval)",
+   "area": "duplicate/concurrent execution",
+   "detected": false,
+   "tests": 184,
+   "failing": []
+  },
+  {
+   "mutation": "C27 duplicate schedule occurrence: cursor not advanced before the run",
+   "area": "duplicate/concurrent execution",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_reauthorisation_resumes_after_expiry",
+    "test_clock_going_backwards_does_not_refire",
+    "test_recurring_daily_runs_each_day_with_separate_executions",
+    "test_crash_during_a_scheduled_run_is_marked_unknown_and_not_rerun",
+    "test_restart_does_not_rerun_an_occurrence",
+    "test_two_processes_cannot_both_claim_the_same_occurrence"
+   ]
+  },
+  {
+   "mutation": "C28 secrets: tool messages not redacted in step records",
+   "area": "secret redaction",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_secret_in_a_tool_error_does_not_reach_the_record_or_the_reason",
+    "test_a_secret_in_a_tool_result_summary_and_untrusted_text_is_not_stored",
+    "test_a_secret_in_an_exception_message_reaches_no_record_log_audit_or_reason",
+    "test_unknown_outcome_text_is_redacted_when_shown_to_the_person"
+   ]
+  },
+  {
+   "mutation": "C29 secrets: mission file saved without redaction",
+   "area": "secret redaction",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_manual_retry_is_recorded_as_the_persons_decision_not_an_automatic_retry",
+    "test_accepting_an_unknown_step_does_not_run_it_again",
+    "test_an_unknown_step_cannot_be_resumed_without_a_decision",
+    "test_decisions_retry_accept_skip",
+    "test_pause_then_resume_does_not_repeat_finished_steps",
+    "test_retry_decision_runs_the_step_again_and_records_it"
+   ]
+  },
+  {
+   "mutation": "C30 secrets: audit log not redacted",
+   "area": "secret redaction",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_a_secret_in_a_retry_reason_or_diagnostic_is_not_logged",
+    "test_a_secret_in_a_tool_result_summary_and_untrusted_text_is_not_stored",
+    "test_a_secret_in_an_exception_message_reaches_no_record_log_audit_or_reason"
+   ]
+  },
+  {
+   "mutation": "C31 read-only tool regression: verify_fix creates the folder again",
+   "area": "read-only behaviour of allowlisted tools",
+   "detected": true,
+   "tests": 184,
+   "failing": [
+    "test_STATIC_handlers_do_not_mention_writes_programs_or_the_network"
+   ]
+  }
+ ],
+ "rerun": [
+  {
+   "mutation": "CONTROL unmodified",
+   "rc": 0,
+   "tests": 189,
+   "failing": []
+  },
+  {
+   "mutation": "C22 emergency stop: runner control ignores the stop",
+   "area": "emergency-stop propagation",
+   "detected": true,
+   "tests": 189,
+   "failing": [
+    "test_emergency_stop_between_steps_is_noticed_by_the_mission_before_the_executor_is_asked"
+   ]
+  },
+  {
+   "mutation": "C23 emergency stop: stop.wait no longer checks the stop",
+   "area": "emergency-stop propagation",
+   "detected": true,
+   "tests": 189,
+   "failing": [
+    "test_emergency_stop_during_the_pause_between_check_polls_ends_polling_at_once",
+    "test_the_backoff_between_mission_attempts_ends_at_once_on_emergency_stop",
+    "test_the_stop_wait_ends_at_once_when_the_stop_is_set_during_it"
+   ]
+  },
+  {
+   "mutation": "C26 concurrency: mission read before the lock is held (stale approval)",
+   "area": "duplicate/concurrent execution",
+   "detected": true,
+   "tests": 189,
+   "failing": [
+    "test_a_worker_that_peeked_before_another_finished_does_not_reuse_the_spent_approval"
+   ]
+  }
+ ]
+}
