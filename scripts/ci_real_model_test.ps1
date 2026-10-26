@@ -18,6 +18,15 @@ function Run-Logged($exe, $argList, $logName) {
     if ($null -eq $psi.ExitCode) { throw "no exit code for $exe $argList" }
     return $psi.ExitCode
 }
+function Run-Measured($exe, $argList, $logName) {
+    # Like Run-Logged, but also records wall-clock seconds and the peak working set (MB) of the process, sampled while it runs.
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $p = Start-Process -FilePath $exe -ArgumentList $argList -NoNewWindow -PassThru -RedirectStandardOutput "$LogDir\$logName.out.txt" -RedirectStandardError "$LogDir\$logName.err.txt"
+    $null = $p.Handle; $peak = 0
+    while (-not $p.HasExited) { try { $p.Refresh(); if ($p.PeakWorkingSet64 -gt $peak) { $peak = $p.PeakWorkingSet64 } } catch { }; Start-Sleep -Milliseconds 150 }
+    $p.WaitForExit(); $sw.Stop()
+    return [pscustomobject]@{ Code = $p.ExitCode; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 2); PeakMB = [math]::Round($peak / 1MB, 0) }
+}
 $app = Join-Path $env:LOCALAPPDATA "Programs\ProjectJarvis"
 $data = Join-Path $env:LOCALAPPDATA "ProjectJarvis"
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
@@ -73,7 +82,22 @@ Check "setup_real_model" {
     if (-not $st.completed -or -not $st.real) { throw "state says completed=$($st.completed) real=$($st.real)" }
     "completed real=$($st.real) model=$($st.model_id) mode=$($st.mode) gpu_verified=$($st.gpu_verified)"
 }
+Check "setup_report_digest" {
+    $rep = Get-Content "$data\setup_report.json" -Raw | ConvertFrom-Json
+    $lines = foreach ($st in $rep.steps.PSObject.Properties) {
+        $kv = foreach ($q in $st.Value.PSObject.Properties) { $v = $q.Value; if ($v -is [string] -and $v.Length -le 90) { "$($q.Name)=$v" } elseif ($v -is [bool] -or $v -is [int] -or $v -is [double]) { "$($q.Name)=$v" } }
+        "$($st.Name): " + ($kv -join "; ")
+    }
+    $lines -join "`n"
+}
 Check "selftest_online" { $c = Run-Logged "$app\jarvis.exe" "selftest" "selftest_online"; Copy-Item "$data\selftest.json" "$LogDir\selftest_online.json" -ErrorAction SilentlyContinue; if ($c -ne 0) { throw "selftest exit $c" }; (Get-Content "$data\selftest.json" -Raw | ConvertFrom-Json | Select-Object model_id, load_seconds, generation_seconds, output_tokens, tokens_per_second, gpu_layers_requested | Out-String) }
+Check "real_prompt_answer_online" {
+    $m = Run-Measured "$app\jarvis.exe" 'chat "What is the capital of France? Answer in one short sentence."' "chat_online"
+    $out = (Get-Content "$LogDir\chat_online.out.txt" -Raw)
+    if ($m.Code -ne 0) { throw "chat exit $($m.Code): $(Get-Content "$LogDir\chat_online.err.txt" -Raw)" }
+    if ($out -notmatch "Paris") { throw "the real model did not answer 'Paris' (sensible-answer check). Output: $out" }
+    "answer ok; process wall time $($m.Seconds) s (includes model load); peak working set $($m.PeakMB) MB; reply: $($out.Trim())"
+}
 Check "diagnostic_export_clean" {
     $c = Run-Logged "$app\jarvis.exe" "diagnostics" "diagnostics"
     $t = Get-Content "$LogDir\diagnostics.out.txt" -Raw
@@ -91,6 +115,13 @@ Check "block_network_for_app" {
     "download attempt failed with a network error as expected (exit $c): $($err.Trim())"
 }
 Check "selftest_offline" { $c = Run-Logged "$app\jarvis.exe" "selftest" "selftest_offline"; Copy-Item "$data\selftest.json" "$LogDir\selftest_offline.json" -ErrorAction SilentlyContinue; if ($c -ne 0) { throw "offline selftest exit $c : $(Get-Content "$LogDir\selftest_offline.err.txt" -Raw)" }; "model answered with the firewall block active" }
+Check "real_prompt_answer_offline" {
+    $m = Run-Measured "$app\jarvis.exe" 'chat "What is the capital of France? Answer in one short sentence."' "chat_offline"
+    $out = (Get-Content "$LogDir\chat_offline.out.txt" -Raw)
+    if ($m.Code -ne 0) { throw "offline chat exit $($m.Code): $(Get-Content "$LogDir\chat_offline.err.txt" -Raw)" }
+    if ($out -notmatch "Paris") { throw "offline: no 'Paris' in the answer. Output: $out" }
+    "answer ok with the firewall block active; wall $($m.Seconds) s; peak working set $($m.PeakMB) MB; reply: $($out.Trim())"
+}
 Check "unblock_network" { foreach ($f in "jarvis.exe","jarvis-gui.exe") { netsh advfirewall firewall delete rule name="JarvisBlock-$f" | Out-Null }; "rules removed" }
 Check "silent_uninstall_keeps_data" {
     $u = Get-ChildItem $app -Filter "unins*.exe" | Select-Object -First 1
@@ -101,6 +132,7 @@ Check "silent_uninstall_keeps_data" {
     "app removed, data kept"
 }
 $results | ConvertTo-Json -Depth 4 | Out-File "$LogDir\ci-real-model-results.json" -Encoding utf8
+($results.GetEnumerator() | ForEach-Object { "{0} {1}: {2}" -f $(if ($_.Value.ok) { "OK    " } else { "FAILED" }), $_.Key, (($_.Value.detail -replace "\s+", " ").Trim()) }) | Out-File "$LogDir\ci-real-model-summary.txt" -Encoding utf8
 Get-Content "$LogDir\ci-real-model-results.json"
 if ($results.Values | Where-Object { -not $_.ok }) { exit 1 }
 exit 0   # explicit: a stale $LASTEXITCODE from the last native command (for example "chat" expected to exit 2) must not decide the verdict
