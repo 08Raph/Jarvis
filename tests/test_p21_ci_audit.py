@@ -68,6 +68,17 @@ class CiScripts(unittest.TestCase):
             (d / "jarvis.exe").unlink()
             self.assertTrue(any("jarvis.exe" in p for p in C.check_dist(d)))
 
+    def test_installer_script_uses_only_real_inno_setup_directives(self):
+        # Run 5: ISCC rejected "InfoBeforeInstallFile" (the directive is InfoBeforeFile). Inno cannot run on Linux, so check names statically.
+        known = {"AppId", "AppName", "AppVersion", "AppPublisher", "DefaultDirName", "DefaultGroupName", "PrivilegesRequired",
+                 "PrivilegesRequiredOverridesAllowed", "MinVersion", "ArchitecturesAllowed", "ArchitecturesInstallIn64BitMode", "Compression",
+                 "SolidCompression", "WizardStyle", "LicenseFile", "OutputDir", "OutputBaseFilename", "UninstallDisplayName",
+                 "CloseApplications", "InfoBeforeFile", "InfoAfterFile", "SetupIconFile", "UninstallDisplayIcon", "AppPublisherURL"}
+        text = (ROOT / "packaging/installer.iss").read_text(encoding="utf-8")
+        sect = text.split("[Setup]", 1)[1].split("\n[", 1)[0]
+        names = {l.split("=", 1)[0].strip() for l in sect.splitlines() if "=" in l and not l.lstrip().startswith(";")}
+        self.assertEqual(names - known, set())
+
     def test_windows_build_declares_the_time_zone_database(self):
         self.assertIn("tzdata", (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertIn('collect_data_files("tzdata")', (ROOT / "packaging/jarvis.spec").read_text(encoding="utf-8"))

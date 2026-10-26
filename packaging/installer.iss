@@ -29,7 +29,7 @@ OutputDir=..\dist\installer
 OutputBaseFilename=ProjectJarvis-Setup-{#AppVersion}
 UninstallDisplayName=Project JARVIS
 CloseApplications=yes
-InfoBeforeInstallFile=..\docs\INSTALLER_NOTICE.txt
+InfoBeforeFile=..\docs\INSTALLER_NOTICE.txt
 
 [Files]
 Source: "..\dist\ProjectJarvis\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
