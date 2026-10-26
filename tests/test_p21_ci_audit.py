@@ -58,6 +58,13 @@ class CiScripts(unittest.TestCase):
         line = [l for l in s.splitlines() if "no_python_needed" in l][0]
         self.assertIn("finally", line)
 
+    def test_build_script_run_helper_is_not_killed_by_native_stderr(self):
+        b = (ROOT / "scripts/build_windows.ps1").read_text(encoding="utf-8")
+        fn = b[b.index("function Run("):b.index("# ---- Preflight")]
+        self.assertIn('$ErrorActionPreference = "Continue"', fn)     # PS 5.1: stderr lines are terminating errors under Stop
+        self.assertIn("$LASTEXITCODE", fn)
+        self.assertIn("finally", fn)
+
     def test_block_proof_requires_a_network_level_error(self):
         s = (ROOT / "scripts/ci_real_model_test.ps1").read_text(encoding="utf-8")
         self.assertIn('notmatch "Download failed"', s)

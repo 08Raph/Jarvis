@@ -23,7 +23,7 @@ jobs:
         run: |
           $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
           New-Item -ItemType Directory -Force ci-logs | Out-Null
-          & { .\scripts\build_windows.ps1 -SkipTorch } *>&1 | Tee-Object -FilePath ci-logs\build.log
+          try { & { .\scripts\build_windows.ps1 -SkipTorch } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Silent install / launch / uninstall check on the runner
         shell: powershell

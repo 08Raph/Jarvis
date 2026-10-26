@@ -21,7 +21,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 
-function Run($cmd) { Write-Host ">> $cmd"; Invoke-Expression $cmd; if ($LASTEXITCODE -ne 0) { throw "failed: $cmd" } }
+function Run($cmd) {
+    # Windows PowerShell 5.1 turns ANY line a native program writes to stderr (pip warnings, notices) into a terminating error under "Stop",
+    # even when the program succeeds. The exit code is the real verdict, so relax it for the call only.
+    Write-Host ">> $cmd"
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try { Invoke-Expression $cmd } finally { $ErrorActionPreference = $prev }
+    if ($LASTEXITCODE -ne 0) { throw "failed (exit $LASTEXITCODE): $cmd" }
+}
 
 # ---- Preflight: find a suitable 64-bit Python (3.11-3.13) ----
 $pyExe = $null; $pyArgs = @()
