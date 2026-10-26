@@ -43,6 +43,10 @@ from jarvis.desktop.task import Runner, Step, Task, TaskError
 from jarvis.desktop.tools import Env, parse_combo
 
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from platform_marks import linux_sandbox_only, not_when_elevated  # noqa: E402,F401
+
+
 class Harness(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -745,6 +749,8 @@ class CliTests(unittest.TestCase):
             sys.stdin = old
         return rc, out.getvalue(), err.getvalue()
 
+    @not_when_elevated()
+
     def test_permissions_are_off_by_default_and_changed_explicitly(self):
         rc, out, _ = self.cli("desktop", "status")
         st = json.loads(out)
@@ -756,6 +762,8 @@ class CliTests(unittest.TestCase):
         rc, out, _ = self.cli("desktop", "run", "write_file", "--args", json.dumps({"path": str(self.d / "work" / "a.txt"), "content": "x"}))
         self.assertEqual(rc, 0, out)
         self.assertIn("VERIFIED", out)
+
+    @not_when_elevated()
 
     def test_confirmation_prompt_requires_typing_yes(self):
         self.cli("desktop", "enable", "files_write", "files_read")

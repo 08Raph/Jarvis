@@ -116,7 +116,10 @@ class ReviewTests(PluginBase):
     def test_syntax_errors_links_big_and_odd_files_block(self):
         self.assertFalse(self.rev(code="def run(:\n")["ok"])
         d = make_plugin(self.d, name="linky")
-        (d / "evil.py").symlink_to("/etc/passwd")
+        try:
+            (d / "evil.py").symlink_to("/etc/passwd")
+        except OSError as e:
+            self.skipTest(f"cannot create a symbolic link here ({e.__class__.__name__}); needs the symlink privilege on Windows")
         self.assertFalse(PL.review(d)["ok"])
         d2 = make_plugin(self.d, name="oddfile", extra_files={"tool.exe": "MZ", "data.bin": "x"})
         self.assertTrue(any("not allowed" in b for b in PL.review(d2)["blockers"]))
@@ -197,7 +200,10 @@ class ActivationTests(PluginBase):
 
     def test_installing_a_blocked_plugin_with_links_is_refused_outright(self):
         d = make_plugin(self.d, name="linky")
-        (d / "x.py").symlink_to("/etc/passwd")
+        try:
+            (d / "x.py").symlink_to("/etc/passwd")
+        except OSError as e:
+            self.skipTest(f"cannot create a symbolic link here ({e.__class__.__name__}); needs the symlink privilege on Windows")
         with self.assertRaises(PL.PluginError):
             self.store.install(d)
         self.assertFalse(self.store.folder("linky", "1.0.0").exists())

@@ -13,6 +13,11 @@ from jarvis.monitor import readings as RD
 from jarvis.monitor import system as M
 
 
+import sys  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from platform_marks import linux_sandbox_only, not_when_elevated  # noqa: E402,F401
+
+
 class ReadingTests(unittest.TestCase):
     def test_rules_of_a_reading(self):
         self.assertEqual(RD.ok("x", 1, "u", "s").kind, "measured")
@@ -201,6 +206,8 @@ class RealSourceTests(unittest.TestCase):
         self.assertEqual([r["memory_mb"] for r in rows], sorted((r["memory_mb"] for r in rows), reverse=True))
         own = {r.name: r for r in M.own_readings(M.RealSource())}
         self.assertGreater(own["jarvis_memory"].value, 1)
+
+    @linux_sandbox_only("Windows lists the video controller name via Win32_VideoController")
 
     def test_real_gpu_and_temperature_are_honestly_unavailable_here(self):
         import shutil

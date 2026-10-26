@@ -26,6 +26,11 @@ def write_log(path, n=600, mean_ms=10.0, jitter=1.0, seed=1, col="MsBetweenPrese
             w.writerow([app, "abc", 0])
 
 
+import sys  # noqa: E402
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from platform_marks import linux_sandbox_only, not_when_elevated  # noqa: E402,F401
+
+
 class GameTests(P8):
     def mk(self, procs=(), enable=("gaming", "files_read"), consent=("gaming",), **kw):
         be = SimulatedDesktop(extra_processes=set(procs))
@@ -63,6 +68,8 @@ class DetectionAndStatus(GameTests):
         self.assertIsNone(d["fps"]["value"])
         st = self.run_tool("game_status")
         self.assertTrue(any("PresentMon" in m["how"] for m in st.outcome.data["metrics"]))
+
+    @linux_sandbox_only("Windows lists the video controller name via Win32_VideoController")
 
     def test_cpu_memory_real_gpu_unavailable_here(self):
         self.mk()

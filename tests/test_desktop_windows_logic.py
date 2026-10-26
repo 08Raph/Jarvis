@@ -59,6 +59,10 @@ def fake_windows(module: str):
 
 
 # =============================================================================== win32.py (MOCKED + pure logic)
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from platform_marks import linux_sandbox_only, not_when_elevated  # noqa: E402,F401
+
+
 class Win32FocusAndCaptureTests(unittest.TestCase):
     """MOCKED user32/gdi32. Proves: focus() never sends input events; capture() releases the bitmap before GetDIBits and
     cleans up on failure; bgra_to_png converts channels correctly. Cannot prove the real APIs behave as the mocks do."""
@@ -1002,6 +1006,8 @@ class StaticGuardTests(unittest.TestCase):
         self.assertIn('"comtypes"', spec)
         self.assertIn("comtypes", (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertTrue((DESKTOP / "ocr_winrt.ps1").exists())
+
+    @linux_sandbox_only("win32/uia modules import fine on Windows")
 
     def test_windows_only_modules_refuse_to_import_elsewhere(self):
         for name in ("win32", "uia"):

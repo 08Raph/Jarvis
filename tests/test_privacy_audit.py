@@ -416,7 +416,11 @@ class MemoryDeletionTests(unittest.TestCase):
         m.close()
         self.assertNotIn(marker.encode(), self.db.read_bytes())
         self.assertIn(marker.encode(), bk.read_bytes())                          # the documented limitation, proven
-        self.assertEqual(list(MemoryStore(self.db).export_all().get("messages", [])), [])
+        ms = MemoryStore(self.db)
+        try:
+            self.assertEqual(list(ms.export_all().get("messages", [])), [])
+        finally:
+            ms.close()
 
     def test_cli_forget_all_include_backups_removes_them(self):
         def run(*a):

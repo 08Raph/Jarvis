@@ -311,7 +311,9 @@ class Controls(AppCase):
             r.c.stop_speaking()
             gate.set()
             self.assertTrue(r.wait_state("Listening"))
-            time.sleep(0.2)
+            end = time.time() + 5
+            while r.c.busy and time.time() < end:      # the worker thread may need longer than 0.2 s on a loaded Windows runner
+                time.sleep(0.05)
         self.assertEqual(r.spk.said, [])
         self.assertFalse(r.c.busy)
 

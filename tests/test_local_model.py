@@ -281,6 +281,7 @@ class AssistantAndCliTests(unittest.TestCase):
     def test_assistant_uses_personality_system_prompt_and_bounded_history(self):
         self.install()
         a = LocalAssistant(self.cfg, engine_factory=lambda p: ge.GGUFEngine(p, llama_factory=FakeLlama), max_history_messages=4)
+        self.addCleanup(a.close)       # Windows cannot delete the temp folder while the memory database is open
         for i in range(6): a.reply(f"q{i}")
         sent = FakeLlama.instances[0].calls[-1]
         self.assertEqual(sent[0]["role"], "system")

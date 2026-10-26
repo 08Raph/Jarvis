@@ -296,7 +296,7 @@ class DocsAndHonesty(unittest.TestCase):
 
     def test_no_weights_or_secrets_in_the_source_tree(self):
         for pat in ("*.gguf", "*.safetensors", "*.pem", "*.key", "*.sqlite", "*.pt"):
-            self.assertEqual([str(p) for p in ROOT.rglob(pat) if ".git" not in p.parts], [], pat)
+            self.assertEqual([str(p) for p in ROOT.rglob(pat) if not ({".git", ".venv", "build", "dist"} & set(p.relative_to(ROOT).parts))], [], pat)
         self.assertEqual((ROOT / "src" / "jarvis" / "telemetry" / "endpoint.txt").read_text(encoding="utf-8").strip(), "")
 
     def test_distribution_doc_no_longer_claims_there_is_no_window(self):

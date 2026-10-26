@@ -63,6 +63,10 @@ UNCERTAIN_YES = ["my parents won't let me stay up", "my mom won't let me", "I ha
                  "my curfew is 10", "I'm a sophomore"]
 
 
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from platform_marks import linux_sandbox_only, not_when_elevated  # noqa: E402,F401
+
+
 class DetectorCorpus(unittest.TestCase):
     """REAL. Heuristic detectors measured on a written corpus. The corpus is small: it shows the listed cases, not general accuracy."""
     def check(self, attr, yes, no):
@@ -326,6 +330,7 @@ class AssistantControl(AppCase):
 
 
 class Readiness(AppCase):
+    @linux_sandbox_only("no llama-cpp runtime installed")
     def test_this_sandbox_real_execution_has_no_model_no_runtime(self):
         """REAL (this sandbox): no weights, no llama-cpp. Nothing may be called ready."""
         rows = {r["id"]: r for r in RD.model_levels(self.cfg)}
@@ -381,6 +386,8 @@ class Readiness(AppCase):
         self.assertEqual(rows["model_inference"]["state"], "no")
         rows, _ = self.levels_with(True, "garbage")
         self.assertEqual(rows["model_inference"]["state"], "no")
+
+    @linux_sandbox_only("no PortAudio/vosk/SAPI")
 
     def test_voice_levels_real_sandbox_nothing_verified(self):
         """REAL (this sandbox): sounddevice has no PortAudio, no vosk, not Windows."""
@@ -546,6 +553,8 @@ class WindowSpeech(AppCase):
         c.speech.speak("hello")
         c.stop_speaking()
         self.assertIn("Could not stop", c.speech.last_error)
+
+    @linux_sandbox_only("no speech engine; Windows has SAPI")
 
     def test_no_engine_on_this_platform_is_reported_not_faked(self):
         """REAL (this sandbox, not Windows): no speaker factory, so speech is unavailable."""

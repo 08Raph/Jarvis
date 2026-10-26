@@ -110,7 +110,8 @@ def scan_machine_paths(dist: Path, tokens: list[str], max_bytes: int = 5_000_000
     """Text files (by extension) in the build that contain the build machine's folder or home folder. Binary files are NOT scanned (PyInstaller
     embeds build paths in some of them); this catches the files WE write, which is what we control."""
     dist = Path(dist)
-    toks = [t for t in {*tokens, *(t.replace("\\", "/") for t in tokens)} if t and len(t) > 3]
+    # Also the forms a path takes inside JSON ("C:\\\\Users\\\\x" - doubled backslashes) and with forward slashes; a Windows path written by json.dump is otherwise missed.
+    toks = [t for t in {*tokens, *(t.replace("\\", "/") for t in tokens), *(t.replace("\\", "\\\\") for t in tokens)} if t and len(t) > 3]
     hits = []
     for p in sorted(dist.rglob("*")):
         if not p.is_file() or p.suffix.lower() not in TEXT_EXT:
