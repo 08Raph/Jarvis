@@ -161,7 +161,7 @@ class ManifestAndChecker(unittest.TestCase):
         pos = [ps.find(x) for x in order]
         self.assertNotIn(-1, pos, dict(zip(order, pos)))
         self.assertEqual(pos, sorted(pos), "gates must run in this order")
-        self.assertIn(".[dev,build,desktop,ui]", ps)
+        self.assertIn(".[dev,build,desktop,ui,docs,monitor]", ps)
 
     def test_build_info_contents_and_reproducibility_input(self):
         bi = RT.build_info(ROOT, env={"SOURCE_DATE_EPOCH": "1700000000"})

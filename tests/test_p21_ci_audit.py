@@ -41,12 +41,36 @@ class CliNetworkErrors(unittest.TestCase):
 
 class CiScripts(unittest.TestCase):
     def test_workflow_has_timeouts_and_collects_logs_always(self):
-        import yaml
-        wf = yaml.safe_load((ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8"))
-        job = wf["jobs"]["build"]
-        self.assertIn("timeout-minutes", job)
-        self.assertTrue(any(s.get("if") == "always()" and "upload-artifact" in s.get("uses", "") for s in job["steps"]))
-        self.assertTrue(any("ci_real_model_test" in s.get("run", "") for s in job["steps"]))
+        wf = (ROOT / ".github/workflows/build-windows.yml").read_text(encoding="utf-8")   # no PyYAML on the Windows build venv
+        self.assertIn("timeout-minutes", wf)
+        self.assertIn("if: always()", wf)
+        self.assertIn("ci_real_model_test", wf)
+        self.assertIn("Final gate", wf)
+
+    def test_release_check_accepts_pyinstaller6_layout_but_not_private_keys(self):
+        import tempfile
+        sys.path.insert(0, str(ROOT / "scripts"))
+        sys.path.insert(0, str(ROOT / "packaging"))
+        import check_release_assets as C
+        import manifest as MF
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            for r in MF.REQUIRED_IN_DIST:
+                f = d / r if r.endswith(".exe") else d / "_internal" / r
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(b"x" * (200_000 if r.endswith(".exe") else 1))
+            (d / "_internal" / "api-ms-win-crt-private-l1-1-0.dll").write_bytes(b"1")
+            (d / "_internal" / "qtgraphicaleffectsprivateplugin.dll").write_bytes(b"1")
+            self.assertEqual(C.check_dist(d), [])
+            (d / "jarvis_signing_private.hex").write_bytes(b"1")
+            self.assertTrue(any("signing_private" in p for p in C.check_dist(d)))
+            (d / "jarvis_signing_private.hex").unlink()
+            (d / "jarvis.exe").unlink()
+            self.assertTrue(any("jarvis.exe" in p for p in C.check_dist(d)))
+
+    def test_windows_build_declares_the_time_zone_database(self):
+        self.assertIn("tzdata", (ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        self.assertIn('collect_data_files("tzdata")', (ROOT / "packaging/jarvis.spec").read_text(encoding="utf-8"))
 
     def test_ci_script_does_not_pipe_a_foreach_statement(self):
         s = (ROOT / "scripts/ci_real_model_test.ps1").read_text(encoding="utf-8")

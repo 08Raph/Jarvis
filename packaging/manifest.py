@@ -21,7 +21,7 @@ REQUIRED_IN_DIST = ["jarvis.exe", "jarvis-gui.exe", "LICENSE", "THIRD_PARTY_NOTI
                     "docs/RELEASE_NOTES.md", "docs/MODEL_DISTRIBUTION.md"]
 
 # Names/patterns that must NEVER appear in the built folder or the installer (secrets, user data, development leftovers)
-FORBIDDEN_PATTERNS = ["*.pem", "*.key", "*private*", "*.sqlite", "*.sqlite-wal", ".env", ".env.*", "*.pt", "*.gguf", "*.safetensors", "jarvis_data",
+FORBIDDEN_PATTERNS = ["*.pem", "*.key", "*_private.*", "*private_key*", "*signing_private*", "*.sqlite", "*.sqlite-wal", ".env", ".env.*", "*.pt", "*.gguf", "*.safetensors", "jarvis_data",
                       "crash.log", "STOP", "desktop_audit*.jsonl", "*.pyc.bak", "requirements-lock.txt"]
 FORBIDDEN_TOP_LEVEL = ["tests", "server", ".github", "scripts", "src", ".venv", "build"]
 

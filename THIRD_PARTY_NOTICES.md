@@ -16,6 +16,8 @@ Versions and licenses below were read from the packages installed in the build e
 - **sounddevice 0.5.6**: microphone access (optional voice extra). License metadata: MIT. Note: MIT; bundles/uses PortAudio (MIT-style). Verify before bundling.
 - **vosk**: offline speech recognition (optional voice extra). NOT INSTALLED when this file was generated, so version and license were not read. Note: Apache-2.0 for the library; each Vosk MODEL has its own licence: check it before redistributing any model.
 - **comtypes**: Windows UI Automation access for desktop control (Windows only). NOT INSTALLED when this file was generated, so version and license were not read. Note: MIT; keep notice.
+- **tzdata**: IANA time-zone database for Windows (scheduling in named zones). License: Apache-2.0. Bundled in Windows builds.
+- **pypdf**: reads text PDFs the user asks about. License: BSD-3-Clause. Bundled in Windows builds; keep notice.
 - **psutil 7.2.2**: optional network interface state for system_info (not bundled unless installed). License metadata: BSD-3-Clause. Note: BSD-3-Clause; keep notice.
 - **pyinstaller**: build tool (not shipped, but its bootloader is embedded). NOT INSTALLED when this file was generated, so version and license were not read. Note: GPL-2.0 with bootloader exception; verify.
 

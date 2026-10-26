@@ -32,6 +32,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Continue"
+          $env:PYTHONUTF8 = "1"   # many tests read source files without an encoding; Windows defaults to cp1252 (test-side issue; the app code passes encodings explicitly)
           New-Item -ItemType Directory -Force ci-logs | Out-Null
           .\.venv\Scripts\python.exe -m unittest discover -s tests *> ci-logs\unittest.log
           $code = $LASTEXITCODE
@@ -42,14 +43,17 @@ jobs:
             $lines = ($b -split "\r?\n") | Where-Object { $_.Trim() -ne "" }
             if ($lines.Count -gt 0 -and $lines[0] -match "^(FAIL|ERROR): ") {
               $last = ($lines | Where-Object { $_ -notmatch "^-{60,}$" -and $_ -notmatch "^Ran \d+ tests" } | Select-Object -Last 1)
-              $sum.Add($lines[0] + "  =>  " + $last.Substring(0, [Math]::Min(300, $last.Length)))
+              $sum.Add($lines[0].Substring(0, [Math]::Min(110, $lines[0].Length)) + "  =>  " + $last.Substring(0, [Math]::Min(170, $last.Length)))
             }
           }
           $sum.Add("RESULT exit=$code " + (($t -split "\r?\n") | Where-Object { $_ -match "^Ran \d+ tests|^(OK|FAILED)" }) -join " ; ")
           $sum | Out-File ci-logs\unittest_failures.txt -Encoding utf8
-          $chunk = ""
-          foreach ($l in $sum) { if (($chunk.Length + $l.Length) -gt 30000) { Write-Host "::notice title=windows unit test failures::$chunk"; $chunk = "" }; $chunk += $l + "%0A" }
-          Write-Host "::notice title=windows unit test failures::$chunk"
+          $kinds = @("notice","warning","error"); $k = 0; $n = 0; $chunk = ""
+          foreach ($l in $sum) {
+            if (($chunk.Length + $l.Length) -gt 3000) { Write-Host "::$($kinds[[Math]::Min($k,2)]) title=windows unit test failures part $($n+1)::$chunk"; $chunk = ""; $n++; if ($n % 9 -eq 0) { $k++ } }
+            $chunk += $l + "%0A"
+          }
+          Write-Host "::$($kinds[[Math]::Min($k,2)]) title=windows unit test failures part $($n+1)::$chunk"
           if ($code -ne 0) { exit $code }
       - name: Silent install / launch / uninstall check on the runner
         shell: powershell

@@ -7,7 +7,7 @@ import importlib.util
 import os
 import sys
 
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 here = SPECPATH
 root = os.path.abspath(os.path.join(here, ".."))
@@ -32,6 +32,10 @@ for doc in manifest.DOCS:
     if not os.path.isfile(path):
         raise SystemExit(f"BUILD BLOCKED: documentation missing: docs/{doc}")
     datas.append((path, "docs"))
+
+# Time-zone database (Windows has none; scheduling in named zones needs it). Only present on Windows builds.
+if importlib.util.find_spec("tzdata") is not None:
+    datas += collect_data_files("tzdata")
 
 # 3. Optional runtimes (local AI, voice, UI Automation) are bundled only if installed in the build environment;
 #    build_windows.ps1 then verifies the frozen exe with `jarvis.exe runtime --require`.

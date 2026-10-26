@@ -84,7 +84,7 @@ if (-not $SkipTorch) {
     Run "$py -m pip install torch --index-url https://download.pytorch.org/whl/cpu"
     Write-Host "NOTE: PyTorch will be bundled into the application (several hundred MB). The Qwen assistant does not use it; use -SkipTorch for a Qwen-only build." -ForegroundColor Yellow
 }
-Run "$py -m pip install $cArg -e `".[dev,build,desktop,ui]`""   # desktop = comtypes (UI Automation, MIT); ui = PySide6 (Qt, LGPL) for jarvis-gui.exe
+Run "$py -m pip install $cArg -e `".[dev,build,desktop,ui,docs,monitor]`""   # desktop = comtypes (UI Automation, MIT); ui = PySide6 (Qt, LGPL) for jarvis-gui.exe
 if (-not $SkipLocalRuntime) {
     # The local AI runtime (llama.cpp via llama-cpp-python, MIT). Prebuilt CPU wheel = no C++ compiler needed.
     try {
