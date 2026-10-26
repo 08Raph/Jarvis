@@ -22,29 +22,45 @@ jobs:
         shell: powershell
         run: |
           $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
-          .\scripts\build_windows.ps1 -SkipTorch
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          & { .\scripts\build_windows.ps1 -SkipTorch } *>&1 | Tee-Object -FilePath ci-logs\build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Silent install / launch / uninstall check on the runner
         shell: powershell
         run: |
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
-          .\scripts\clean_install_test.ps1 -Installer $i
+          & { .\scripts\clean_install_test.ps1 -Installer $i } *>&1 | Tee-Object -FilePath ci-logs\clean_install.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real GUI launch, real setup wizard engine (real model download), real inference, firewall-blocked offline inference
         timeout-minutes: 45
         shell: powershell
         run: |
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
-          .\scripts\ci_real_model_test.ps1 -Installer $i -LogDir ci-logs
+          & { .\scripts\ci_real_model_test.ps1 -Installer $i -LogDir ci-logs } *>&1 | Tee-Object -FilePath ci-logs\real_model_step.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Collect install-check results (runs even if an earlier step failed)
         if: always()
         shell: powershell
         run: |
           New-Item -ItemType Directory -Force ci-logs | Out-Null
           foreach ($f in "$env:TEMP\jarvis-clean-install-results.json","$env:TEMP\jarvis-install.log","$env:TEMP\jarvis-gui-selftest.txt") { if (Test-Path $f) { Copy-Item $f ci-logs\ } }
+      - name: Surface failure details as annotations (the log download is not reachable from the monitoring session)
+        if: failure()
+        shell: powershell
+        run: |
+          foreach ($f in "build","clean_install","real_model_step") {
+            $p = "ci-logs\$f.log"
+            if (Test-Path $p) {
+              $t = (Get-Content $p -Tail 70) -join "%0A"
+              Write-Host "::error title=tail of $f.log::$t"
+            }
+          }
+          if (Test-Path ci-logs\ci-real-model-results.json) { Write-Host "::notice title=real-model results::$((Get-Content ci-logs\ci-real-model-results.json -Raw) -replace "`r?`n",'%0A')" }
       - name: Record the build environment
         if: always()
         shell: powershell
         run: |
-          Get-Content build_info.json
+          if (Test-Path build_info.json) { Get-Content build_info.json }
           (Get-CimInstance Win32_OperatingSystem).Caption
       - uses: actions/upload-artifact@v4
         if: always()
