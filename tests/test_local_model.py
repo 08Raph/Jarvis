@@ -281,13 +281,15 @@ class AssistantAndCliTests(unittest.TestCase):
     def test_assistant_uses_personality_system_prompt_and_bounded_history(self):
         self.install()
         a = LocalAssistant(self.cfg, engine_factory=lambda p: ge.GGUFEngine(p, llama_factory=FakeLlama), max_history_messages=4)
-        self.addCleanup(a.close)       # Windows cannot delete the temp folder while the memory database is open
-        for i in range(6): a.reply(f"q{i}")
-        sent = FakeLlama.instances[0].calls[-1]
-        self.assertEqual(sent[0]["role"], "system")
-        self.assertIn("Personality is style only", sent[0]["content"])
-        self.assertIn("never claim to have done so", sent[0]["content"])
-        self.assertLessEqual(len(a.history), 4)
+        try:
+            for i in range(6): a.reply(f"q{i}")
+            sent = FakeLlama.instances[0].calls[-1]
+            self.assertEqual(sent[0]["role"], "system")
+            self.assertIn("Personality is style only", sent[0]["content"])
+            self.assertIn("never claim to have done so", sent[0]["content"])
+            self.assertLessEqual(len(a.history), 4)
+        finally:
+            a.close()       # tearDown deletes the temp folder BEFORE addCleanup callbacks run, and Windows cannot delete an open database
 
     def run_cli(self, *args, fake_runtime=False):
         mod = types.ModuleType("llama_cpp"); mod.Llama = FakeLlama; mod.__version__ = "fake"

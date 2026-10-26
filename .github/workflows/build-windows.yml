@@ -77,6 +77,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force ci-logs | Out-Null
           foreach ($f in "$env:TEMP\jarvis-clean-install-results.json","$env:TEMP\jarvis-install.log","$env:TEMP\jarvis-gui-selftest.txt") { if (Test-Path $f) { Copy-Item $f ci-logs\ } }
+      - name: Report real-run results as annotations (always; the artifacts cannot be downloaded from the monitoring session)
+        if: always()
+        shell: powershell
+        run: |
+          $enc = { param($t) ($t -replace "`r?`n", "%0A") }
+          foreach ($f in "ci-logs\ci-real-model-results.json","ci-logs\setup_report.json","ci-logs\setup_state.json","ci-logs\selftest_online.json","ci-logs\selftest_offline.json","ci-logs\setup_auto.out.txt","ci-logs\setup_auto.err.txt","ci-logs\screenshot_error.txt") {
+            if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 3500) { $t = $t.Substring(0, 3500) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
+          }
+          if (Test-Path ci-logs\gui_first_launch.png) { $i = Get-Item ci-logs\gui_first_launch.png; Write-Host "::notice title=gui screenshot::gui_first_launch.png $($i.Length) bytes sha256=$((Get-FileHash $i.FullName -Algorithm SHA256).Hash)" }
+          foreach ($f in (Get-ChildItem dist\installer -Filter "*.exe" -ErrorAction SilentlyContinue)) { Write-Host "::notice title=installer::$($f.Name) $($f.Length) bytes sha256=$((Get-FileHash $f.FullName -Algorithm SHA256).Hash)" }
       - name: Surface install log tail
         if: failure()
         shell: powershell
