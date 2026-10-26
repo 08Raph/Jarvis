@@ -31,6 +31,12 @@ FEATURES = ("model_download", "update_check", "online_assistant", "web_research"
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
+import urllib.error
+
+# Transport-level failures (DNS, refused/blocked connection, timeout). URLError subclasses OSError, so callers must test for these BEFORE OSError.
+NETWORK_ERRORS = (urllib.error.URLError, ConnectionError, TimeoutError)
+
+
 class NetworkDisabled(PermissionError):
     """Raised when a feature is not enabled; no connection was attempted."""
 

@@ -36,8 +36,8 @@ public class WinList {
 "@
 
 Check "silent_install" { $p = Start-Process $Installer -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/LOG=$LogDir\install.log" -Wait -PassThru; if ($p.ExitCode -ne 0) { throw "exit $($p.ExitCode)" }; "exit 0" }
-Check "artifact_facts" { foreach ($f in "jarvis.exe","jarvis-gui.exe") { $x = Get-Item "$app\$f"; "{0} {1} bytes sha256={2}" -f $f, $x.Length, (Get-FileHash $x.FullName -Algorithm SHA256).Hash } | Out-String }
-Check "no_python_needed" { $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"; $c = Run-Logged "$app\jarvis.exe" "version" "version"; if ($c -ne 0) { throw "version exit $c" }; Get-Content "$LogDir\version.out.txt" -Raw }
+Check "artifact_facts" { @("jarvis.exe","jarvis-gui.exe") | ForEach-Object { $x = Get-Item "$app\$_"; "{0} {1} bytes sha256={2}" -f $_, $x.Length, (Get-FileHash $x.FullName -Algorithm SHA256).Hash } | Out-String }
+Check "no_python_needed" { $savedPath = $env:PATH; try { $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"; $c = Run-Logged "$app\jarvis.exe" "version" "version" } finally { $env:PATH = $savedPath }; if ($c -ne 0) { throw "version exit $c" }; Get-Content "$LogDir\version.out.txt" -Raw }
 Check "ai_runtime_loads" { $c = Run-Logged "$app\jarvis.exe" "runtime --require" "runtime"; if ($c -ne 0) { throw "runtime exit $c : $(Get-Content "$LogDir\runtime.out.txt" -Raw)" }; Get-Content "$LogDir\runtime.out.txt" -Raw }
 
 # --- the real GUI on this runner's desktop: first launch should open the setup wizard by itself
@@ -78,8 +78,10 @@ Check "diagnostic_export_clean" {
 Check "block_network_for_app" {
     foreach ($f in "jarvis.exe","jarvis-gui.exe") { netsh advfirewall firewall add rule name="JarvisBlock-$f" dir=out action=block program="$app\$f" enable=yes | Out-Null }
     $c = Run-Logged "$app\jarvis.exe" "models fetch qwen3-1.7b-q4_k_m --yes" "block_proof"
+    $err = Get-Content "$LogDir\block_proof.err.txt" -Raw
     if ($c -eq 0) { throw "the app could still download with the firewall rule in place, so the offline test below would prove nothing" }
-    "download attempt failed as expected (exit $c)"
+    if ($err -notmatch "Download failed") { throw "the download failed, but not with a network-level error (so the block is unproven; e.g. the app's own network switch may have refused instead). stderr: $err" }
+    "download attempt failed with a network error as expected (exit $c): $($err.Trim())"
 }
 Check "selftest_offline" { $c = Run-Logged "$app\jarvis.exe" "selftest" "selftest_offline"; Copy-Item "$data\selftest.json" "$LogDir\selftest_offline.json" -ErrorAction SilentlyContinue; if ($c -ne 0) { throw "offline selftest exit $c : $(Get-Content "$LogDir\selftest_offline.err.txt" -Raw)" }; "model answered with the firewall block active" }
 Check "unblock_network" { foreach ($f in "jarvis.exe","jarvis-gui.exe") { netsh advfirewall firewall delete rule name="JarvisBlock-$f" | Out-Null }; "rules removed" }

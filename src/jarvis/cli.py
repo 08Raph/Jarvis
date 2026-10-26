@@ -19,7 +19,7 @@ from jarvis.hardware import detect_hardware, recommend
 from jarvis.inference.policy import ABSTAIN_MESSAGE, AnswerGate
 from jarvis.memory.store import MemoryStore
 from jarvis.models.manager import IntegrityError, ModelStore
-from jarvis.net.policy import FEATURES, NetworkPolicy
+from jarvis.net.policy import FEATURES, NETWORK_ERRORS, NetworkPolicy
 from jarvis.storage import backup_sqlite
 
 IMPLEMENTED_FEATURES = ("model_download", "update_check", "online_assistant")
@@ -556,9 +556,12 @@ def _models_gguf_cmd(args, cfg: Config, store: ModelStore, policy: NetworkPolicy
             return 0
     except KeyError:
         print(f"Unknown catalog model. See: jarvis models catalog", file=sys.stderr)
+    except NETWORK_ERRORS as exc:  # URLError subclasses OSError, so it must be caught first
+        print(f"Download failed: {type(exc).__name__}: {exc}\nIf the problem persists, download the .gguf file in a browser and use "
+              "`jarvis models add-gguf` (see docs/LOCAL_MODEL.md).", file=sys.stderr)
     except (GGUFError, IntegrityError, ValueError, OSError, LookupError) as exc:
         print(f"error: {exc}", file=sys.stderr)
-    except Exception as exc:  # network failures surface here (urllib errors are not imported outside the policy module)
+    except Exception as exc:  # other failures surface here (urllib errors are not imported outside the policy module)
         print(f"Download failed: {type(exc).__name__}: {exc}\nIf the problem persists, download the .gguf file in a browser and use "
               "`jarvis models add-gguf` (see docs/LOCAL_MODEL.md).", file=sys.stderr)
     return 3

@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,11 +29,19 @@ jobs:
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
           .\scripts\clean_install_test.ps1 -Installer $i
       - name: Real GUI launch, real setup wizard engine (real model download), real inference, firewall-blocked offline inference
+        timeout-minutes: 45
         shell: powershell
         run: |
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
           .\scripts\ci_real_model_test.ps1 -Installer $i -LogDir ci-logs
+      - name: Collect install-check results (runs even if an earlier step failed)
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          foreach ($f in "$env:TEMP\jarvis-clean-install-results.json","$env:TEMP\jarvis-install.log","$env:TEMP\jarvis-gui-selftest.txt") { if (Test-Path $f) { Copy-Item $f ci-logs\ } }
       - name: Record the build environment
+        if: always()
         shell: powershell
         run: |
           Get-Content build_info.json
