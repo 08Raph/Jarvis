@@ -18,13 +18,39 @@ jobs:
           architecture: x64
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
-      - name: Build (runs the tests first, then PyInstaller, then Inno Setup)
+      - name: Build (PyInstaller, then Inno Setup; the unit tests run in the next step so a Windows-only test failure cannot hide the packaging result)
         shell: powershell
         run: |
           $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
           New-Item -ItemType Directory -Force ci-logs | Out-Null
-          try { & { .\scripts\build_windows.ps1 -SkipTorch } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
+          try { & { .\scripts\build_windows.ps1 -SkipTorch -SkipTests } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - id: unit
+        name: Windows unit tests (full suite; failures are REPORTED, not hidden - this step is non-blocking only while Windows-only failures are triaged)
+        if: always() && hashFiles('.venv/Scripts/python.exe') != ''
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          .\.venv\Scripts\python.exe -m unittest discover -s tests *> ci-logs\unittest.log
+          $code = $LASTEXITCODE
+          $t = Get-Content ci-logs\unittest.log -Raw
+          $blocks = $t -split "(?m)^={60,}\r?$"
+          $sum = New-Object System.Collections.Generic.List[string]
+          foreach ($b in $blocks) {
+            $lines = ($b -split "\r?\n") | Where-Object { $_.Trim() -ne "" }
+            if ($lines.Count -gt 0 -and $lines[0] -match "^(FAIL|ERROR): ") {
+              $last = ($lines | Where-Object { $_ -notmatch "^-{60,}$" -and $_ -notmatch "^Ran \d+ tests" } | Select-Object -Last 1)
+              $sum.Add($lines[0] + "  =>  " + $last.Substring(0, [Math]::Min(300, $last.Length)))
+            }
+          }
+          $sum.Add("RESULT exit=$code " + (($t -split "\r?\n") | Where-Object { $_ -match "^Ran \d+ tests|^(OK|FAILED)" }) -join " ; ")
+          $sum | Out-File ci-logs\unittest_failures.txt -Encoding utf8
+          $chunk = ""
+          foreach ($l in $sum) { if (($chunk.Length + $l.Length) -gt 30000) { Write-Host "::notice title=windows unit test failures::$chunk"; $chunk = "" }; $chunk += $l + "%0A" }
+          Write-Host "::notice title=windows unit test failures::$chunk"
+          if ($code -ne 0) { exit $code }
       - name: Silent install / launch / uninstall check on the runner
         shell: powershell
         run: |
@@ -76,3 +102,9 @@ jobs:
           path: |
             dist/installer/*.exe
             dist/installer/SHA256SUMS.txt
+      - name: Final gate - the run is red while any Windows unit test fails
+        if: always() && steps.unit.outcome == 'failure'
+        shell: powershell
+        run: |
+          Write-Host "Windows unit tests failed (see the 'windows unit test failures' annotation and ci-logs/unittest_failures.txt)."
+          exit 1
