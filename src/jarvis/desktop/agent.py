@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
+from jarvis import disclosure
 from jarvis import modes as _modes
 from jarvis.desktop import schema as S
 from jarvis.desktop.executor import Executor, StepResult
@@ -291,6 +292,10 @@ class DesktopAgent:
                 continue
             if call is None:
                 res.final = visible_text(reply)[0].strip()
+                # Final answers can repeat text the model read from files/pages. The agent never receives saved memory (its prompt is rules + tool
+                # list + allowed folders + mode), so the only thing to guard is a verbatim copy of those instructions.
+                if disclosure.leaks_instructions(res.final, [msgs[0]["content"]]):
+                    res.final = disclosure.REFUSAL
                 return res
             self.progress(f"-> {call['name']} {json.dumps(call['arguments'], default=str)[:120]}")
             key = json.dumps([call["name"], call["arguments"]], sort_keys=True, default=str)

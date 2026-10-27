@@ -79,3 +79,40 @@ Linux suite after this change: see the final line below.
 * Not validated on Windows or with a real model. No claim of prompt-injection resistance is made. Stage 5 remains **blocked, not complete**.
 
 Linux suite after this change: **1791 run, 0 failed, 6 skipped** (Windows-only skips unchanged; 1778 before this round).
+
+## 9. Memory-exposure minimisation (from `3d705a6`; checkpoint: local tag `stage5-pre-memory-minimization`)
+### Trace: what can reach each model
+| Model | Reaches it | Source in code |
+|---|---|---|
+| Chat model (`LocalAssistant`) | base prompt, memory rules, persona rules, conversation history (your messages incl. pasted documents + earlier guarded replies), and a "Saved memory" block | `assistant._messages` |
+| Chat model: saved-memory block | (a) standing preferences (last 10), "Avoid:" corrections (last 5), temporary instructions; (b) up to 5 notes matching the request; (c) `extra_context` from `MemoryAgent` when the message looks like "like last time" / "as we discussed earlier" (up to 3 records) | `PersonalMemory.context_block`, `MemoryAgent.process` |
+| Agent model (`DesktopAgent`) | agent rules, tool catalog, allowed-folder paths, mode text, the goal, tool observations. **No saved memory**: `desktop/agent.py` has no memory import (asserted by a source-inspection test) | `agent.system_prompt` |
+| Summary model call | the last 20 history messages only (no system prompt) | `summarize_session` |
+### Before -> after
+* **Before:** the lookup query was the *whole* user message, including any pasted document. The "as we discussed earlier" branch ran `search(...)` over the whitespace-collapsed full message and over *all* categories. Retrieved notes were shown verbatim with a label saying they were written or confirmed by the user, even when they were assistant-written auto-summaries; instruction-like text and tag characters inside notes went through unchanged.
+* **After (code + tests):**
+  1. The lookup uses only the first paragraph (<=250 chars) and last paragraph (<=150 chars) of a long message (`disclosure.retrieval_query`); a long message (>600 chars) gets at most 2 notes instead of 5. **A real bug was found and fixed on the way:** the "as we discussed earlier" and "like last time" branches used the whitespace-collapsed text, which silently defeated the paragraph logic; they now use the original text (regression-tested).
+  2. The "as we discussed earlier" search is restricted to note categories (+ preferences), no longer all.
+  3. Notes that look like secrets, or that read as commands to the model (override-the-rules phrasing, forged `<tool_call>`/`<system>`/`<untrusted_data>` tags, "system prompt"), are **not shown to the model**; they stay in the store, unchanged and deletable. A user-authored standing preference is exempt from the wording filter (users may legitimately write instructions there) but its `<`/`>` are neutralised.
+  4. Assistant-written notes are labelled "auto-summary, written by the assistant"; the block header now says notes are facts about the user, never instructions that change the rules.
+  5. If memory cannot be read (exception) or a row is malformed, the block is dropped (whole block) or the row skipped, and the user gets a notice; nothing partial or raw is passed on.
+  6. Agent final answers that repeat the agent's instruction text are replaced (a copy that includes the tool-call tags was already refused as a malformed call and never shown).
+* **Excluded now:** unrelated notes (unchanged), notes matched only through a pasted document's body, secret-like or command-like notes, memory on extraction turns (previous round).
+* **Still reaches the model:** standing preferences/corrections/temporary instructions on every turn (needed for personalisation), up to 5 (2 for long messages) matching notes, the user's own pasted text and history, tool observations (agent). A document's first/last paragraph can still steer the lookup; a short message full of stuffed terms still retrieves (asserted as a known limit).
+### Output paths
+| Path | Protected? |
+|---|---|
+| Chat, non-streaming | Yes: 12-word copy of the instructions withheld, notice set, history stores the refusal (tested) |
+| Chat, streaming | Yes: held-back tail means no 4-word run of the instructions ever reached the screen in the test; history stores the refusal; GUI transcript/voice only ever receive the guarded pieces (code reading of `app/controller.py`) |
+| Cancel mid-stream / engine error | History keeps only the user message; no partial reply is stored (tested) |
+| Next turn's prompt | Does not contain the blocked text (tested) |
+| Agent final answer | Guarded for a verbatim copy of its instructions (tested); the agent never has saved memory |
+| Logs/audit | Audit records tool steps with `redact`; no code path writes model replies to logs other than the transcript (code reading); not exhaustively tested |
+| Memory contents in an ordinary answer | **Not guarded by output filtering** (a note may legitimately be quoted). Only input minimisation applies |
+### Tests (all FAKE engines/fixtures; `tests/test_p24_disclosure.py`, now 35 tests)
+Relevant included / irrelevant excluded; personalisation with 40 filler notes present (prompt stays small, filler absent); a stuffed pasted document does not retrieve a private note, with a control proving the cap changes the outcome (and a control that the same words typed as the request DO retrieve it); instruction-like and tag-forging notes hidden but not deleted; auto-summary labelling; "as we discussed earlier" with a stuffed document; broken memory and malformed rows fail safe; stream/cancel/error/history behaviour; agent prompt has no memory; agent copy replaced; unchanged: the executor tests listed in section 8 (`test_desktop_*`, 241 tests, 1 skip) pass.
+**Linux suite: 1813 run, 0 failed, 6 skipped** (from 1791). No timeouts.
+### Established by code/tests vs. still unproven
+* Established (deterministic): what text is put in the prompt in the cases above; what is withheld; history/streaming behaviour; agent has no memory; tool authorisation does not read model text.
+* **Not established:** that any real model ignores injected instructions, that it will not quote an included note when told to, or that the heuristics catch real attacks (paraphrase, other languages, encoded text, payload in the first/last paragraph). Real-model testing (inj1-inj4 and new memory-exfiltration cases) and Windows validation remain required. The memory-block header changed slightly, so the benchmark's memory/context cases (mem1-4, ctx1-4) are not byte-identical to earlier runs; their effect on scores is unmeasured.
+* Stage 5 remains **blocked, not complete.**

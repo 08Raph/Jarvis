@@ -127,7 +127,12 @@ class LocalAssistant:
         if turn.memory == "none" or turn.overridden or disclosure.is_extraction_request(user_text):
             ctx = ""         # edgy/romantic styles and safety overrides never see saved personal notes; neither does a turn that asks to dump them
         else:
-            ctx = self.memory.context_block(user_text) + (("\n" + extra_context) if extra_context else "")
+            try:
+                ctx = self.memory.context_block(user_text, note_limit=2 if disclosure.is_long_message(user_text) else 5) + \
+                    (("\n" + extra_context) if extra_context else "")
+            except Exception:      # noqa: BLE001 - unreadable/corrupt memory: answer without it, never with partial or raw rows
+                ctx = ""
+                self.last_notice = (self.last_notice + " Saved memory could not be read, so I answered without it.").strip()
         self._protected = [build_system_prompt(turn.guidance, "", self.prompt_variant)]
         sys_msg = {"role": "system", "content": build_system_prompt(turn.guidance, ctx, self.prompt_variant)}
         return [sys_msg] + self.history

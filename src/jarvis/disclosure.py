@@ -34,6 +34,39 @@ def is_extraction_request(text: str) -> bool:
     return bool(_EXTRACT.search(t) or _IGNORE_RULES.search(t))
 
 
+QUERY_HEAD_CHARS, QUERY_TAIL_CHARS = 250, 150
+LONG_MESSAGE_CHARS = 600         # a message this long almost certainly contains pasted material (document, email, web page)
+_NOTE_INJECTION = re.compile(r"(?i)<\s*/?\s*(?:tool_call|tool_response|untrusted_data|think|system)\b|\byou are now\b|\bnew instructions?\b|\bsystem prompt\b")
+
+
+def retrieval_query(text: str) -> str:
+    """The part of a user message that may be used to look things up in saved memory: the first paragraph (up to 250 characters) and, when the
+    message has several paragraphs, the last one (up to 150). Pasted material sits in between, so a document cannot widen the lookup by stuffing
+    words into its body. Heuristic: a document whose payload sits in its first or last paragraph still influences the lookup."""
+    t = (text or "").strip()
+    if len(t) <= QUERY_HEAD_CHARS + QUERY_TAIL_CHARS:
+        return t
+    paras = [p.strip() for p in re.split(r"\n\s*\n", t) if p.strip()]
+    if len(paras) >= 2:
+        return paras[0][:QUERY_HEAD_CHARS] + " " + paras[-1][-QUERY_TAIL_CHARS:]
+    return t[:QUERY_HEAD_CHARS] + " " + t[-QUERY_TAIL_CHARS:]
+
+
+def is_long_message(text: str) -> bool:
+    return len(text or "") > LONG_MESSAGE_CHARS
+
+
+def looks_like_instruction(note: str) -> bool:
+    """A saved note that reads as an attempt to give the model commands (override rules, forge tool/system tags). Such a note is not shown to the
+    model; it is NOT deleted or changed."""
+    return bool(_IGNORE_RULES.search(note or "") or _NOTE_INJECTION.search(note or ""))
+
+
+def neutralise_note(note: str) -> str:
+    """Saved text may not forge a tag the prompt or the tool protocol uses."""
+    return (note or "").replace("<", "\u2039").replace(">", "\u203a")
+
+
 def _words(text: str) -> list[str]:
     return _WORD.findall((text or "").lower())
 

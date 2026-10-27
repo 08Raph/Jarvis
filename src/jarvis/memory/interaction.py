@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from jarvis import disclosure
 from jarvis.memory import secrets
 from jarvis.memory.personal import PersonalMemory, MemoryError_
 
@@ -244,13 +245,13 @@ class MemoryAgent:
             return Outcome(False, notice="Using your saved preferences: " + "; ".join(p["text"] for p in prefs[-6:]), kind="usual_style")
 
         if LAST_TIME.search(t):
-            q = LAST_TIME.sub(" ", t)
+            q = disclosure.retrieval_query(LAST_TIME.sub(" ", text))      # the ORIGINAL text: `t` has lost its paragraph breaks
             hits = self.mem.search(q, limit=3, categories=("procedure", "conversation_summary", "project", "approved_context", "skill"))
             if not hits:
                 return Outcome(True, "I don't have a record of a previous time: nothing saved matches that. If you tell me how you'd "
                                      "like it done, I can remember it.", kind="no_evidence")
-            ctx = "The user refers to how this was done before. Saved records (use only these, do not invent others):\n" + \
-                "\n".join(f"- {h['text']}" for h in hits)
+            lines = [ln for ln in (self.mem.model_line("saved record", h) for h in hits) if ln]
+            ctx = "The user refers to how this was done before. Saved records (use only these, do not invent others):\n" + "\n".join(lines)
             return Outcome(False, notice="Using saved memory " + ", ".join(f"#{h['id']}" for h in hits) + ".", extra_context=ctx, kind="like_last_time")
 
         m = RECALL.match(t)
@@ -260,10 +261,11 @@ class MemoryAgent:
             return self._recall("", t)
 
         if PAST_REF.search(t):
-            hits = self.mem.search(t, limit=3)
-            if hits:
+            hits = self.mem.search(disclosure.retrieval_query(text), limit=3, categories=self.mem.NOTE_CATEGORIES + ("explicit_preference",))
+            lines = [ln for ln in (self.mem.model_line("saved note", h) for h in hits) if ln]
+            if lines:
                 ctx = ("The user refers to something said earlier. These saved notes are the ONLY record; use them if they fit, and do "
-                       "not invent anything beyond them:\n" + "\n".join(f"- {h['text']}" for h in hits))
+                       "not invent anything beyond them:\n" + "\n".join(lines))
             else:
                 ctx = ("The user refers to something said or done in an earlier conversation, but NO saved memory matches. You have no "
                        "record of it. Say so plainly and ask them to restate it; do not pretend to remember or invent details.")
