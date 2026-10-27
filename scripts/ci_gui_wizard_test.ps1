@@ -169,7 +169,7 @@ function Stop-AppGracefully($p) {
         # a "Close Jarvis?" question or an information box may be open: answer it like a user would (Yes / OK) with a real click
         $box = $wins | Where-Object { try { $_.Current.Name -match "^(Close Jarvis\?|Project JARVIS)$" } catch { $false } } | Select-Object -First 1
         if ($box) { $b = Find-Btn $box "^(&?Yes|Yes|OK)$"; if ($b) { $answered += $box.Current.Name; try { Click-El $b $box } catch { } ; Start-Sleep -Seconds 1; continue } }
-        foreach ($w in ($wins | Where-Object { try { $_.Current.Name -notmatch "^(Close Jarvis\?)$" } catch { $false } } | Select-Object -First 1)) {
+        foreach ($w in ($wins | Where-Object { try { $_.Current.Name -notmatch "^(Close Jarvis\?)$" } catch { $false } } | Select-Object -Last 1)) {
             try { $wp = $null; if ($w.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$wp)) { $wp.Close() } } catch { }
         }
         Start-Sleep -Seconds 2
@@ -220,7 +220,7 @@ function Ask($p, [string]$question, [string]$expectRegex, [int]$sec = 240) {
     Start-Sleep -Milliseconds 600
     $typedBack = El-Text $inp
     Note ("typed with real key events; the box then holds: '{0}'" -f ($typedBack -replace "\s+", " ").Trim())
-    if ($typedBack -notmatch [regex]::Escape($question.Substring(0, 12))) { Note "Message box text not readable through UI Automation; relying on the echo in the conversation instead"; Shot "typed-unreadable"; Dump-Tree $main "main-after-typing" }
+    if ($typedBack -notmatch [regex]::Escape($question.Substring(0, [Math]::Min(11, $question.Length)))) { Note "Message box text not readable through UI Automation; relying on the echo in the conversation instead"; Shot "typed-unreadable"; Dump-Tree $main "main-after-typing" }
     Click-Btn $main "^Send$" 10
     $ok = $false; $conv = $null
     $end = (Get-Date).AddSeconds($sec)
@@ -447,7 +447,7 @@ Scenario "S5_reopen_after_success" {
 # =================================================================== S6: a damaged model must never be accepted; with no network it must FAIL, then Retry repairs it from the verified source
 Scenario "S6_damaged_model_never_accepted" {
     $PINNED = "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5"
-    $gguf = Get-ChildItem $data -Recurse -Filter "model.gguf" | Select-Object -First 1
+    $gguf = Get-Item "$data\models\qwen3-1.7b-q4_k_m\model.gguf" -ErrorAction SilentlyContinue
     Assert $gguf "no installed model to tamper with"
     $off = [int64]($gguf.Length / 2)
     $fs = [System.IO.File]::Open($gguf.FullName, "Open", "ReadWrite", "None")
@@ -479,7 +479,7 @@ Scenario "S6_damaged_model_never_accepted" {
         while ((Get-Date) -lt $end) { if (Find-Btn $w "^Launch Jarvis$") { $ok = $true; break }; if ((All-Text $w) -match "did not finish") { Start-Sleep -Seconds 5; if (-not (Find-Btn $w "^Retry$")) { } }; Start-Sleep -Seconds 2 }
         Shot "s6-retry-result"
         Assert $ok "Retry with the network back did not complete setup"
-        $h = (Get-FileHash (Get-ChildItem $data -Recurse -Filter "model.gguf" | Select-Object -First 1).FullName -Algorithm SHA256).Hash.ToLower()
+        $h = (Get-FileHash "$data\models\qwen3-1.7b-q4_k_m\model.gguf" -Algorithm SHA256).Hash.ToLower()
         Assert ($h -eq $PINNED) "after Retry the model hash is $h, not the pinned publisher hash"
         $st = Get-Setup; Assert ($st -and $st.completed -and $st.real -and $st.model_id -eq "qwen3-1.7b-q4_k_m") "state not complete for the pinned model after Retry"
         Note "Retry re-fetched the model; its SHA-256 equals the pinned publisher hash $PINNED; setup then completed"
