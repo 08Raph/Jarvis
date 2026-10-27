@@ -97,6 +97,9 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("--license-url", help="where the license text can be read")
     mg.add_argument("--sha256", help="trusted SHA-256 of the file")
     mg.add_argument("--accept-unverified", action="store_true")
+    mg.add_argument("--context-tokens", type=int, help="context window to use for this model (default: the engine default)")
+    mg.add_argument("--no-think", action="store_true", help="Qwen3-style model: switch the hidden thinking phase off with /no_think")
+    mg.add_argument("--no-select", action="store_true", help="install only; keep the currently selected model (used for side-by-side benchmarks)")
     sub.add_parser("selftest", help="REAL test: load the active model on this PC, generate text, measure speed")
     pf = sub.add_parser("perf", help="REAL multi-token speed measurement of the active model (load time, first token, sustained tokens/s, peak memory); writes perf.json")
     pf.add_argument("--out", help="folder for perf.json and perf_summary.txt")
@@ -565,9 +568,20 @@ def _models_gguf_cmd(args, cfg: Config, store: ModelStore, policy: NetworkPolicy
                 print("Give --sha256 (from the publisher) or --accept-unverified.", file=sys.stderr)
                 return 2
             text = Path(args.license_file).read_text(encoding="utf-8", errors="replace") if args.license_file else f"License text: {args.license_url}"
-            meta = store.install_gguf(args.path, args.id, args.license, text, args.license_url or "", args.sha256)
-            store.set_active(meta["id"])
+            if args.context_tokens is not None and not 512 <= args.context_tokens <= 131072:
+                print("--context-tokens must be between 512 and 131072.", file=sys.stderr)
+                return 2
+            extra = {}
+            if args.context_tokens:
+                extra["context_tokens"] = args.context_tokens
+            if args.no_think:
+                extra["no_think_suffix"] = True
+            meta = store.install_gguf(args.path, args.id, args.license, text, args.license_url or "", args.sha256, extra_meta=extra or None)
             _tel(cfg, "model_installed", model="custom", source="file")
+            if args.no_select:
+                print(f"Installed '{meta['id']}'. The selected model was NOT changed. Benchmark it with: jarvis bench-intel --model {meta['id']} --out <folder>")
+                return 0
+            store.set_active(meta["id"])
             print(f"Installed and selected '{meta['id']}'. Now run: jarvis selftest")
             return 0
     except KeyError:

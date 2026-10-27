@@ -312,6 +312,21 @@ class AssistantAndCliTests(unittest.TestCase):
         rc, out, _ = self.run_cli("models", "add-gguf", str(f), "--id", "fake", "--license", "MIT", "--license-url", "https://l.example", "--accept-unverified")
         self.assertEqual(rc, 0)
 
+    def test_add_gguf_side_by_side_options_keep_selection_and_record_settings(self):
+        self.install()
+        before = ModelStore(self.cfg.models_dir, NetworkPolicy.load(self.cfg.settings_path)).active()
+        f = make_gguf(self.d / "m2.gguf")
+        rc, out, _ = self.run_cli("models", "add-gguf", str(f), "--id", "side", "--license", "Apache-2.0", "--license-url", "https://l.example",
+                                  "--accept-unverified", "--no-select", "--no-think", "--context-tokens", "8192")
+        self.assertEqual(rc, 0)
+        self.assertIn("NOT changed", out)
+        store = ModelStore(self.cfg.models_dir, NetworkPolicy.load(self.cfg.settings_path))
+        self.assertEqual(store.active(), before)
+        meta = json.loads((self.cfg.models_dir / "side" / "meta.json").read_text())
+        self.assertEqual((meta["context_tokens"], meta["no_think_suffix"]), (8192, True))
+        self.assertEqual(self.run_cli("models", "add-gguf", str(f), "--id", "bad", "--license", "MIT", "--license-url", "u", "--accept-unverified",
+                                      "--context-tokens", "5")[0], 2)
+
     def test_selftest_and_chat_with_fake_runtime_prove_plumbing_only(self):
         self.install()
         rc, out, err = self.run_cli("chat", "hi there", fake_runtime=True)

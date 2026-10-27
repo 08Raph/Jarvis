@@ -107,3 +107,32 @@ Reversible integration for the first candidate (all behind existing mechanisms):
 **Reject / do not proceed to gpt-oss on this evidence if:** gain is under 3 cases, or speed is under 2 tok/s, or it does not fit in RAM. A 3-4 case gain = inconclusive; repeat with sampled runs before deciding.
 **Hard security gates (independent of score):** prompt-injection cases (inj1-4) and the system-prompt-leak check must not be worse than Qwen3-4B, and no tool is ever run without the existing permission path. Important honesty point: **every model measured so far (1.7B, 4B, 3.5-4B) fails at least one injection case**, so the hard requirement is currently met by *application-level* defences (strict parser, untrusted-data wrapping, permission prompts), not by the model. A model with a higher score but worse injection behaviour must not be recommended.
 **If kept:** next step is the gpt-oss-20b harmony adapter (section 9.3) behind a flag, then one 12 GB download and a load probe on the same PC.
+
+## 11. Update 2026-10-27 (no Windows PC available; existing evidence only)
+
+### 11.1 Qwen3.5-4B configuration question - what the stored results now show
+* [F] First 120 characters of the stored greedy reply of each failed Qwen3.5-4B case (run annotations): msr1 `Carol`, msr2 `Dee`, msr4 `Task B ends at 10:45.`, mat3 `36`, cod4 `[4]`, unc2 "The provided text does not identify the keynote speaker.", ctx1 "I have no record of your dog's name in my saved memories...", tool1 a call with a stray `_` before `</tool_call>`, tool3 a call whose `arguments` is a string. These are **complete, short, immediate answers**, not replies cut off at 256 tokens and not reasoning text.
+* Interpretation (supported, not proven): the measured configuration is effectively **non-thinking** (consistent with the earlier two-prompt probe) and its reasoning failures are wrong direct answers. So "256 tokens truncated its reasoning" is **unlikely to be the main cause** of the 35/48 for the cases visible; it cannot be excluded for the cases whose reply was longer (use4, unc1, inj1 were cut for display only). The slow wall time then comes from long verbose answers on other cases.
+* Still unresolved (hypothesis): the card's headline scores are for **thinking mode**, which Jarvis does not enable. Whether Qwen3.5-4B in thinking mode would beat Qwen3-4B on our suite is unknown, and thinking mode would cost many more tokens on CPU (at ~6 tok/s this is minutes per answer). Switching it on is possible but not through today's engine: llama-cpp-python's chat formatter accepts extra template variables, but Jarvis does not pass `enable_thinking`; it would need a small engine change plus a real run with a 1024+ token limit. Deferred (needs a real run; not worth building before the 14B result).
+* Conclusion: Qwen3.5-4B (non-thinking, as configured) is measurably **below Qwen3-4B** (35 vs 38 of 48, same scorer/limit) and 3.1x slower, so it is not a replacement candidate on current evidence. That is a verdict on this configuration only.
+
+### 11.2 Smaller (<= ~8B) commercially compatible models worth testing - desk analysis only (nothing downloaded)
+Container check: 2 vCPU, 7 GB RAM, no llama.cpp runtime, package indexes blocked - it cannot run any model, so none of this is measured.
+| Model | Licence | Size / GGUF | Source facts | Fit |
+|---|---|---|---|---|
+| Qwen3-8B Q4_K_M | Apache-2.0 [F] | 5.03 GB (6block third-party quant; catalog already lists `ggml-org/Qwen3-8B-GGUF` ~5.0 GB, unconfirmed) [F] | same family/protocol/loader as current default; already in the built-in catalog | **Best next small-tier test**: no code, ~7 GB RAM [E] |
+| Granite 4.1 3B | Apache-2.0 [F, card] | not checked | IBM, released 2026-04-29, 128k ctx, tool calling, card scores (vendor-reported): IFEval 82.3, BFCL v3 60.8, GSM8K 86.9, HumanEval 81.7; 12 languages | Interesting 3B; llama.cpp has `granite` arch, but which arch 4.1 uses and an official GGUF are unverified |
+| SmolLM3-3B | Apache-2.0 [F, card] | not checked | dual thinking, `<tool_call>` JSON tools, vendor BFCL 92.3 (no-think), IFEval 76.7; 6 languages | `smollm3` arch present in the bundled llama.cpp [F]; weaker multilingual than Qwen |
+| Phi-4-mini 3.8B | MIT per publisher, **not verified** (official page not reachable) | not checked | `phi3` arch in runtime [F] | not evaluated; known weak on factual knowledge (publisher knowledge, unverified) |
+| Gemma family | licence presentation inconsistent earlier | - | - | excluded pending legal review |
+Vendor benchmark numbers use different harnesses and are **not comparable** to our suite; they only justify testing, not choosing.
+Recommendation: of these, **Qwen3-8B** is the only one that can be tested with zero new code and zero new licence review, and it also tells us whether the Qwen3 scaling trend (1.7B 0.71 -> 4B 0.79) continues before paying for the 14B download. Granite 4.1 3B is the best "different family" probe if a second small-model comparison is wanted, after confirming an official GGUF and its llama.cpp architecture. None of these justify changing the default today.
+
+### 11.3 What changed in the repo this round
+* `jarvis models add-gguf` gained three optional flags: `--no-select` (install without changing the selected model), `--no-think`, `--context-tokens N` (recorded in `meta.json`). Defaults and existing behaviour are unchanged; 1 new Linux unit test (fake GGUF). No unverified repository was added to the catalog and no weights were downloaded.
+* New runbook with fixed decision rules and a blank results table: `docs/EXPERIMENT_QWEN3_14B.md` (untested on Windows).
+
+### 11.4 Status
+Verified: Qwen3-1.7B, Qwen3-4B, Qwen3.5-4B baselines; gpt-oss architecture present in the bundled llama.cpp (source reading); harmony output would be mangled by today's engine path (source reading); diagnostics added with unit tests.
+Blocked (needs hardware): any Qwen3-14B / Qwen3-8B / gpt-oss result, peak-RAM figures, thinking-mode A/B, all Windows 11 validation.
+8/10 intelligence: **not demonstrated**; best measured is Qwen3-4B 38/48 greedy (v1 scorer, 256 tokens) and every model fails at least one injection case. Default stays Qwen3-1.7B.
