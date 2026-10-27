@@ -33,7 +33,7 @@ Final run 40431278616 (real Qwen3 1.7B Q4_K_M, CPU, 1 thread used by the app): l
 Across the three runs that completed, the runner hardware differed and so did speed: sustained 8.70, 20.31 and 11.15 tokens/s. **A single CI number is not a benchmark of customer PCs**; compare only with the recorded CPU. Stage 3's 1-token "0.6–1 tok/s" self-test figure is not a speed.
 
 ## 4C — Tests (kept distinct)
-- Linux unit tests (local): 1740 run, 0 failed, 6 skipped (sandbox facts: no speech engine / GPU listing / llama runtime, etc.). Stage 4 added 25 tests (perf arithmetic with a fake runtime, GUI-wiring static checks); none skipped.
+- Linux unit tests (local): 1740 run, 0 failed, 6 skipped (sandbox facts: no speech engine / GPU listing / llama runtime, etc.). Stage 4 added 15 tests (1725 → 1740) (perf arithmetic with a fake runtime, GUI-wiring static checks); none skipped.
 - Windows unit tests (run 40431278616): 1740 run, 0 failed, 87 skipped — same skip set as Stage 3 (POSIX-only assertions, Linux-sandbox facts, elevated-process desktop-control tests, symlink privilege); no new skips.
 - Fake-provider tests: inside both suites; the perf unit tests use a fake runtime and are marked simulated.
 - Real inference, real GUI interaction, offline (firewall) validation and performance: only the Windows workflow steps above. Stage 3 steps (installer, setup-auto, real prompt, firewall-blocked offline, uninstall) still pass in the same run.
