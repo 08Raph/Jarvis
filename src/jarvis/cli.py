@@ -98,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("--sha256", help="trusted SHA-256 of the file")
     mg.add_argument("--accept-unverified", action="store_true")
     sub.add_parser("selftest", help="REAL test: load the active model on this PC, generate text, measure speed")
+    pf = sub.add_parser("perf", help="REAL multi-token speed measurement of the active model (load time, first token, sustained tokens/s, peak memory); writes perf.json")
+    pf.add_argument("--out", help="folder for perf.json and perf_summary.txt")
+    pf.add_argument("--runs", type=int, default=3, help="measured runs (max 10)")
+    pf.add_argument("--warmup", type=int, default=1, help="warm-up runs, reported separately (max 3)")
+    pf.add_argument("--max-tokens", type=int, default=128, help="tokens per run (max 512)")
     rt = sub.add_parser("runtime", help="is the local AI runtime present in this installation?")
     rt.add_argument("--require", action="store_true", help="exit with an error if it is missing")
     ch = sub.add_parser("chat", help="chat with the active local model (one prompt, or interactive if none given)")
@@ -985,6 +990,9 @@ def _main(argv: list[str] | None = None) -> int:
         return 0 if info["available"] or not args.require else 3
     if args.cmd == "selftest":
         return _selftest(cfg, store)
+    if args.cmd == "perf":
+        from jarvis.eval import perf
+        return perf.run_cli(cfg.data_dir, Path(args.out) if args.out else None, args.runs, args.warmup, args.max_tokens)
     if args.cmd == "models" and args.mcmd in ("catalog", "fetch", "add-gguf", "plan"):
         return _models_gguf_cmd(args, cfg, store, policy)
     if args.cmd == "models":

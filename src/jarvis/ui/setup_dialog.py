@@ -16,6 +16,7 @@ class SetupDialog(QDialog):
         self.ctl = ctl
         self.preview: dict = {}
         self.running = False
+        self._close_after_cancel = False
         self.setWindowTitle(f"{V.APP_NAME} setup")
         self.setMinimumWidth(640)
         v = QVBoxLayout(self)
@@ -144,8 +145,22 @@ class SetupDialog(QDialog):
         else:
             self.reject()
 
+    def reject(self):
+        """Closing the window (X, Esc, Set up later) while setup is running must not leave a hidden download running that later switches the model on:
+        cancel it first and close once the worker has stopped (`_done`)."""
+        if self.running:
+            self._close_after_cancel = True
+            self.ctl.cancel_setup()
+            self.step.setText("Cancelling...")
+            return
+        super().reject()
+
     def _done(self, rep):
         self.running = False
+        if getattr(self, "_close_after_cancel", False):
+            self._close_after_cancel = False
+            super().reject()
+            return
         self.bar.setRange(0, 1000)
         self.bar.setVisible(False)
         self.result.setVisible(True)

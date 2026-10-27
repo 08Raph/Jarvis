@@ -2,8 +2,14 @@
 name: build-windows
 permissions:
   contents: read
+  actions: read
 on:
   workflow_dispatch:
+    inputs:
+      reuse_installer_run_id:
+        description: "Diagnostic mode: skip build + Stage 3 steps and reuse the installer artifact of this earlier run (leave empty for a full run)"
+        required: false
+        default: ""
   push:
     tags: ["v*"]
 jobs:
@@ -16,9 +22,19 @@ jobs:
         with:
           python-version: "3.12"
           architecture: x64
+      - name: Reuse installer from an earlier run (diagnostic mode only)
+        if: inputs.reuse_installer_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ProjectJarvis-installer
+          path: dist/installer
+          run-id: ${{ inputs.reuse_installer_run_id }}
+          github-token: ${{ github.token }}
       - name: Install Inno Setup
+        if: inputs.reuse_installer_run_id == ''
         run: choco install innosetup --no-progress -y
       - name: Build (PyInstaller, then Inno Setup; the unit tests run in the next step so a Windows-only test failure cannot hide the packaging result)
+        if: inputs.reuse_installer_run_id == ''
         shell: powershell
         run: |
           $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
@@ -27,7 +43,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - id: unit
         name: Windows unit tests (full suite; failures are REPORTED, not hidden - this step is non-blocking only while Windows-only failures are triaged)
-        if: always() && hashFiles('.venv/Scripts/python.exe') != ''
+        if: always() && inputs.reuse_installer_run_id == '' && hashFiles('.venv/Scripts/python.exe') != ''
         continue-on-error: true
         shell: powershell
         run: |
@@ -57,6 +73,7 @@ jobs:
           Write-Host "::$($kinds[[Math]::Min($k,2)]) title=windows unit test failures part $($n+1)::$chunk"
           if ($code -ne 0) { exit $code }
       - name: Silent install / launch / uninstall check on the runner
+        if: inputs.reuse_installer_run_id == ''
         shell: powershell
         run: |
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
@@ -64,6 +81,7 @@ jobs:
           & { .\scripts\clean_install_test.ps1 -Installer $i } *>&1 | Tee-Object -FilePath ci-logs\clean_install.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Real GUI launch, real setup wizard engine (real model download), real inference, firewall-blocked offline inference
+        if: inputs.reuse_installer_run_id == ''
         timeout-minutes: 45
         shell: powershell
         run: |
@@ -71,6 +89,39 @@ jobs:
           $global:LASTEXITCODE = 0
           & { .\scripts\ci_real_model_test.ps1 -Installer $i -LogDir ci-logs } *>&1 | Tee-Object -FilePath ci-logs\real_model_step.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: "Stage 4A: click-through test of the installed GUI wizard (UI Automation + real mouse clicks + real key events)"
+        id: gui
+        timeout-minutes: 45
+        continue-on-error: true
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force ci-logs\gui | Out-Null
+          $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
+          $global:LASTEXITCODE = 0
+          & { .\scripts\ci_gui_wizard_test.ps1 -Installer $i -LogDir ci-logs\gui } *>&1 | Tee-Object -FilePath ci-logs\gui_step.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: "Stage 4B: multi-token performance measurement on the installed app (model installed by the GUI step; no second download)"
+        id: perf
+        if: always()
+        timeout-minutes: 20
+        continue-on-error: true
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force ci-logs\perf | Out-Null
+          $exe = "$env:LOCALAPPDATA\Programs\ProjectJarvis\jarvis.exe"
+          if (-not (Test-Path $exe)) { Write-Host "::error title=perf::installed jarvis.exe not found"; exit 1 }
+          $global:LASTEXITCODE = 0
+          & { & $exe perf --out ci-logs\perf --runs 3 --warmup 1 --max-tokens 128 } *>&1 | Tee-Object -FilePath ci-logs\perf\perf_step.log
+          exit $LASTEXITCODE
+      - name: Cleanup (firewall rules, uninstall keeping user data)
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($r in "JarvisGuiBlock-jarvis-gui.exe","JarvisGuiBlock-jarvis.exe") { netsh advfirewall firewall delete rule name="$r" | Out-Null }
+          Get-Process jarvis-gui,jarvis -ErrorAction SilentlyContinue | Stop-Process -Force
+          $u = "$env:LOCALAPPDATA\Programs\ProjectJarvis\unins000.exe"
+          if (Test-Path $u) { $p = Start-Process $u -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru; $null = $p.Handle; $p.WaitForExit(); Write-Host "uninstall exit $($p.ExitCode)" }
+          exit 0
       - name: Collect install-check results (runs even if an earlier step failed)
         if: always()
         shell: powershell
@@ -85,6 +136,11 @@ jobs:
           foreach ($f in "ci-logs\ci-real-model-summary.txt","ci-logs\setup_state.json","ci-logs\selftest_online.json","ci-logs\setup_auto.err.txt","ci-logs\screenshot_error.txt") {
             if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
           }
+          foreach ($f in "ci-logs\gui\gui-summary.txt","ci-logs\perf\perf_summary.txt","ci-logs\perf\perf.json") {
+            if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
+          }
+          foreach ($s in (Get-ChildItem ci-logs\gui -Filter "*.png" -ErrorAction SilentlyContinue)) { Write-Host "::notice title=gui screenshot $($s.Name)::$($s.Length) bytes sha256=$((Get-FileHash $s.FullName -Algorithm SHA256).Hash)" }
+          if (Test-Path ci-logs\gui\transcript.txt) { $t = (Get-Content ci-logs\gui\transcript.txt -Tail 40) -join "%0A"; if ($t.Length -gt 5000) { $t = $t.Substring($t.Length-5000) }; Write-Host "::notice title=gui transcript tail::$t" }
           if (Test-Path ci-logs\gui_first_launch.png) { $i = Get-Item ci-logs\gui_first_launch.png; Write-Host "::notice title=gui screenshot::gui_first_launch.png $($i.Length) bytes sha256=$((Get-FileHash $i.FullName -Algorithm SHA256).Hash)" }
           foreach ($f in (Get-ChildItem dist\installer -Filter "*.exe" -ErrorAction SilentlyContinue)) { Write-Host "::notice title=installer::$($f.Name) $($f.Length) bytes sha256=$((Get-FileHash $f.FullName -Algorithm SHA256).Hash)" }
       - name: Surface install log tail
@@ -125,8 +181,8 @@ jobs:
             dist/installer/*.exe
             dist/installer/SHA256SUMS.txt
       - name: Final gate - the run is red while any Windows unit test fails
-        if: always() && steps.unit.outcome == 'failure'
+        if: always() && (steps.unit.outcome == 'failure' || steps.gui.outcome == 'failure' || steps.perf.outcome == 'failure')
         shell: powershell
         run: |
-          Write-Host "Windows unit tests failed (see the 'windows unit test failures' annotation and ci-logs/unittest_failures.txt)."
+          Write-Host "unit=${{ steps.unit.outcome }} gui=${{ steps.gui.outcome }} perf=${{ steps.perf.outcome }} (see the annotations and ci-logs)."
           exit 1
