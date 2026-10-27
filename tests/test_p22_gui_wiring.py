@@ -21,7 +21,7 @@ class GuiWiring(unittest.TestCase):
     def test_script_covers_required_scenarios(self):
         s = read("scripts/ci_gui_wizard_test.ps1")
         for sc in ("S1_details_consent_and_set_up_later", "S2_cancel_button", "S3_failure_retry_cancel_close",
-                   "S4_full_setup_then_question", "S5_reopen_after_success", "S6_integrity_failure_then_retry"):
+                   "S4_full_setup_then_question", "S5_reopen_after_success", "S6_damaged_model_never_accepted"):
             self.assertIn(sc, s)
         self.assertIn("before consent", s)
         self.assertIn("Setup finished", s)

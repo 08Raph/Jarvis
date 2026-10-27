@@ -47,6 +47,7 @@ function Scenario($name, $block) {
     Log ("=== {0}: {1}" -f $name, $(if ($results[$name].ok) { "PASS" } else { "FAIL - " + $results[$name].detail }))
 }
 function Note($m) { $script:notes.Add($m); Log "  note: $m" }
+function Clip($t, [int]$n) { $x = (([string]$t) -replace '\s+', ' ').Trim(); if ($x.Length -gt $n) { return $x.Substring(0, $n) } else { return $x } }
 function Assert($cond, $msg) { if (-not $cond) { throw $msg } }
 
 function Shot($name) {
@@ -260,7 +261,7 @@ Scenario "S1_details_consent_and_set_up_later" {
         Assert ($infoLine -match "Apache-2\.0") "licence not displayed: $infoLine"
         Assert ($infoLine -match "Estimated memory needed: [0-9.]+ GB") "resource estimate not displayed: $infoLine"
         Assert ($infoLine -match "pretrained third-party model") "third-party disclosure missing: $infoLine"
-        Note "model info shown: $($infoLine.Substring(0, [Math]::Min(300, $infoLine.Length)))"
+        Note "model info shown: $(Clip $infoLine 300)"
         Assert ($all -match "Windows: ") "system section not shown"
         Assert ($all -match "GPU:") "GPU line not shown"
         $go = Find-Btn $w "^Download 1\.28 GB and set up$"
@@ -269,8 +270,8 @@ Scenario "S1_details_consent_and_set_up_later" {
         # nothing may be downloaded, and nothing may be connected, before the button is pressed
         Start-Sleep -Seconds 10
         Assert ((Big-Files).Count -eq 0) "files > 1 MB exist before consent: $((Big-Files | ForEach-Object { $_.Name }) -join ',')"
-        $conns = @(); try { $conns = @(Get-NetTCPConnection -OwningProcess $p.Id -ErrorAction Stop | Where-Object { $_.RemoteAddress -notin "127.0.0.1", "::1", "0.0.0.0", "::" -and $_.State -ne "Listen" }) } catch { Note "connection check unavailable: $($_.Exception.Message)" }
-        Assert ($conns.Count -eq 0) "network connections exist before consent: $(($conns | ForEach-Object { $_.RemoteAddress + ':' + $_.RemotePort }) -join ',')"
+        $ns = @(netstat -ano -p tcp | Where-Object { $_ -match "\s$($p.Id)\s*$" -and $_ -notmatch "(127\.0\.0\.1|\[::1\]|0\.0\.0\.0:0|LISTENING)" })
+        Assert ($ns.Count -eq 0) "network connections exist before consent: $($ns -join ' ; ')"
         Note "10 s with the wizard open: no files over 1 MB, no non-local TCP connections"
         $st = Get-Setup; Assert (-not ($st -and $st.completed)) "setup already marked complete before anything happened"
         # Set up later
@@ -280,7 +281,7 @@ Scenario "S1_details_consent_and_set_up_later" {
         Assert $main "main window not available after 'Set up later'"
         Shot "s1-main-after-set-up-later"
         $r = Ask $p "hello there" "(?i)(no model|not installed|no chat model|set up)" 60
-        Note "chat without a model says: $((($r.conversation -replace '\s+', ' ')).Substring(0, [Math]::Min(250, ($r.conversation -replace '\s+', ' ').Length)))"
+        Note "chat without a model says: $((Clip $r.conversation 250))"
         Assert $r.ok "the chat did not give an honest 'no model' message"
         Assert ($r.conversation -notmatch "(?i)Paris|I am Jarvis") "the chat produced assistant-like text without a model"
         Shot "s1-main-chat-without-model"
@@ -320,7 +321,7 @@ Scenario "S3_failure_retry_cancel_close" {
         Dump-Tree $w "s3-failure"
         $all = All-Text $w
         $res = Wizard-Result $w
-        Note "failure text: $((($res -replace '\s+', ' ')).Substring(0, [Math]::Min(300, ($res -replace '\s+', ' ').Length)))"
+        Note "failure text: $((Clip $res 300))"
         Assert ($res -match "(?i)download failed|network|internet") "failure text does not mention the download/network problem"
         Assert ($all -notmatch "Setup finished") "wizard claims 'Setup finished' after a failed download"
         Assert (-not (Find-Btn $w "^Launch Jarvis$")) "'Launch Jarvis' is visible after a failed download"
@@ -346,7 +347,7 @@ Scenario "S3_failure_retry_cancel_close" {
         Assert (Wait-Text $w "did not finish" 90) "after Cancel the wizard did not end the run"
         Shot "s3-after-cancel"
         $res = Wizard-Result $w
-        Note "after cancel: $((($res -replace '\s+', ' ')).Substring(0, [Math]::Min(200, ($res -replace '\s+', ' ').Length)))"
+        Note "after cancel: $((Clip $res 200))"
         Assert ($res -match "(?i)cancel") "result does not say the setup was cancelled"
         Assert ((All-Text $w) -notmatch "Setup finished") "claims finished after Cancel"
         Assert (-not (Find-Btn $w "^Launch Jarvis$")) "'Launch Jarvis' visible after Cancel"
@@ -411,7 +412,7 @@ Scenario "S4_full_setup_then_question" {
         Assert ($res -notmatch "\[FAILED\]") "a FAILED check is shown in the wizard result"
         Assert ($res -match "\[ok\] the app's own engine answers") "the 'app's own engine answers' check is missing"
         Assert ($res -match "Mode: CPU") "mode CPU not shown"
-        Note ("wizard result: " + (($res -replace "\s+", " ").Substring(0, [Math]::Min(500, ($res -replace "\s+", " ").Length))))
+        Note ("wizard result: " + (Clip $res 500))
         $st = Get-Setup
         Assert ($st -and $st.completed -and $st.real) "setup_state.json does not say completed+real: $($st | ConvertTo-Json -Compress)"
         Assert ($st.model_id -eq "qwen3-1.7b-q4_k_m") "unexpected model id $($st.model_id)"
@@ -424,7 +425,7 @@ Scenario "S4_full_setup_then_question" {
         $r = Ask $p "What is the capital of France? Answer in one short sentence." "Paris" 240
         Shot "s4-main-answer"
         Assert $r.ok "the main window did not show an answer containing 'Paris'. Conversation: $((($r.conversation -replace '\s+', ' ')))"
-        Note "main window conversation: $((($r.conversation -replace '\s+', ' ')).Substring(0, [Math]::Min(300, ($r.conversation -replace '\s+', ' ').Length)))"
+        Note "main window conversation: $((Clip $r.conversation 300))"
     } finally { Stop-AppGracefully $p }
 }
 
@@ -439,52 +440,52 @@ Scenario "S5_reopen_after_success" {
         Shot "s5-reopen-no-wizard"
         $r = Ask $p "What is the capital of Italy? Answer in one short sentence." "Rome" 240
         Assert $r.ok "no answer containing 'Rome' after reopening. Conversation: $((($r.conversation -replace '\s+', ' ')))"
-        Note "after reopening: no wizard; answered: $((($r.conversation -replace '\s+', ' ')).Substring(0, [Math]::Min(250, ($r.conversation -replace '\s+', ' ').Length)))"
+        Note "after reopening: no wizard; answered: $((Clip $r.conversation 250))"
     } finally { Stop-AppGracefully $p }
 }
 
-# =================================================================== S6: integrity failure must fail the setup; restoring the byte lets Retry succeed
-Scenario "S6_integrity_failure_then_retry" {
+# =================================================================== S6: a damaged model must never be accepted; with no network it must FAIL, then Retry repairs it from the verified source
+Scenario "S6_damaged_model_never_accepted" {
+    $PINNED = "d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5"
     $gguf = Get-ChildItem $data -Recurse -Filter "model.gguf" | Select-Object -First 1
     Assert $gguf "no installed model to tamper with"
     $off = [int64]($gguf.Length / 2)
     $fs = [System.IO.File]::Open($gguf.FullName, "Open", "ReadWrite", "None")
     $orig = New-Object byte[] 1
     try { [void]$fs.Seek($off, "Begin"); [void]$fs.Read($orig, 0, 1); [void]$fs.Seek($off, "Begin"); $fs.WriteByte([byte](($orig[0] + 1) % 256)) } finally { $fs.Close() }
-    Note "changed 1 byte of the installed model at offset $off (original value $($orig[0])); setup_state deleted to make the wizard run again"
+    Note "changed 1 byte of the installed model at offset $off; setup_state deleted so the wizard runs again; network BLOCKED"
     Remove-Item "$data\setup_state.json" -Force
+    Block-Net
     $p = Start-App
-    $restored = $false
     try {
         $w = Open-Wizard $p
         Wait-Preview $w
         Shot "s6-wizard-tampered"
+        Dump-Tree $w "s6-wizard"
+        $btn = (Find-Btn $w "^(Check and finish setup|Download .* and set up)$")
+        Assert $btn "no primary setup button"
+        Note "primary button offered for a damaged model: '$($btn.Current.Name)'"
         Click-Btn $w "^(Check and finish setup|Download .* and set up)$"
-        Assert (Wait-Text $w "did not finish" 240) "the wizard did not end with a failure after the model file was altered"
-        Shot "s6-integrity-failure"
+        Assert (Wait-Text $w "did not finish" 240) "with a damaged model and no network the wizard did not end with a failure"
+        Shot "s6-damaged-no-network"
         $res = Wizard-Result $w
-        Note "result: $((($res -replace '\s+', ' ')).Substring(0, [Math]::Min(300, ($res -replace '\s+', ' ').Length)))"
-        Assert ($res -match "\[FAILED\] model file integrity") "integrity failure not shown: $res"
+        Note ("result: " + (Clip $res 300))
         Assert ((All-Text $w) -notmatch "Setup finished") "claims finished with a damaged model"
         Assert (-not (Find-Btn $w "^Launch Jarvis$")) "'Launch Jarvis' offered with a damaged model"
         $st = Get-Setup; Assert (-not ($st -and $st.completed)) "setup marked complete with a damaged model"
-        # restore the original byte and retry
-        $fs = [System.IO.File]::Open($gguf.FullName, "Open", "ReadWrite", "None")
-        try { [void]$fs.Seek($off, "Begin"); $fs.WriteByte($orig[0]) } finally { $fs.Close() }
-        $restored = $true
+        Unblock-Net
         Click-Btn $w "^Retry$"
-        $ok = $false; $end = (Get-Date).AddSeconds(300)
-        while ((Get-Date) -lt $end) { if (Find-Btn $w "^Launch Jarvis$") { $ok = $true; break }; Start-Sleep -Seconds 2 }
+        $ok = $false; $end = (Get-Date).AddSeconds(420)
+        while ((Get-Date) -lt $end) { if (Find-Btn $w "^Launch Jarvis$") { $ok = $true; break }; if ((All-Text $w) -match "did not finish") { Start-Sleep -Seconds 5; if (-not (Find-Btn $w "^Retry$")) { } }; Start-Sleep -Seconds 2 }
         Shot "s6-retry-result"
-        Assert $ok "after restoring the byte, Retry did not complete setup"
-        $st = Get-Setup; Assert ($st -and $st.completed -and $st.real) "state not complete after a good retry"
+        Assert $ok "Retry with the network back did not complete setup"
+        $h = (Get-FileHash (Get-ChildItem $data -Recurse -Filter "model.gguf" | Select-Object -First 1).FullName -Algorithm SHA256).Hash.ToLower()
+        Assert ($h -eq $PINNED) "after Retry the model hash is $h, not the pinned publisher hash"
+        $st = Get-Setup; Assert ($st -and $st.completed -and $st.real -and $st.model_id -eq "qwen3-1.7b-q4_k_m") "state not complete for the pinned model after Retry"
+        Note "Retry re-fetched the model; its SHA-256 equals the pinned publisher hash $PINNED; setup then completed"
         Click-Btn $w "^Launch Jarvis$"
         Assert (Wait-Gone $p.Id "*setup" 30) "wizard did not close after Launch"
-        Note "integrity failure was reported and blocked completion; after restoring the byte, Retry completed and launched"
-    } finally {
-        Stop-AppGracefully $p
-        if (-not $restored) { $fs = [System.IO.File]::Open($gguf.FullName, "Open", "ReadWrite", "None"); try { [void]$fs.Seek($off, "Begin"); $fs.WriteByte($orig[0]) } finally { $fs.Close() } }
-    }
+    } finally { Unblock-Net; Stop-AppGracefully $p }
 }
 } finally { Unblock-Net }
 

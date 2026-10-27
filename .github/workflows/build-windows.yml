@@ -136,10 +136,11 @@ jobs:
           foreach ($f in "ci-logs\ci-real-model-summary.txt","ci-logs\setup_state.json","ci-logs\selftest_online.json","ci-logs\setup_auto.err.txt","ci-logs\screenshot_error.txt") {
             if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
           }
-          foreach ($f in "ci-logs\gui\gui-summary.txt","ci-logs\perf\perf_summary.txt","ci-logs\perf\perf.json") {
+          foreach ($f in "ci-logs\gui\gui-summary.txt","ci-logs\perf\perf_summary.txt") {
             if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
           }
-          foreach ($s in (Get-ChildItem ci-logs\gui -Filter "*.png" -ErrorAction SilentlyContinue)) { Write-Host "::notice title=gui screenshot $($s.Name)::$($s.Length) bytes sha256=$((Get-FileHash $s.FullName -Algorithm SHA256).Hash)" }
+          $shots = @(Get-ChildItem ci-logs\gui -Filter "*.png" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes sha256=$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" })
+          if ($shots.Count) { Write-Host "::notice title=gui screenshots ($($shots.Count))::$($shots -join '%0A')" }
           foreach ($f in (Get-ChildItem ci-logs\gui -Filter "tree-*.txt" -ErrorAction SilentlyContinue | Select-Object -First 6)) { $t = (Get-Content $f.FullName -Raw); if ($t.Length -gt 3500) { $t = $t.Substring(0, 3500) + " ...[truncated]" }; Write-Host "::notice title=$($f.Name)::$(& $enc $t)" }
           if (Test-Path ci-logs\gui\transcript.txt) { $t = (Get-Content ci-logs\gui\transcript.txt -Tail 45) -join "%0A"; if ($t.Length -gt 5000) { $t = $t.Substring($t.Length-5000) }; Write-Host "::notice title=gui transcript tail::$t" }
           if (Test-Path ci-logs\gui_first_launch.png) { $i = Get-Item ci-logs\gui_first_launch.png; Write-Host "::notice title=gui screenshot::gui_first_launch.png $($i.Length) bytes sha256=$((Get-FileHash $i.FullName -Algorithm SHA256).Hash)" }
