@@ -116,7 +116,16 @@ def build_parser() -> argparse.ArgumentParser:
     bi.add_argument("--prompt-variant", choices=("v1", "v2"), help="system-prompt variant to measure (default: the app's current default)")
     bi.add_argument("--sampling-profile", choices=("default", "publisher"), help="sampling settings to measure")
     bi.add_argument("--thinking", action="store_true", help="let a Qwen3 model think before answering (much slower on CPU)")
-    bi.add_argument("--max-tokens", type=int, default=None, help="reply token limit per turn (default 256)")
+    bi.add_argument("--max-tokens", type=int, default=None, help="reply token limit per turn (default 512)")
+    bs = sub.add_parser("bench-security", help="REAL-MODEL security benchmark (sec-v1: injection, prompt leak, memory exfiltration, summary, tool authorization); raw model vs app results kept apart")
+    bs.add_argument("--model", help="installed model id (default: the active model)")
+    bs.add_argument("--out", help="folder for sec_<label>.json and .txt")
+    bs.add_argument("--sampled-runs", type=int, default=2, help="extra runs per case at temperature 0.7 (0-4)")
+    bs.add_argument("--only", help="comma-separated case ids (debugging)")
+    bs.add_argument("--max-minutes", type=float, default=None, help="stop (marking the result incomplete) after this many minutes")
+    bs.add_argument("--label", default="", help="name used in the output file names")
+    bs.add_argument("--prompt-variant", choices=("v1", "v2"), help="system-prompt variant to measure (default: the app's current default)")
+    bs.add_argument("--max-tokens", type=int, default=None, help="reply token limit per turn (default 512)")
     rt = sub.add_parser("runtime", help="is the local AI runtime present in this installation?")
     rt.add_argument("--require", action="store_true", help="exit with an error if it is missing")
     ch = sub.add_parser("chat", help="chat with the active local model (one prompt, or interactive if none given)")
@@ -1018,6 +1027,14 @@ def _main(argv: list[str] | None = None) -> int:
     if args.cmd == "perf":
         from jarvis.eval import perf
         return perf.run_cli(cfg.data_dir, Path(args.out) if args.out else None, args.runs, args.warmup, args.max_tokens)
+    if args.cmd == "bench-security":
+        from jarvis.eval import security_bench
+        if not 0 <= args.sampled_runs <= 4:
+            print("--sampled-runs must be between 0 and 4", file=sys.stderr)
+            return 2
+        return security_bench.run_cli(cfg.data_dir, args.model, Path(args.out) if args.out else None, args.sampled_runs,
+                                      [x for x in (args.only or "").split(",") if x] or None, args.max_minutes, args.label,
+                                      args.prompt_variant, args.max_tokens)
     if args.cmd == "bench-intel":
         from jarvis.eval import intel_bench
         if not 0 <= args.sampled_runs <= 4:

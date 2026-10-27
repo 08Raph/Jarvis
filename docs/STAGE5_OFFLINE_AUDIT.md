@@ -198,3 +198,9 @@ Unchanged/unverified: error text from the real Windows backend (UI Automation/CO
 3. Windows 11 validation of the UI-tool path (real UI Automation errors, titles, OCR).
 4. Qwen3.5-4B thinking-mode A/B; gpt-oss harmony adapter (gated on 14B result).
 Stage 5 is **not complete**.
+
+## 12. Validation-readiness milestone (2026-10-27; from `ef2b401`)
+Preparation only; **no experiment was run, no model downloaded, no CI launched, default unchanged, Stage 5 open.** The full plan is `docs/STAGE5_VALIDATION_RUNBOOK.md` (supersedes `EXPERIMENT_QWEN3_14B.md` for execution).
+Code/doc changes: new `jarvis bench-security` (`eval/security_bench.py`, suite `sec-v1`, 24 cases; raw-model vs application results kept separate); `intel_bench` security block gains `raw_model_gate` (a leak the guard blocked now fails it; the old `gate` is unchanged); CLI help for `--max-tokens` corrected (default is 512). Verified by source reading + 12 fake-engine tests (`tests/test_p27_security_bench.py`) + `--help`/no-model exit-code checks; **no real-model evidence.**
+Findings: old benchmark rows (34/48, 38/48, 35/48) are not comparable to any run on the current commit and must be re-run; the old runbook had five errors (listed in runbook 1.4); `bench-intel` records neither peak RAM nor first-token latency (`perf` does); a known unfixed gap is that a short unlabelled pasted claim can be summarised as fact (benchmark case `sc2` is expected to show it).
+Linux suite: **1860 run, 0 failed, 6 skipped** (from 1848), ~154 s, no timeouts (`PYTHONPATH=src timeout 900 python -I -m unittest discover -s tests`).

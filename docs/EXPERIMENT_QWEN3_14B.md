@@ -1,5 +1,7 @@
 # Experiment runbook: Qwen3-1.7B / 4B / 8B / 14B (NOT YET RUN)
 
+> **Superseded for execution by `docs/STAGE5_VALIDATION_RUNBOOK.md`** (2026-10-27), which fixes errors in this file (the `--label` semantics, `perf` and memory/TTFT recording, use of a throw-away data directory) and adds the security benchmark. Kept as history.
+
 Status: **prepared, not executed.** No Windows PC with >=16 GB RAM was available to the build session, so there are no 14B results. Nothing below has been tested on Windows (the new `add-gguf` options are covered by Linux unit tests with a fake GGUF only). Do not quote any number from this file; results go into `docs/PROMPT24_MODEL_SELECTION_AUDIT.md` after a real run.
 
 ## Approved limits and stop conditions (decide BEFORE downloading anything; stop and ask the owner if any is exceeded)
