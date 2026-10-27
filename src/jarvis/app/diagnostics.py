@@ -16,6 +16,11 @@ from jarvis.config import Config
 
 def scrub_paths(text: str) -> str:
     """Replace the home folder (which contains the Windows user name) and redact secret-looking text."""
+    try:
+        from jarvis.disclosure import scrub_error_text    # long quoted payloads (a prompt copied into an error) are dropped
+        text = "\n".join(scrub_error_text(l, 2000) if len(l) > 300 else l for l in text.splitlines())
+    except Exception:  # noqa: BLE001
+        pass
     home = str(Path.home())
     for h in {home, home.replace("\\", "/")}:
         if h and len(h) > 3:

@@ -70,7 +70,9 @@ def write_crash_log(exc: BaseException, data_dir: Path | None = None) -> Path | 
         from jarvis import __version__
         with open(p, "a", encoding="utf-8") as f:
             f.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} Project JARVIS {__version__} ===\n")
-            f.write(_scrub("".join(traceback.format_exception(type(exc), exc, exc.__traceback__))))
+            from jarvis.disclosure import safe_exception_text
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            f.write(_scrub(safe_exception_text(exc, tb)))
         return p
     except Exception:
         return None
@@ -91,8 +93,9 @@ def run(main: Callable[[Sequence[str] | None], int], argv: Sequence[str] | None 
         print("\nStopped.")
         rc = 130
     except BaseException as e:     # noqa: BLE001 - last line of defence in a packaged app
+        from jarvis.disclosure import scrub_error_text
         log = write_crash_log(e, data_dir)
-        print(f"\nProject JARVIS hit an unexpected problem: {type(e).__name__}: {_scrub(str(e))}")
+        print(f"\nProject JARVIS hit an unexpected problem: {type(e).__name__}: {_scrub(scrub_error_text(str(e)))}")
         if log:
             print(f"Technical details were saved on this PC only: {log}")
         else:

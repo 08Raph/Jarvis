@@ -15,6 +15,11 @@ DEFAULT_SAMPLING_PROFILE = "default"
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
+class InferenceError(RuntimeError):
+    """The model runtime failed while generating.  Carries only the error type: the library's own message may contain the
+    prompt (system instructions, saved notes, conversation), so it is not forwarded."""
+
+
 class RuntimeUnavailable(RuntimeError):
     pass
 
@@ -62,6 +67,15 @@ def fit_messages(messages: list[dict], budget_tokens: int, count: Callable[[str]
         kept.append(m)
         used += c
     return system + list(reversed(kept))
+
+
+def _guard_stream(chunks):
+    try:
+        yield from chunks
+    except GeneratorExit:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
 
 
 class GGUFEngine:
@@ -167,16 +181,23 @@ class GGUFEngine:
         return fit_messages(msgs, max(256, self.n_ctx - max_tokens - 64), self._count)
 
     def chat(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> str:
-        r = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
-                                            temperature=temperature, **self._gen_kwargs(temperature))
+        try:
+            r = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
+                                                temperature=temperature, **self._gen_kwargs(temperature))
+        except Exception as e:  # noqa: BLE001
+            raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
         out = strip_thinking(r["choices"][0]["message"]["content"] or "")
         self._note(r, out)
         return out
 
     def stream(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> Iterator[str]:
         buf, in_think = "", False
-        for chunk in self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
-                                                     temperature=temperature, stream=True, **self._gen_kwargs(temperature)):
+        try:
+            chunks = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
+                                                     temperature=temperature, stream=True, **self._gen_kwargs(temperature))
+        except Exception as e:  # noqa: BLE001
+            raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
+        for chunk in _guard_stream(chunks):
             piece = chunk["choices"][0].get("delta", {}).get("content") or ""
             buf += piece
             # hide any <think>...</think> block even if the model ignores /no_think

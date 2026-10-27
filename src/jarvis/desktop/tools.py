@@ -388,7 +388,7 @@ def h_check_visible(a, env):
         for e in els:
             if not e["offscreen"] and (q in e["name"].lower()):
                 return Outcome(True, f"'{a['text']}' is visible in '{w['title']}'", verified=True, evidence=f"UI Automation: {e['control_type']} '{e['name']}'",
-                               data={"found": True, "method": "uia"})
+                               data={"found": True, "method": "uia"}, untrusted_text=f"{w['title']}\n{e['name']}")
         for e in els:
             if e["control_type"] in ("edit", "text", "document") and not e["is_password"]:
                 try:
@@ -398,7 +398,7 @@ def h_check_visible(a, env):
                     continue
                 if q in str(v.get("value") or "").lower():
                     return Outcome(True, f"'{a['text']}' is shown in '{w['title']}'", verified=True,
-                                   evidence=f"UI Automation value of {e['control_type']} '{e['name']}'", data={"found": True, "method": "uia"})
+                                   evidence=f"UI Automation value of {e['control_type']} '{e['name']}'", data={"found": True, "method": "uia"}, untrusted_text=f"{w['title']}\n{e['name']}")
         uia_note = "not found through UI Automation"
     except Exception as e:  # noqa: BLE001
         uia_note = f"UI Automation unavailable ({e})"
@@ -408,9 +408,9 @@ def h_check_visible(a, env):
         found = q in text.lower()
         return Outcome(True, f"'{a['text']}' {'is' if found else 'is NOT'} visible in '{w['title']}'", verified=True,
                        evidence=f"{uia_note}; OCR ({res.get('engine')}) {'found' if found else 'did not find'} it",
-                       data={"found": found, "method": "ocr"})
+                       data={"found": found, "method": "ocr"}, untrusted_text=w["title"])
     return Outcome(True, f"'{a['text']}' was not found in '{w['title']}'", verified=True,
-                   evidence=f"{uia_note}; OCR not tried (screen permission is off)", data={"found": False, "method": "uia"})
+                   evidence=f"{uia_note}; OCR not tried (screen permission is off)", data={"found": False, "method": "uia"}, untrusted_text=w["title"])
 
 
 # ----------------------------------------------------------------------------- registry of specs
@@ -489,7 +489,7 @@ SPECS: list[ToolSpec] = [
     ToolSpec("read_screen_text", "OCR the text visible in a window or on screen", "screen", S.OBSERVE, W, h_read_screen_text,
              timeout=60, untrusted_output=True),
     ToolSpec("check_visible", "check whether some text is visible in a window (accessibility first, then OCR)", "ui", S.OBSERVE,
-             W + (Arg("text", "str", max_len=200),), h_check_visible, timeout=60),
+             W + (Arg("text", "str", max_len=200),), h_check_visible, timeout=60, untrusted_output=True),
 ]
 
 _RISK_FOR = {"write_file": F.write_risk, "copy_path": F.copy_risk, "launch_app": launch_risk, "ui_act": ui_act_risk,

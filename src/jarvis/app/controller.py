@@ -43,13 +43,16 @@ def explain_error(exc) -> str:
         return msg
     if name == "IntegrityError":
         return msg + "  Run `jarvis models verify`, or reinstall the model with `jarvis setup`."
+    if name == "InferenceError":
+        return msg + "  Try again; if it keeps happening, restart the app or pick a smaller model."
     if name == "RuntimeUnavailable":
         return msg + "  The local AI runtime or the model file could not be loaded. See docs/LOCAL_MODEL.md and run `jarvis runtime`."
     if isinstance(exc, MemoryError):
         return "Not enough memory to load the model. Close other programs, or install a smaller model."
     if name in ("OSError", "ValueError", "KeyError", "FileNotFoundError", "PermissionError", "MissionError", "ScheduleError", "StateError", "PlanError", "MemoryDatabaseError"):
         from jarvis.app.diagnostics import scrub_paths
-        return scrub_paths(f"{name}: {msg}")
+        from jarvis.disclosure import scrub_error_text
+        return scrub_paths(f"{name}: {scrub_error_text(msg)}")
     return f"Unexpected problem ({name}). Details were not shown to avoid leaking personal data; see the diagnostics page."
 
 

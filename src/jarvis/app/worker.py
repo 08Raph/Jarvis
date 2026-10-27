@@ -73,8 +73,9 @@ class BackgroundTasks:
             try:
                 result = fn(token)
             except BaseException as e:  # noqa: BLE001 - a worker must never take the application down
-                err = f"{type(e).__name__}: {e}"
-                task.error = err + "\n" + traceback.format_exc(limit=3)
+                from jarvis.disclosure import safe_exception_text, scrub_error_text
+                err = f"{type(e).__name__}: {scrub_error_text(str(e))}"
+                task.error = err + "\n" + safe_exception_text(e, traceback.format_exc(limit=3))
             task.done = True
             if on_done is not None:
                 self._post(lambda: on_done(result, err))

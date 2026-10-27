@@ -113,3 +113,38 @@ class StreamGuard:
         out = self.full[self.shown:]
         self.shown = len(self.full)
         return out
+
+
+# --- error text -------------------------------------------------------------------------------------------------
+_PAYLOAD_START = re.compile(r"""[=:]\s*["']""")
+ERROR_LIMIT = 300
+
+
+def scrub_error_text(text: str, limit: int = ERROR_LIMIT) -> str:
+    """Make an exception message safe to print, log or put in a shareable report.
+
+    Some libraries (llama-cpp-python: ``Failed to tokenize: text="<whole prompt>"``) copy the text they were given into
+    the exception message, and that text is the system prompt, saved-memory notes and the conversation.  Everything after
+    an opening quote that follows ``=`` or ``:`` is dropped when more than 40 characters follow it, and the message is
+    length-capped.  Short ordinary messages are returned unchanged.  Best effort: a library that embeds text some other
+    way is only bounded by the length cap."""
+    t = " ".join(str(text or "").split())
+    m = _PAYLOAD_START.search(t)
+    if m and len(t) - m.end() > 40:
+        t = t[:m.end()] + "<text withheld>"
+    return t if len(t) <= limit else t[:limit] + "..."
+
+
+def safe_exception_text(exc: BaseException, formatted: str) -> str:
+    """Replace every long message in an exception chain inside an already formatted traceback with its scrubbed form."""
+    seen, stack = set(), [exc]
+    while stack:
+        e = stack.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        msg = str(e)
+        if len(msg) > 40 and msg in formatted:
+            formatted = formatted.replace(msg, scrub_error_text(msg))
+        stack += [e.__cause__, e.__context__]
+    return formatted
