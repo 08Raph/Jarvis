@@ -317,7 +317,7 @@ def _tool_case(engine, case, temperature, max_tokens) -> tuple[str, list[dict]]:
     return reply, res
 
 
-def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None = None) -> dict:
+def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None = None, prompt_variant: str | None = None) -> dict:
     """One run of one case. Returns {replies, checks, passed, seconds}."""
     from jarvis.assistant import LocalAssistant
     from jarvis.config import Config
@@ -334,7 +334,7 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
             mem = PersonalMemory.guest()
             for cat, text in case.get("memory", []):
                 mem.add(cat, text, log=False)
-            a = LocalAssistant(Config(data_dir=Path("__bench_unused__")), guest=True, memory=mem, engine=engine)
+            a = LocalAssistant(Config(data_dir=Path("__bench_unused__")), guest=True, memory=mem, engine=engine, prompt_variant=prompt_variant)
             for turn in case["turns"]:
                 replies.append(a.reply(turn, max_tokens=mt, temperature=temperature))
             final = replies[-1]
@@ -375,7 +375,8 @@ def summary_text(res: dict) -> str:
     L = [f"Intelligence benchmark {res['suite']} - status: {res['status'].upper()}" + ("   [SIMULATED: fake engine, NOT a model result]" if res["simulated"] else ""),
          f"Model: {m.get('id')} ({m.get('quantization')}), {m.get('file_size_bytes')} bytes, sha256 {str(m.get('sha256'))[:16]}...",
          f"Runtime: {res['environment'].get('runtime', {}).get('version')}  OS: {res['environment'].get('os')}  CPU threads: {res['environment'].get('cpu_threads')}  mode: cpu",
-         f"Settings: greedy run + {res['settings']['sampled_runs']} sampled runs at temperature {res['settings']['sampled_temperature']}; max_tokens default {res['settings']['max_tokens_default']}",
+         f"Settings: greedy run + {res['settings']['sampled_runs']} sampled runs at temperature {res['settings']['sampled_temperature']}; max_tokens {res['settings']['max_tokens_default']}; "
+         f"prompt {res['settings']['prompt_variant']}; sampling {res['settings']['sampling_profile']}; thinking {res['settings']['thinking_mode']}",
          f"Cases: {s['cases']}  greedy pass {s['greedy_passed']}/{s['cases']} = {s['greedy_pass_rate']}  sampled pass rate {s['sampled_pass_rate']}  passed in every run {s['all_runs_pass_rate']}",
          f"Exact-answer checks pass {s['exact_checks']['pass']} (n={s['exact_checks']['checks']});  rubric-heuristic checks pass {s['rubric_checks']['pass']} (n={s['rubric_checks']['checks']})",
          f"Time: model load {res['timing']['load_seconds']} s; benchmark {res['timing']['benchmark_seconds']} s"]
@@ -393,14 +394,17 @@ def summary_text(res: dict) -> str:
 
 
 def run(model_dir: str | Path, *, out: Path | None = None, sampled_runs: int = 2, temperature: float = 0.7, only: list[str] | None = None,
-        max_minutes: float | None = None, engine=None, label: str = "") -> dict:
+        max_minutes: float | None = None, engine=None, label: str = "", prompt_variant: str | None = None,
+        sampling_profile: str | None = None, thinking: bool = False, max_tokens: int | None = None) -> dict:
     """Run the suite against the model in model_dir (or an injected engine -> result is marked simulated)."""
     from jarvis.inference.gguf_engine import GGUFEngine, RuntimeUnavailable, runtime_info
     d = Path(model_dir)
     simulated = engine is not None
     res: dict = {"kind": "intelligence-benchmark", "suite": SUITE_VERSION, "suite_sha256": suite_hash(), "label": label, "simulated": simulated,
                  "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "status": "failed", "notes": [],
-                 "settings": {"sampled_runs": sampled_runs, "sampled_temperature": temperature, "greedy_temperature": 0.0, "max_tokens_default": 256,
+                 "settings": {"sampled_runs": sampled_runs, "sampled_temperature": temperature, "greedy_temperature": 0.0, "max_tokens_default": max_tokens or 256,
+                              "prompt_variant": prompt_variant or "default (jarvis.assistant.DEFAULT_PROMPT_VARIANT)", "sampling_profile": sampling_profile or "default",
+                              "thinking_mode": bool(thinking),
                               "system_prompt": "production (jarvis.assistant.build_system_prompt, Normal personality, guest session)",
                               "tool_prompt": "production desktop-agent rules + 5 safe test tools; one decision step; nothing executed"},
                  "environment": {"os": f"{platform.system()} {platform.release()} ({platform.version()})", "machine": platform.machine(),
@@ -418,6 +422,8 @@ def run(model_dir: str | Path, *, out: Path | None = None, sampled_runs: int = 2
                             "context_tokens": meta.get("context_tokens")}
             engine = GGUFEngine(d)
             res["timing"]["load_seconds"] = round(engine.load_seconds, 2)
+            engine.configure(sampling_profile=sampling_profile or "default", thinking=thinking)
+            res["settings"]["sampling_parameters"] = dict(engine.sampling) if (sampling_profile == "publisher") else {}
         else:
             res["model"] = {"id": "fake-engine", "file_size_bytes": None, "sha256": None, "quantization": "n/a"}
             res["timing"]["load_seconds"] = 0.0
@@ -438,7 +444,7 @@ def run(model_dir: str | Path, *, out: Path | None = None, sampled_runs: int = 2
             if max_minutes and (time.perf_counter() - t_start) / 60 > max_minutes:
                 stopped = True
                 break
-            r = run_case(engine, c, temperature=temp)
+            r = run_case(engine, c, temperature=temp, max_tokens=max_tokens, prompt_variant=prompt_variant)
             r["kind"], r["temperature"] = kind, temp
             row["runs"].append(r)
         rows.append(row)
@@ -468,7 +474,8 @@ def _write(res: dict, out: Path | None) -> None:
     (out / f"intel_{tag}.txt").write_text(res.get("summary_text", "") + "\n", encoding="utf-8")
 
 
-def run_cli(data_dir: Path, model_id: str | None, out: Path | None, sampled_runs: int, only: list[str] | None, max_minutes: float | None, label: str) -> int:
+def run_cli(data_dir: Path, model_id: str | None, out: Path | None, sampled_runs: int, only: list[str] | None, max_minutes: float | None, label: str,
+            prompt_variant: str | None = None, sampling_profile: str | None = None, thinking: bool = False, max_tokens: int | None = None) -> int:
     from jarvis.models.manager import ModelStore
     from jarvis.net.policy import NetworkPolicy
     models_dir = Path(data_dir) / "models"
@@ -479,6 +486,7 @@ def run_cli(data_dir: Path, model_id: str | None, out: Path | None, sampled_runs
     if not mid:
         print("No model is installed or selected. Run `jarvis setup` or `jarvis models fetch <id>` first. Nothing was downloaded.")
         return 3
-    res = run(models_dir / mid, out=out, sampled_runs=sampled_runs, only=only, max_minutes=max_minutes, label=label or mid)
+    res = run(models_dir / mid, out=out, sampled_runs=sampled_runs, only=only, max_minutes=max_minutes, label=label or mid,
+              prompt_variant=prompt_variant, sampling_profile=sampling_profile, thinking=thinking, max_tokens=max_tokens)
     print(res.get("summary_text") or json.dumps(res.get("error")))
     return {"complete": 0, "incomplete": 4, "failed": 3}[res["status"]]

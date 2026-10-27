@@ -33,6 +33,7 @@ class CatalogModel:
     metadata_status: str = "publisher-page-read-during-development"   # or "from-publisher-knowledge-NOT-fetched": size/licence unconfirmed
     verified_hardware: tuple[str, ...] = ()   # configurations where this model was actually loaded AND answered; empty = none yet
     redistribution: str = "Not bundled; the user's PC downloads it from the publisher after consent."
+    sampling: tuple = ()          # publisher-recommended sampling for the non-thinking mode, as ((name, value), ...); used by sampling_profile="publisher"
     auto_recommend: bool = True   # False = fetchable on request (and benchmarked) but never chosen by the setup wizard / selector
     thinking_control: str = "suffix"   # how the hidden "thinking" phase is switched off: "suffix" (" /no_think"), "empty_think" (ChatML + empty think block), "none"
 
@@ -43,13 +44,13 @@ BUILTIN: tuple[CatalogModel, ...] = (
         file_regex=r"(?i)q4_k_m.*\.gguf$", license_spdx="Apache-2.0",
         license_url="https://www.apache.org/licenses/LICENSE-2.0", approx_size_bytes=int(1.28e9),
         min_ram_gb=4.0, context_tokens=4096, no_think_suffix=True,
-        params_b=1.7,
+        params_b=1.7, sampling=(("top_p", 0.8), ("top_k", 20), ("min_p", 0.0)),
         note="General small chat model by the Qwen team (Alibaba Cloud). Converted to GGUF by the llama.cpp organisation."),
     CatalogModel(
         id="qwen3-4b-q4_k_m", title="Qwen3 4B (4-bit)", repo="ggml-org/Qwen3-4B-GGUF",
         file_regex=r"(?i)q4_k_m.*\.gguf$", license_spdx="Apache-2.0",
         license_url="https://www.apache.org/licenses/LICENSE-2.0", approx_size_bytes=int(2.5e9),
-        min_ram_gb=6.0, context_tokens=8192, no_think_suffix=True, params_b=4.0,
+        min_ram_gb=6.0, context_tokens=8192, no_think_suffix=True, params_b=4.0, sampling=(("top_p", 0.8), ("top_k", 20), ("min_p", 0.0)),
         metadata_status="from-publisher-knowledge-NOT-fetched",
         note="Mid-size Qwen3 model. Size and licence are NOT confirmed here (the publisher's page could not be reached from the build "
              "sandbox); the real size and file are read from the host at download time and the licence must be checked then."),
@@ -68,8 +69,8 @@ CANDIDATES: tuple[CatalogModel, ...] = (
         id="qwen3.5-4b-q4_k_m", title="Qwen3.5 4B (4-bit, benchmark candidate)", repo="unsloth/Qwen3.5-4B-GGUF",
         file_regex=r"(?i)^Qwen3\.5-4B-Q4_K_M\.gguf$", license_spdx="Apache-2.0",
         license_url="https://www.apache.org/licenses/LICENSE-2.0", approx_size_bytes=int(2.74e9),
-        min_ram_gb=6.0, context_tokens=8192, no_think_suffix=False, params_b=4.0, thinking_control="empty_think",
-        auto_recommend=False,
+        min_ram_gb=6.0, context_tokens=8192, no_think_suffix=False, params_b=4.0, thinking_control="none",
+        sampling=(("top_p", 0.8), ("top_k", 20), ("min_p", 0.0), ("presence_penalty", 1.5)), auto_recommend=False,
         note="Qwen team (Alibaba Cloud) model, GGUF conversion by Unsloth (third party). Size and licence read from the publisher's pages in "
              "Stage 5; whether the bundled llama.cpp runtime can run its architecture is checked by the Stage 5 probe. Not recommended "
              "automatically: it is benchmarked, not adopted."),

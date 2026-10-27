@@ -110,6 +110,10 @@ def build_parser() -> argparse.ArgumentParser:
     bi.add_argument("--only", help="comma-separated case ids (debugging)")
     bi.add_argument("--max-minutes", type=float, default=None, help="stop (marking the result incomplete) after this many minutes")
     bi.add_argument("--label", default="", help="name used in the output file names")
+    bi.add_argument("--prompt-variant", choices=("v1", "v2"), help="system-prompt variant to measure (default: the app's current default)")
+    bi.add_argument("--sampling-profile", choices=("default", "publisher"), help="sampling settings to measure")
+    bi.add_argument("--thinking", action="store_true", help="let a Qwen3 model think before answering (much slower on CPU)")
+    bi.add_argument("--max-tokens", type=int, default=None, help="reply token limit per turn (default 256)")
     rt = sub.add_parser("runtime", help="is the local AI runtime present in this installation?")
     rt.add_argument("--require", action="store_true", help="exit with an error if it is missing")
     ch = sub.add_parser("chat", help="chat with the active local model (one prompt, or interactive if none given)")
@@ -1006,7 +1010,8 @@ def _main(argv: list[str] | None = None) -> int:
             print("--sampled-runs must be between 0 and 4", file=sys.stderr)
             return 2
         return intel_bench.run_cli(cfg.data_dir, args.model, Path(args.out) if args.out else None, args.sampled_runs,
-                                   [x for x in (args.only or "").split(",") if x] or None, args.max_minutes, args.label)
+                                   [x for x in (args.only or "").split(",") if x] or None, args.max_minutes, args.label,
+                                   args.prompt_variant, args.sampling_profile, args.thinking, args.max_tokens)
     if args.cmd == "models" and args.mcmd in ("catalog", "fetch", "add-gguf", "plan"):
         return _models_gguf_cmd(args, cfg, store, policy)
     if args.cmd == "models":

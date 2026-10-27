@@ -19,7 +19,23 @@ on:
         required: false
         default: "100"
       label:
-        description: "name for the result files (e.g. baseline, improved)"
+        description: "name for the result files (e.g. baseline-, improved-)"
+        required: false
+        default: ""
+      prompt_variant:
+        description: "system prompt variant: v1 (Stage 3/4) or v2 (Stage 5 working rules); empty = app default"
+        required: false
+        default: ""
+      sampling_profile:
+        description: "default or publisher (publisher-recommended top_p/top_k/min_p); empty = default"
+        required: false
+        default: ""
+      thinking:
+        description: "true = let Qwen3 models think before answering (very slow on CPU)"
+        required: false
+        default: "false"
+      max_tokens:
+        description: "reply token limit per turn (empty = 256)"
         required: false
         default: ""
 jobs:
@@ -49,7 +65,12 @@ jobs:
           $d = "$env:RUNNER_TEMP\jd"
           python -m jarvis --data-dir $d models fetch ${{ inputs.model_id }} --yes 2>&1 | Tee-Object ci-logs\intel\fetch.txt
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          python -m jarvis --data-dir $d bench-intel --model ${{ inputs.model_id }} --out ci-logs\intel --sampled-runs ${{ inputs.sampled_runs }} --max-minutes ${{ inputs.max_minutes }} --label "${{ inputs.label }}${{ inputs.model_id }}" 2>&1 | Tee-Object ci-logs\intel\run.txt
+          $extra = @()
+          if ("${{ inputs.prompt_variant }}" -ne "") { $extra += @("--prompt-variant", "${{ inputs.prompt_variant }}") }
+          if ("${{ inputs.sampling_profile }}" -ne "") { $extra += @("--sampling-profile", "${{ inputs.sampling_profile }}") }
+          if ("${{ inputs.thinking }}" -eq "true") { $extra += "--thinking" }
+          if ("${{ inputs.max_tokens }}" -ne "") { $extra += @("--max-tokens", "${{ inputs.max_tokens }}") }
+          python -m jarvis --data-dir $d bench-intel --model ${{ inputs.model_id }} --out ci-logs\intel --sampled-runs ${{ inputs.sampled_runs }} --max-minutes ${{ inputs.max_minutes }} --label "${{ inputs.label }}${{ inputs.model_id }}" $extra 2>&1 | Tee-Object ci-logs\intel\run.txt
           exit $LASTEXITCODE
       - name: Report results as annotations
         if: always()

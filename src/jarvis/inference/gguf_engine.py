@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Callable, Iterator
 
+SAMPLING_PROFILES = ("default", "publisher")
+DEFAULT_SAMPLING_PROFILE = "default"
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
@@ -41,6 +43,8 @@ def default_threads() -> int:
 
 def strip_thinking(text: str) -> str:
     text = _THINK.sub("", text)
+    if "<think>" in text and "</think>" not in text:
+        return ""                      # the reply was cut off while still thinking: partial reasoning is never shown as an answer
     return text.split("</think>")[-1].strip() if "</think>" in text else text.strip()
 
 
@@ -63,7 +67,7 @@ def fit_messages(messages: list[dict], budget_tokens: int, count: Callable[[str]
 class GGUFEngine:
     def __init__(self, model_dir: str | Path, n_ctx: int | None = None, n_threads: int | None = None,
                  llama_factory: Callable | None = None, no_think_suffix: bool | None = None,
-                 n_gpu_layers: int | None = None):
+                 n_gpu_layers: int | None = None, sampling_profile: str | None = None):
         d = Path(model_dir)
         self.path = d / "model.gguf"
         if not self.path.is_file():
@@ -79,6 +83,11 @@ class GGUFEngine:
                                          "Reinstall the model: `jarvis models remove` then `jarvis models fetch ...`.") from e
         self.n_ctx = int(n_ctx or meta.get("context_tokens") or 4096)
         self.no_think = bool(meta.get("no_think_suffix")) if no_think_suffix is None else no_think_suffix
+        self.thinking = False          # True = let a Qwen3 model think before answering (slow on CPU); set by callers who asked for it
+        self.model_meta = meta
+        self.sampling_profile = "default"
+        self.sampling: dict = {}
+        self.configure(sampling_profile=sampling_profile or os.environ.get("JARVIS_SAMPLING_PROFILE") or DEFAULT_SAMPLING_PROFILE)
         if llama_factory is None:
             try:
                 from llama_cpp import Llama  # type: ignore
@@ -107,6 +116,26 @@ class GGUFEngine:
         self.load_seconds = time.perf_counter() - t0
         self.gpu_layers_requested = int(n_gpu_layers)
 
+    def configure(self, sampling_profile: str | None = None, thinking: bool | None = None) -> None:
+        """sampling_profile: "default" = temperature only (Stage 3/4 behaviour); "publisher" = the model publisher's recommended top_p/top_k/min_p
+        (and presence penalty) for its non-thinking mode, taken from the model catalog. thinking: allow the hidden reasoning phase."""
+        if thinking is not None:
+            self.thinking = bool(thinking)
+        if sampling_profile is not None:
+            if sampling_profile not in SAMPLING_PROFILES:
+                raise ValueError(f"unknown sampling profile {sampling_profile!r}; choose from {SAMPLING_PROFILES}")
+            self.sampling_profile, self.sampling = sampling_profile, {}
+            if sampling_profile == "publisher":
+                try:
+                    from jarvis.models import catalog
+                    cm = catalog.get(str(self.model_meta.get("catalog_id") or self.model_meta.get("id") or self.path.parent.name))
+                    self.sampling = dict(cm.sampling)
+                except Exception:      # noqa: BLE001 - an unknown model simply has no recommendation: fall back to the default
+                    self.sampling = {}
+
+    def _gen_kwargs(self, temperature: float) -> dict:
+        return dict(self.sampling) if temperature and temperature > 0 else {}
+
     def _count(self, text: str) -> int:
         try:
             return len(self.llm.tokenize(text.encode("utf-8"), add_bos=False))
@@ -115,19 +144,19 @@ class GGUFEngine:
 
     def _prepare(self, messages: list[dict], max_tokens: int) -> list[dict]:
         msgs = [dict(m) for m in messages]
-        if self.no_think and msgs and msgs[-1]["role"] == "user" and not msgs[-1]["content"].rstrip().endswith("/no_think"):
+        if self.no_think and not self.thinking and msgs and msgs[-1]["role"] == "user" and not msgs[-1]["content"].rstrip().endswith("/no_think"):
             msgs[-1]["content"] = msgs[-1]["content"] + " /no_think"
         return fit_messages(msgs, max(256, self.n_ctx - max_tokens - 64), self._count)
 
     def chat(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> str:
         r = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
-                                            temperature=temperature)
+                                            temperature=temperature, **self._gen_kwargs(temperature))
         return strip_thinking(r["choices"][0]["message"]["content"] or "")
 
     def stream(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> Iterator[str]:
         buf, in_think = "", False
         for chunk in self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
-                                                     temperature=temperature, stream=True):
+                                                     temperature=temperature, stream=True, **self._gen_kwargs(temperature)):
             piece = chunk["choices"][0].get("delta", {}).get("content") or ""
             buf += piece
             # hide any <think>...</think> block even if the model ignores /no_think
