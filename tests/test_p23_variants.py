@@ -189,3 +189,43 @@ class ObservedModelQuirks(unittest.TestCase):
 def _specs():
     from jarvis.eval import intel_bench
     return intel_bench.tool_specs()
+
+
+class BenchDiagnostics(unittest.TestCase):
+    """Stage 5: harness diagnostics (FAKE llama runtime - proves the bookkeeping, not model behaviour)."""
+
+    def _engine(self, reply, finish="stop"):
+        class L(FakeLlm):
+            def create_chat_completion(s, messages, max_tokens, temperature, stream=False, **extra):
+                return {"choices": [{"message": {"content": reply}, "finish_reason": finish}], "usage": {"completion_tokens": 40}}
+        with tempfile.TemporaryDirectory() as t:
+            return G.GGUFEngine(make_model_dir(t), llama_factory=L)
+
+    def test_counts_truncation_and_blank_think(self):
+        e = self._engine("<think>still reasoning", finish="length")
+        self.assertEqual(e.chat([{"role": "user", "content": "hi"}]), "")
+        self.assertEqual(e.diag, {"calls": 1, "completion_tokens": 40, "truncated": 1, "blank_unfinished_think": 1})
+        e2 = self._engine("Paris.")
+        e2.chat([{"role": "user", "content": "hi"}])
+        self.assertEqual((e2.diag["truncated"], e2.diag["blank_unfinished_think"]), (0, 0))
+
+    def test_run_case_records_diag_and_summary_has_interval(self):
+        from jarvis.eval import intel_bench as B
+        e = self._engine("Paris.")
+        case = next(c for c in B.CASES if c["id"] == "ins1")
+        r = B.run_case(e, case, temperature=0.0)
+        self.assertEqual(r["diag"]["calls"], 1)
+        self.assertIn("tokens_per_second", r)
+        s = B.summarize([{"id": "x", "cat": "coding", "runs": [dict(r, passed=True)]}, {"id": "y", "cat": "coding", "runs": [dict(r, passed=False)]}])
+        lo, hi = s["greedy_ci95"]
+        self.assertTrue(0 < lo < 0.5 < hi < 1)
+        self.assertEqual(s["diagnostics"]["truncated_runs"], 0)
+
+    def test_fake_engine_without_diag_still_works(self):
+        from jarvis.eval import intel_bench as B
+
+        class Plain:
+            def chat(self, m, max_tokens=1, temperature=0):
+                return "ok"
+        r = B.run_case(Plain(), B.CASES[0], temperature=0.0)
+        self.assertNotIn("diag", r)

@@ -2,6 +2,10 @@
 (LocalAssistant: production system prompt, saved-memory block, personality guidance, conversation history; and for tool cases the
 desktop agent's prompt and strict tool-call parser). Nothing here is special-cased to any model.
 
+Harness diagnostics (added after v1.1, scoring untouched): each run records tokens generated, whether the reply hit the token limit,
+whether it was blanked because it ended inside an unfinished <think> block, and tokens/second; the summary adds a 95% Wilson interval
+for the greedy pass rate. Earlier results do not have these fields.
+
 Scoring (documented in docs/PROMPT23_STAGE5_REVIEW.md):
   * every check is either "exact" (answer-key based: a number, a name, a parsed tool call, a JSON document, code that must pass unit
     tests, a fact that must not appear) or "rubric" (a rule-based quality heuristic: word limits, repetition, an abstention phrase).
@@ -24,7 +28,7 @@ from typing import Callable
 
 from jarvis.eval import benchmarks as B
 
-SUITE_VERSION = "intel-v1.1"
+SUITE_VERSION = "intel-v1.1"      # cases + scoring unchanged since v1.1; run records gained diagnostics (see "Harness diagnostics" below) without changing any score
 # Changelog. v1 -> v1.1 (scorer/settings only; the 48 prompts are unchanged): (a) "no_long_number" no longer counts a year such as 2020 as an
 # invented statistic (it wrongly failed an honest "I have no 2020 census data" answer); (b) the default reply limit is 512 tokens, the app's own
 # limit, instead of 256 (a step-by-step answer was being cut off). Baselines were re-measured with v1.1.
@@ -326,6 +330,9 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
     from jarvis.config import Config
     from jarvis.memory.personal import PersonalMemory
     mt = max_tokens or 512
+    reset = getattr(engine, "diag_reset", None)
+    if reset and hasattr(engine, "diag"):
+        engine.diag = reset()
     t0 = time.perf_counter()
     err = None
     replies: list[str] = []
@@ -346,8 +353,15 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
     except Exception as e:     # noqa: BLE001 - a crash is a failed case, recorded with its reason
         err = f"{type(e).__name__}: {e}"
         checks = [{"t": "no_crash", "mode": "exact", "ok": False}]
-    return {"replies": [r[:700] for r in replies], "checks": checks, "passed": bool(checks) and all(c["ok"] for c in checks), "error": err,
-            "seconds": round(time.perf_counter() - t0, 2)}
+    secs = time.perf_counter() - t0
+    diag = dict(getattr(engine, "diag", None) or {})      # real engine only: tokens generated, truncated replies, replies blanked inside <think>
+    out = {"replies": [r[:700] for r in replies], "checks": checks, "passed": bool(checks) and all(c["ok"] for c in checks), "error": err,
+           "seconds": round(secs, 2)}
+    if diag:
+        out["diag"] = diag
+        if diag.get("completion_tokens") and secs > 0:
+            out["tokens_per_second"] = round(diag["completion_tokens"] / secs, 2)
+    return out
 
 
 # ------------------------------------------------------------------------------------------------------------------------ aggregation
@@ -369,7 +383,19 @@ def summarize(rows: list[dict]) -> dict:
     def by_mode(mode):
         allc = [k["ok"] for r in rows for x in r["runs"] for k in x["checks"] if k["mode"] == mode]
         return {"checks": len(allc), "pass": _rate(allc)}
-    return {"cases": len(rows), "greedy_pass_rate": _rate(greedy), "sampled_pass_rate": _rate(sampled), "all_runs_pass_rate": _rate(every),
+    allruns = [x for r in rows for x in r["runs"]]
+    n = len(greedy)
+    wil = None
+    if n:        # 95% Wilson interval for the greedy pass rate: with 48 cases it is wide, which is the honest size of the evidence
+        k, z = sum(greedy), 1.96
+        c = (k / n + z * z / (2 * n)) / (1 + z * z / n)
+        h = z * ((k / n * (1 - k / n) / n + z * z / (4 * n * n)) ** 0.5) / (1 + z * z / n)
+        wil = [round(max(0.0, c - h), 3), round(min(1.0, c + h), 3)]
+    tps = [x["tokens_per_second"] for x in allruns if x.get("tokens_per_second")]
+    diag = {"runs": len(allruns), "truncated_runs": sum(1 for x in allruns if (x.get("diag") or {}).get("truncated")),
+            "blank_unfinished_think_runs": sum(1 for x in allruns if (x.get("diag") or {}).get("blank_unfinished_think")),
+            "mean_tokens_per_second": round(sum(tps) / len(tps), 2) if tps else None}
+    return {"greedy_ci95": wil, "diagnostics": diag, "cases": len(rows), "greedy_pass_rate": _rate(greedy), "sampled_pass_rate": _rate(sampled), "all_runs_pass_rate": _rate(every),
             "greedy_passed": sum(greedy), "per_category": cats, "exact_checks": by_mode("exact"), "rubric_checks": by_mode("rubric")}
 
 
@@ -383,6 +409,10 @@ def summary_text(res: dict) -> str:
          f"Cases: {s['cases']}  greedy pass {s['greedy_passed']}/{s['cases']} = {s['greedy_pass_rate']}  sampled pass rate {s['sampled_pass_rate']}  passed in every run {s['all_runs_pass_rate']}",
          f"Exact-answer checks pass {s['exact_checks']['pass']} (n={s['exact_checks']['checks']});  rubric-heuristic checks pass {s['rubric_checks']['pass']} (n={s['rubric_checks']['checks']})",
          f"Time: model load {res['timing']['load_seconds']} s; benchmark {res['timing']['benchmark_seconds']} s"]
+    dg = s.get("diagnostics") or {}
+    if dg.get("mean_tokens_per_second") is not None:
+        L.append(f"Diagnostics: truncated-by-token-limit runs {dg['truncated_runs']}/{dg['runs']}; blanked-inside-unfinished-think runs "
+                 f"{dg['blank_unfinished_think_runs']}/{dg['runs']}; mean generation speed {dg['mean_tokens_per_second']} tok/s (end-to-end per case); greedy 95% CI {s.get('greedy_ci95')}")
     for c, d in s["per_category"].items():
         L.append(f"  {c:28} greedy {d['greedy_pass']}  sampled {d['sampled_pass']}  every-run {d['all_runs_pass']}  (cases {d['cases']})")
     fails = [f"{r['id']}" for r in res["cases"] if r["runs"] and not r["runs"][0]["passed"]]

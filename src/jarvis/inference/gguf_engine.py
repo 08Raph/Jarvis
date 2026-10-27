@@ -85,6 +85,7 @@ class GGUFEngine:
         self.no_think = bool(meta.get("no_think_suffix")) if no_think_suffix is None else no_think_suffix
         self.thinking = False          # True = let a Qwen3 model think before answering (slow on CPU); set by callers who asked for it
         self.model_meta = meta
+        self.diag = self.diag_reset()
         self.sampling_profile = "default"
         self.sampling: dict = {}
         self.configure(sampling_profile=sampling_profile or os.environ.get("JARVIS_SAMPLING_PROFILE") or DEFAULT_SAMPLING_PROFILE)
@@ -133,6 +134,23 @@ class GGUFEngine:
                 except Exception:      # noqa: BLE001 - an unknown model simply has no recommendation: fall back to the default
                     self.sampling = {}
 
+    @staticmethod
+    def diag_reset() -> dict:
+        """Counters the benchmark reads (diagnostics only; they change no behaviour): replies, generated tokens, replies cut off by the
+        token limit, replies blanked because they ended inside an unfinished <think> block."""
+        return {"calls": 0, "completion_tokens": 0, "truncated": 0, "blank_unfinished_think": 0}
+
+    def _note(self, r: dict, cleaned: str) -> None:
+        try:
+            d = self.diag
+            d["calls"] += 1
+            d["completion_tokens"] += int((r.get("usage") or {}).get("completion_tokens") or 0)
+            raw = r["choices"][0]
+            d["truncated"] += 1 if raw.get("finish_reason") == "length" else 0
+            d["blank_unfinished_think"] += 1 if (not cleaned and "<think>" in (raw["message"]["content"] or "")) else 0
+        except Exception:      # noqa: BLE001 - diagnostics must never break a reply
+            pass
+
     def _gen_kwargs(self, temperature: float) -> dict:
         return dict(self.sampling) if temperature and temperature > 0 else {}
 
@@ -151,7 +169,9 @@ class GGUFEngine:
     def chat(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> str:
         r = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
                                             temperature=temperature, **self._gen_kwargs(temperature))
-        return strip_thinking(r["choices"][0]["message"]["content"] or "")
+        out = strip_thinking(r["choices"][0]["message"]["content"] or "")
+        self._note(r, out)
+        return out
 
     def stream(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> Iterator[str]:
         buf, in_think = "", False

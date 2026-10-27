@@ -44,7 +44,7 @@ the run summaries read back from the workflows' annotations (the same text the J
 | 40435553604 (A) | Qwen3-1.7B | intel-v1.1, 512 tok, v1, default sampling | 34/48 (0.708) | 0.729 | 0.688 | 585 s |
 | 40435562392 (B) | Qwen3-1.7B | intel-v1.1, 512 tok, **v2**, default | 34/48 (0.708) | 0.667 | 0.604 | 821 s |
 | 40435571488 (C) | Qwen3-1.7B | intel-v1.1, 512 tok, v2, **publisher sampling** | 34/48 (0.708) | 0.677 | 0.625 | 789 s |
-| 40434024392 | Qwen3.5-4B | intel-v1, v1 | **not finished** – see §6 | | | |
+| 40434024392 | Qwen3.5-4B | intel-v1, 256 tok, v1 prompt | 35/48 (0.729) | 0.740 | 0.625 | 5548 s |
 
 Caveats that matter: the 4B row used the older scorer (v1) and 256 tokens, so it is not exactly comparable with A/B/C; the 1.7B moved 33 -> 34 only because of the
 scorer fix (year-aware invented-number check) and the 512-token limit. Each configuration was run once (the sampled runs add 2 repeats), so differences of one or two cases are inside run-to-run noise.
@@ -70,7 +70,9 @@ Recommendation (evidence-limited): keep **Qwen3-1.7B as the default/fallback tie
 (+4 greedy cases measured on CI, at roughly 2× the time). Memory use and tokens/second per tier were **not measured** in this stage beyond the CI timings above, so the RAM thresholds in the catalog remain publisher-based estimates.
 No model migration has been made. Whether to promote Qwen3-4B (or later Qwen3.5-4B) to a catalog tier is a product decision for you after the final Windows 11 hardware validation.
 
-## 6. Stalled-workflow inspection (run 40434024392, Qwen3.5-4B) - updated 2026-10-27 02:38Z
+## 6. Workflow 40434024392 outcome: COMPLETED successfully 03:14Z, 92.5 min benchmark, artifact intel-baseline-qwen3.5-4b-q4_k_m kept (17 KB). Details: docs/PROMPT24_MODEL_SELECTION_AUDIT.md §1. (The inspection notes below were written while it was running.)
+
+## 6a. Stalled-workflow inspection (historical) (run 40434024392, Qwen3.5-4B) - updated 2026-10-27 02:38Z
 Observed (GitHub API): run `in_progress`, started 01:41:08Z (57 min before this check); steps 1-4 succeeded; step 5 "Fetch the model and run the benchmark" `in_progress` since 01:41:51Z; steps 6-7 (annotations, artifact upload) pending; no artifacts exist yet. Logs are not retrievable through this session's proxy, so whether the process is generating tokens, waiting, or hung is **not observable**.
 Caps: the 110-minute value is the `max_minutes` dispatch input (workflow default is 100). It is enforced by the benchmark process itself (`intel_bench.run`, checked before every run of every case, so overshoot is at most one reply), and the job has `timeout-minutes: 175` enforced by GitHub. Both are still ahead. Qwen3-4B needed ~30 min at 256 tokens; Qwen3.5-4B is slower and used the 512-token default, so ~60+ min is plausible. **No evidence of a stall, so the run is not cancelled** (cancelling would lose a result that may finish). Recommendation: continue; re-check once after ~02:55Z (110 min after step 5 start = 03:32Z at the latest for the benchmark's own stop, plus model download time). If it is still `in_progress` after 04:36Z (175 min) GitHub terminates it itself.
 
