@@ -70,12 +70,13 @@ Recommendation (evidence-limited): keep **Qwen3-1.7B as the default/fallback tie
 (+4 greedy cases measured on CI, at roughly 2× the time). Memory use and tokens/second per tier were **not measured** in this stage beyond the CI timings above, so the RAM thresholds in the catalog remain publisher-based estimates.
 No model migration has been made. Whether to promote Qwen3-4B (or later Qwen3.5-4B) to a catalog tier is a product decision for you after the final Windows 11 hardware validation.
 
-## 6. Stalled-workflow inspection (run 40434024392, Qwen3.5-4B)
-Evidence: status `in_progress`, step "Fetch the model … run the benchmark" running since 01:41:51Z; ≈47 min at inspection. Job logs and artifact blobs are not retrievable through the session proxy, so progress is not observable.
-The workflow's own limits: benchmark self-stops at 110 min (`--max-minutes 110`, writes an INCOMPLETE result), job timeout 175 min. Elapsed time is below both and the earlier Qwen3-4B run took ~30 min (48 cases × 3 runs)
-at 256 tokens, so a longer run for a slower model is plausible. **The evidence does not establish a stall; the run was not cancelled.** It will end by itself at the latest after 175 min. Its result will be recorded only if it completes.
+## 6. Stalled-workflow inspection (run 40434024392, Qwen3.5-4B) - updated 2026-10-27 02:38Z
+Observed (GitHub API): run `in_progress`, started 01:41:08Z (57 min before this check); steps 1-4 succeeded; step 5 "Fetch the model and run the benchmark" `in_progress` since 01:41:51Z; steps 6-7 (annotations, artifact upload) pending; no artifacts exist yet. Logs are not retrievable through this session's proxy, so whether the process is generating tokens, waiting, or hung is **not observable**.
+Caps: the 110-minute value is the `max_minutes` dispatch input (workflow default is 100). It is enforced by the benchmark process itself (`intel_bench.run`, checked before every run of every case, so overshoot is at most one reply), and the job has `timeout-minutes: 175` enforced by GitHub. Both are still ahead. Qwen3-4B needed ~30 min at 256 tokens; Qwen3.5-4B is slower and used the 512-token default, so ~60+ min is plausible. **No evidence of a stall, so the run is not cancelled** (cancelling would lose a result that may finish). Recommendation: continue; re-check once after ~02:55Z (110 min after step 5 start = 03:32Z at the latest for the benchmark's own stop, plus model download time). If it is still `in_progress` after 04:36Z (175 min) GitHub terminates it itself.
 
 ## 7. Linux regression suite
+Targeted parser tests (`PYTHONPATH=src python -I -m unittest discover -s tests -p "test_p23_variants.py"`): 15 run, 0 failed. They cover: `get_time()` resolves only to a registered tool; arguments parsed and validated (wrong type, missing, extra, non-object, extra field rejected); unknown/`nope()`/`get_time(1)` rejected; bare JSON rejected; an empty or non-empty unclosed `<think>` before a call rejected. **Passing parser tests proves the parser behaves as specified; it does not prove any benchmark improvement.** The unrelated import I had removed was already restored in the committed version (diff against the previous commit has no deleted lines). All `test_p23*.py`: 31 run, 0 failed; `test_desktop*.py`: 241 run, 0 failed, 1 skipped.
+Full suite:
 1770 run, 0 failed, 6 skipped (same 6 skips as Stage 4; Windows-only). Baseline before Stage 5: 1740 run. Windows: no test run in this segment (instruction).
 
 ## 7b. Not done / unverified

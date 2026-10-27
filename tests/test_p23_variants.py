@@ -165,6 +165,21 @@ class ObservedModelQuirks(unittest.TestCase):
             self.assertIsNone(call)
             self.assertTrue(problem)
 
+    def test_arguments_still_validated_for_parenthesised_names(self):
+        from jarvis.desktop.agent import parse_tool_call
+        specs = _specs()
+        ok, problem = parse_tool_call('<tool_call>{"name":"add_numbers()","arguments":{"a":2,"b":3}}</tool_call>', specs)
+        self.assertEqual((ok["name"], ok["arguments"], problem), ("add_numbers", {"a": 2, "b": 3}, ""))
+        for bad in ('{"name":"add_numbers()","arguments":{"a":"2","b":3}}',         # wrong type
+                    '{"name":"add_numbers()","arguments":{"a":2}}',                  # missing argument
+                    '{"name":"add_numbers()","arguments":{"a":2,"b":3,"c":4}}',      # extra argument
+                    '{"name":"add_numbers()","arguments":[2,3]}',                    # not an object
+                    '{"name":"add_numbers()","extra":1,"arguments":{"a":2,"b":3}}',  # extra field
+                    '{"name":"rm_rf()","arguments":{}}'):                            # unregistered tool
+            call, problem = parse_tool_call("<tool_call>" + bad + "</tool_call>", specs)
+            self.assertIsNone(call, bad)
+            self.assertTrue(problem, bad)
+
     def test_bare_json_is_still_not_a_call(self):
         from jarvis.desktop.agent import parse_tool_call
         call, problem = parse_tool_call('{"name":"get_time","arguments":{}}', _specs())
