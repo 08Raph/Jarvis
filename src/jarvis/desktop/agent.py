@@ -63,6 +63,7 @@ _THINK_PAIR = re.compile(r"<think>.*?</think>", re.S | re.I)
 _THINK_OPEN = re.compile(r"<\s*think\s*>", re.I)
 _THINK_CLOSE = re.compile(r"<\s*/\s*think\s*>", re.I)
 _ONE_CALL = re.compile(r"<tool_call>(.*)</tool_call>", re.S)
+_CALL_PARENS = re.compile(r"\A([A-Za-z_][\w.\-]*)\(\s*\)\Z")           # "get_time()" -> "get_time"
 
 
 class _Duplicate(ValueError):
@@ -139,6 +140,9 @@ def parse_tool_call(text: str, specs: dict | None = None) -> tuple[dict | None, 
     name = obj.get("name")
     if not isinstance(name, str) or not name.strip():
         return None, "the tool call needs a string 'name'"
+    pm = _CALL_PARENS.match(name.strip())
+    if pm:
+        name = pm.group(1)                          # cosmetic "()" only; the name must still match a registered tool exactly
     args = obj.get("arguments", obj.get("args", {}))
     if not isinstance(args, dict):
         return None, "'arguments' must be an object"

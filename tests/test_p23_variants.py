@@ -139,3 +139,38 @@ class Sampling(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObservedModelQuirks(unittest.TestCase):
+    """Stage 5: output quirks observed in the REAL Qwen3 baselines (strings are copied in shape; these tests use no model)."""
+
+    def test_real_unfinished_reasoning_is_still_refused(self):
+        from jarvis.desktop.agent import parse_tool_call
+        specs = _specs()
+        for t in ('<think>\n\n<tool_call>{"name":"get_time","arguments":{}}</tool_call>',   # even an EMPTY unclosed opener: Stage 3 security rule
+                  '<think>I should call <tool_call>{"name":"get_time","arguments":{}}</tool_call>',
+                  '<think>\nthinking about it\n<tool_call>{"name":"get_time","arguments":{}}</tool_call>'):
+            call, problem = parse_tool_call(t, specs)
+            self.assertIsNone(call)
+            self.assertTrue(problem)
+        self.assertEqual(G.strip_thinking("<think>still going"), "")
+
+    def test_cosmetic_parentheses_in_tool_name(self):
+        from jarvis.desktop.agent import parse_tool_call
+        specs = _specs()
+        call, problem = parse_tool_call('<tool_call>{"name":"get_time()","arguments":{}}</tool_call>', specs)
+        self.assertEqual((call["name"], problem), ("get_time", ""))
+        for bad in ("nope()", "get_time(1)", "get_time()x"):     # unknown or non-cosmetic names stay refused
+            call, problem = parse_tool_call('<tool_call>{"name":"%s","arguments":{}}</tool_call>' % bad, specs)
+            self.assertIsNone(call)
+            self.assertTrue(problem)
+
+    def test_bare_json_is_still_not_a_call(self):
+        from jarvis.desktop.agent import parse_tool_call
+        call, problem = parse_tool_call('{"name":"get_time","arguments":{}}', _specs())
+        self.assertIsNone(call)
+
+
+def _specs():
+    from jarvis.eval import intel_bench
+    return intel_bench.tool_specs()
