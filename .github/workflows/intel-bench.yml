@@ -1,0 +1,66 @@
+# Stage 5: REAL intelligence benchmark (intel-v1) of one local model on a GitHub-hosted Windows runner (CPU only, no GPU).
+# The model is downloaded from its publisher through the app's own consent + SHA-256 path (jarvis models fetch --yes; consent = this manual dispatch).
+# Manual only. Results are printed as annotations and uploaded as an artifact (benchmark prompts/answers only; no user data exists on the runner).
+name: intel-bench
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: "catalog id (qwen3-1.7b-q4_k_m, qwen3-4b-q4_k_m, qwen3.5-4b-q4_k_m)"
+        required: true
+      sampled_runs:
+        description: "extra sampled runs per case (0-4)"
+        required: false
+        default: "2"
+      max_minutes:
+        description: "stop (result marked incomplete) after this many minutes of benchmarking"
+        required: false
+        default: "100"
+      label:
+        description: "name for the result files (e.g. baseline, improved)"
+        required: false
+        default: ""
+jobs:
+  bench:
+    runs-on: windows-2022
+    timeout-minutes: 175
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Install the runtime exactly like the app build does (prebuilt CPU wheel)
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install llama-cpp-python --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          python -m pip install -e .
+      - name: Fetch the model (checksum verified by the app) and run the benchmark
+        id: bench
+        shell: powershell
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          $ErrorActionPreference = "Continue"
+          New-Item -ItemType Directory -Force ci-logs\intel | Out-Null
+          $d = "$env:RUNNER_TEMP\jd"
+          python -m jarvis --data-dir $d models fetch ${{ inputs.model_id }} --yes 2>&1 | Tee-Object ci-logs\intel\fetch.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m jarvis --data-dir $d bench-intel --model ${{ inputs.model_id }} --out ci-logs\intel --sampled-runs ${{ inputs.sampled_runs }} --max-minutes ${{ inputs.max_minutes }} --label "${{ inputs.label }}${{ inputs.model_id }}" 2>&1 | Tee-Object ci-logs\intel\run.txt
+          exit $LASTEXITCODE
+      - name: Report results as annotations
+        if: always()
+        shell: powershell
+        run: |
+          foreach ($f in (Get-ChildItem ci-logs\intel -Filter "intel_*.txt")) { $t = (Get-Content $f.FullName -Raw); if ($t.Length -gt 6500) { $t = $t.Substring(0, 6500) }; Write-Host "::notice title=$($f.Name)::$($t -replace "`r?`n", '%0A')" }
+          foreach ($f in (Get-ChildItem ci-logs\intel -Filter "intel_*.json")) { $j = Get-Content $f.FullName -Raw | ConvertFrom-Json
+            $rows = foreach ($c in $j.cases) { "{0}:{1}" -f $c.id, (($c.runs | ForEach-Object { if ($_.passed) { "1" } else { "0" } }) -join "") }
+            Write-Host "::notice title=per-case pass flags (greedy then sampled) $($f.Name)::$($rows -join ' ')" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: intel-${{ inputs.label }}${{ inputs.model_id }}
+          path: ci-logs/intel/**

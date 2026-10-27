@@ -40,21 +40,25 @@ def build_system_prompt(personality_instructions: str, memory_context: str = "")
 
 class LocalAssistant:
     def __init__(self, cfg: Config, engine_factory=None, max_history_messages: int = 40, guest: bool = False,
-                 memory: PersonalMemory | None = None):
-        store = ModelStore(cfg.models_dir, NetworkPolicy.load(cfg.settings_path))
-        active = store.active()
-        if active is None:
-            raise NoActiveModel("No model is installed or selected. Run `jarvis setup` or `jarvis models fetch`.")
-        if store.kind(active) != "gguf":
-            raise NoActiveModel(f"The selected model '{active}' is a from-scratch research checkpoint, not a chat model. "
-                                "Install the free chat model with `jarvis models fetch qwen3-1.7b-q4_k_m`.")
-        ok, problems = store.verify(active, quick=True)
-        if not ok:
-            raise IntegrityError(f"model {active} failed its integrity check: {problems}")
-        if engine_factory is None:
-            from jarvis.inference.gguf_engine import GGUFEngine as engine_factory  # noqa: N813
-        self.engine = engine_factory(store.path(active))
-        self.model_id = active
+                 memory: PersonalMemory | None = None, engine=None, model_id: str | None = None):
+        if engine is not None:         # an already-loaded engine (the intelligence benchmark); no model-store lookup
+            self.engine = engine
+            self.model_id = model_id or "injected-engine"
+        else:
+            store = ModelStore(cfg.models_dir, NetworkPolicy.load(cfg.settings_path))
+            active = store.active()
+            if active is None:
+                raise NoActiveModel("No model is installed or selected. Run `jarvis setup` or `jarvis models fetch`.")
+            if store.kind(active) != "gguf":
+                raise NoActiveModel(f"The selected model '{active}' is a from-scratch research checkpoint, not a chat model. "
+                                    "Install the free chat model with `jarvis models fetch qwen3-1.7b-q4_k_m`.")
+            ok, problems = store.verify(active, quick=True)
+            if not ok:
+                raise IntegrityError(f"model {active} failed its integrity check: {problems}")
+            if engine_factory is None:
+                from jarvis.inference.gguf_engine import GGUFEngine as engine_factory  # noqa: N813
+            self.engine = engine_factory(store.path(active))
+            self.model_id = active
         self.guest = guest
         if guest:      # temporary session: nothing personal is read from or written to disk
             self.memory = memory or PersonalMemory.guest()

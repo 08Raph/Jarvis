@@ -103,6 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
     pf.add_argument("--runs", type=int, default=3, help="measured runs (max 10)")
     pf.add_argument("--warmup", type=int, default=1, help="warm-up runs, reported separately (max 3)")
     pf.add_argument("--max-tokens", type=int, default=128, help="tokens per run (max 512)")
+    bi = sub.add_parser("bench-intel", help="REAL intelligence benchmark (intel-v1: 48 fixed cases, 12 categories) of an installed model; writes JSON + summary")
+    bi.add_argument("--model", help="installed model id (default: the active model)")
+    bi.add_argument("--out", help="folder for intel_<model>.json and .txt")
+    bi.add_argument("--sampled-runs", type=int, default=2, help="extra runs per case at temperature 0.7 (0-4)")
+    bi.add_argument("--only", help="comma-separated case ids (debugging)")
+    bi.add_argument("--max-minutes", type=float, default=None, help="stop (marking the result incomplete) after this many minutes")
+    bi.add_argument("--label", default="", help="name used in the output file names")
     rt = sub.add_parser("runtime", help="is the local AI runtime present in this installation?")
     rt.add_argument("--require", action="store_true", help="exit with an error if it is missing")
     ch = sub.add_parser("chat", help="chat with the active local model (one prompt, or interactive if none given)")
@@ -993,6 +1000,13 @@ def _main(argv: list[str] | None = None) -> int:
     if args.cmd == "perf":
         from jarvis.eval import perf
         return perf.run_cli(cfg.data_dir, Path(args.out) if args.out else None, args.runs, args.warmup, args.max_tokens)
+    if args.cmd == "bench-intel":
+        from jarvis.eval import intel_bench
+        if not 0 <= args.sampled_runs <= 4:
+            print("--sampled-runs must be between 0 and 4", file=sys.stderr)
+            return 2
+        return intel_bench.run_cli(cfg.data_dir, args.model, Path(args.out) if args.out else None, args.sampled_runs,
+                                   [x for x in (args.only or "").split(",") if x] or None, args.max_minutes, args.label)
     if args.cmd == "models" and args.mcmd in ("catalog", "fetch", "add-gguf", "plan"):
         return _models_gguf_cmd(args, cfg, store, policy)
     if args.cmd == "models":
