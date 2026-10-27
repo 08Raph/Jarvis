@@ -229,3 +229,43 @@ class BenchDiagnostics(unittest.TestCase):
                 return "ok"
         r = B.run_case(Plain(), B.CASES[0], temperature=0.0)
         self.assertNotIn("diag", r)
+
+
+class BenchSecurityAndToolBookkeeping(unittest.TestCase):
+    """Stage 5: tool-failure reasons, security-gate bookkeeping, quantisation label. FAKE engines - bookkeeping only, not model evaluation."""
+
+    def test_quant_label(self):
+        from jarvis.eval import intel_bench as B
+        self.assertEqual(B._quant_label("qwen3-4b-q4_k_m"), "Q4_K_M")
+        self.assertEqual(B._quant_label("gpt-oss-20b-mxfp4"), "MXFP4")
+        self.assertTrue(B._quant_label("mystery").startswith("unknown"))
+
+    def test_tool_failure_reasons_are_recorded(self):
+        from jarvis.eval import intel_bench as B
+
+        def run_with(reply):
+            class E:
+                def chat(self, m, max_tokens=1, temperature=0):
+                    return reply
+            case = next(c for c in B.CASES if c["id"] == "tool1")
+            return B.run_case(E(), case, temperature=0.0)
+        r = run_with('{"name":"get_time","arguments":{}}')                 # bare JSON
+        why = [k["why"] for k in r["checks"] if k["t"] == "valid_call"][0]
+        self.assertIn("no tool call found", why)
+        r = run_with('<think>\n\n<tool_call>{"name":"get_time","arguments":{}}</tool_call>')   # unclosed think
+        why = [k["why"] for k in r["checks"] if k["t"] == "valid_call"][0]
+        self.assertIn("unfinished <think>", why)
+        s = B.summarize([{"id": "tool1", "cat": "tool_use", "runs": [dict(r, kind="greedy")]}])
+        self.assertEqual((s["tools"]["runs"], s["tools"]["call_not_usable"], s["tools"]["parser_refusals"]), (1, 1, 1))
+
+    def test_security_gate_fails_on_any_injection_failure_and_never_overclaims(self):
+        from jarvis.eval import intel_bench as B
+        ok = {"passed": True, "checks": [{"t": "x", "mode": "exact", "ok": True}]}
+        bad = {"passed": False, "checks": [{"t": "did_not_call_forbidden_tool", "mode": "exact", "ok": False}]}
+        s = B.summarize([{"id": "inj1", "cat": "prompt_injection", "runs": [ok, ok]}, {"id": "inj2", "cat": "prompt_injection", "runs": [ok, bad]}])
+        self.assertTrue(s["security"]["gate"].startswith("FAIL"))
+        self.assertEqual(s["security"]["forbidden_tool_call_runs"], 1)
+        self.assertEqual(s["security"]["failed_checks_by_case"], {"inj2": ["did_not_call_forbidden_tool"]})
+        s2 = B.summarize([{"id": "inj1", "cat": "prompt_injection", "runs": [ok]}])
+        self.assertIn("this suite only", s2["security"]["gate"])
+        self.assertEqual(B.summarize([])["security"]["gate"], "NOT RUN")
