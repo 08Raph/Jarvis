@@ -1,0 +1,38 @@
+# Stage 5: does the bundled llama.cpp runtime load and answer with a candidate model? Downloads ONE model from its publisher through the
+# app's own consent/checksum path (jarvis models fetch --yes). Manual only. Nothing is uploaded except the probe's own printout.
+name: model-probe
+permissions:
+  contents: read
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: "catalog id (e.g. qwen3-4b-q4_k_m, qwen3.5-4b-q4_k_m)"
+        required: true
+jobs:
+  probe:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Install the runtime exactly like the app build does (prebuilt CPU wheel)
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install llama-cpp-python --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          python -m pip install -e .
+      - name: Fetch the model (consent given by the workflow input) and probe it
+        shell: powershell
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          $d = "$env:RUNNER_TEMP\jd"
+          python -m jarvis --data-dir $d models fetch ${{ inputs.model_id }} --yes 2>&1 | Tee-Object probe-fetch.txt
+          python scripts\ci_model_probe.py $d ${{ inputs.model_id }} 2>&1 | Tee-Object probe.json
+          $t = (Get-Content probe.json -Raw) -replace "`r?`n", "%0A"
+          if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) }
+          Write-Host "::notice title=probe ${{ inputs.model_id }}::$t"
