@@ -137,7 +137,7 @@ jobs:
             if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
           }
           foreach ($f in "ci-logs\gui\gui-summary.txt","ci-logs\perf\perf_summary.txt") {
-            if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 6000) { $t = $t.Substring(0, 6000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
+            if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t.Length -gt 14000) { $t = $t.Substring(0, 14000) + " ...[truncated]" }; Write-Host "::notice title=$f::$(& $enc $t)" }
           }
           $shots = @(Get-ChildItem ci-logs\gui -Filter "*.png" -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length) bytes sha256=$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)" })
           if ($shots.Count) { Write-Host "::notice title=gui screenshots ($($shots.Count))::$($shots -join '%0A')" }
