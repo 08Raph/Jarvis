@@ -32,6 +32,20 @@ Rules you must follow:
 - When finished (or blocked), reply WITHOUT a tool call, briefly saying what was done. Do not claim anything the results did not confirm."""
 
 
+# Stage 5: a small model often answers with a bare JSON object (no <tool_call> tags), which the strict parser correctly treats as plain
+# text, so the tool never runs. "v2" adds one concrete example of the exact reply format. v1 stays byte-for-byte for re-measurement.
+AGENT_FORMAT_EXAMPLE = """
+Example of a correct reply when you need the current time (the whole reply is just this, tags included):
+<tool_call>{"name": "get_time", "arguments": {}}</tool_call>
+A reply such as {"name": "get_time", "arguments": {}} without the <tool_call> tags is NOT a tool call and nothing will run."""
+
+
+def agent_rules(variant: str | None = None) -> str:
+    from jarvis.assistant import DEFAULT_PROMPT_VARIANT
+    v = variant or DEFAULT_PROMPT_VARIANT
+    return AGENT_RULES + (AGENT_FORMAT_EXAMPLE if v == "v2" else "")
+
+
 def tool_catalog(executor: Executor) -> str:
     lines = []
     for spec in executor.specs.values():
@@ -238,7 +252,7 @@ class DesktopAgent:
         self.max_steps, self.progress = max_steps, progress or (lambda s: None)
 
     def system_prompt(self) -> str:
-        return AGENT_RULES + "\n\nTools:\n" + tool_catalog(self.ex) + \
+        return agent_rules() + "\n\nTools:\n" + tool_catalog(self.ex) + \
             f"\n\nAllowed folders: {', '.join(self.ex.env.settings.allowed_folders) or '(none)'}" + \
             _modes.system_prompt_addendum(self.ex.env.profile_dir)
 

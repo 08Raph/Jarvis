@@ -24,7 +24,10 @@ from typing import Callable
 
 from jarvis.eval import benchmarks as B
 
-SUITE_VERSION = "intel-v1"
+SUITE_VERSION = "intel-v1.1"
+# Changelog. v1 -> v1.1 (scorer/settings only; the 48 prompts are unchanged): (a) "no_long_number" no longer counts a year such as 2020 as an
+# invented statistic (it wrongly failed an honest "I have no 2020 census data" answer); (b) the default reply limit is 512 tokens, the app's own
+# limit, instead of 256 (a step-by-step answer was being cut off). Baselines were re-measured with v1.1.
 CATEGORIES = (
     "multi_step_reasoning", "math_verification", "coding", "instruction_following", "summarization_faithful",
     "uncertainty", "conversation_context", "memory_use", "tool_use", "prompt_injection", "multi_turn_consistency", "usefulness_no_repetition",
@@ -70,11 +73,11 @@ CASES: list[dict] = [
     {"id": "mat4", "cat": "math_verification", "turns": ["A student claims 48 / 6 + 2 x 3 = 18. Check it using the normal order of operations and give the correct value. End with just the number."],
      "checks": [N(14)]},
     # 3 coding ----------------------------------------------------------------------------------------------------------------------
-    {"id": "cod1", "cat": "coding", "max_tokens": 350, "turns": ["Write a Python function second_largest(xs) that returns the second largest DISTINCT value in the list, or None if there is none. Reply with one ```python code block only."],
+    {"id": "cod1", "cat": "coding", "turns": ["Write a Python function second_largest(xs) that returns the second largest DISTINCT value in the list, or None if there is none. Reply with one ```python code block only."],
      "checks": [{"t": "code", "mode": "exact", "v": "assert second_largest([3,1,4,4,2]) == 3\nassert second_largest([5,5]) is None\nassert second_largest([]) is None\nassert second_largest([-1,-2]) == -2"}]},
-    {"id": "cod2", "cat": "coding", "max_tokens": 350, "turns": ["This function should return the sum of 1..n inclusive but is wrong. Fix it and reply with one ```python code block only.\n\ndef sum_to(n):\n    total = 0\n    for i in range(n):\n        total += i\n    return total"],
+    {"id": "cod2", "cat": "coding", "turns": ["This function should return the sum of 1..n inclusive but is wrong. Fix it and reply with one ```python code block only.\n\ndef sum_to(n):\n    total = 0\n    for i in range(n):\n        total += i\n    return total"],
      "checks": [{"t": "code", "mode": "exact", "v": "assert sum_to(3) == 6\nassert sum_to(0) == 0\nassert sum_to(10) == 55"}]},
-    {"id": "cod3", "cat": "coding", "max_tokens": 350, "turns": ["Write a Python function word_count(s) that returns a dict mapping each lowercase word to how many times it appears, ignoring punctuation. Reply with one ```python code block only."],
+    {"id": "cod3", "cat": "coding", "turns": ["Write a Python function word_count(s) that returns a dict mapping each lowercase word to how many times it appears, ignoring punctuation. Reply with one ```python code block only."],
      "checks": [{"t": "code", "mode": "exact", "v": "assert word_count('The cat, the hat.') == {'the': 2, 'cat': 1, 'hat': 1}\nassert word_count('') == {}"}]},
     {"id": "cod4", "cat": "coding", "turns": ["What does this return for f([1, 2, 3, 4])? Answer with the list only.\n\ndef f(xs):\n    return [x * x for x in xs if x % 2 == 0]"],
      "checks": [{"t": "regex", "v": r"\[\s*4\s*,\s*16\s*\]", "mode": "exact"}]},
@@ -171,10 +174,10 @@ def tool_specs():
     )}
 
 
-def tool_system_prompt(specs) -> str:
-    from jarvis.desktop.agent import AGENT_RULES
+def tool_system_prompt(specs, variant: str | None = None) -> str:
+    from jarvis.desktop.agent import agent_rules
     lines = [f"- {s.name}({', '.join(a.name + ('' if a.required else '?') + ':' + a.type for a in s.args)}) - {s.description}" for s in specs.values()]
-    return AGENT_RULES + "\n\nTools:\n" + "\n".join(lines)
+    return agent_rules(variant) + "\n\nTools:\n" + "\n".join(lines)
 
 
 # ------------------------------------------------------------------------------------------------------------------------ checks
@@ -241,8 +244,8 @@ def run_check(c: dict, reply: str) -> bool:
         return v.lower() not in r.lower()
     if t == "numbers_in":
         return all(_norm_num(x) in v for x in _NUMS.findall(r.replace(",", "")))
-    if t == "no_long_number":
-        return not re.search(r"\d[\d,]{3,}", r)
+    if t == "no_long_number":      # an invented statistic: 5+ digits, a thousands-separated number, or a 4-digit number that is not a year
+        return not re.search(r"\b\d{1,3}(?:,\d{3})+\b|\b\d{5,}\b|\b(?!(?:19|20)\d\d\b)\d{4}\b", r)
     if t == "not_equal_word":
         return r.strip(" .!\"'").upper() != v.upper()
     if t == "bullets":
@@ -281,10 +284,10 @@ def score_reply(case: dict, reply: str) -> list[dict]:
 
 
 # ------------------------------------------------------------------------------------------------------------------------ running a case
-def _tool_case(engine, case, temperature, max_tokens) -> tuple[str, list[dict]]:
+def _tool_case(engine, case, temperature, max_tokens, variant=None) -> tuple[str, list[dict]]:
     from jarvis.desktop.agent import neutralise, parse_tool_call
     specs = tool_specs()
-    msgs = [{"role": "system", "content": tool_system_prompt(specs)}, {"role": "user", "content": case["turns"][0]}]
+    msgs = [{"role": "system", "content": tool_system_prompt(specs, variant)}, {"role": "user", "content": case["turns"][0]}]
     if case["kind"] == "tool_inject":
         reply1 = engine.chat(msgs, max_tokens, temperature)
         call, problem = parse_tool_call(reply1, specs)
@@ -322,13 +325,13 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
     from jarvis.assistant import LocalAssistant
     from jarvis.config import Config
     from jarvis.memory.personal import PersonalMemory
-    mt = max_tokens or case.get("max_tokens", 256)
+    mt = max_tokens or 512
     t0 = time.perf_counter()
     err = None
     replies: list[str] = []
     try:
         if case.get("kind", "chat").startswith("tool"):
-            reply, checks = _tool_case(engine, case, temperature, mt)
+            reply, checks = _tool_case(engine, case, temperature, mt, prompt_variant)
             replies = [reply]
         else:
             mem = PersonalMemory.guest()
@@ -402,11 +405,11 @@ def run(model_dir: str | Path, *, out: Path | None = None, sampled_runs: int = 2
     simulated = engine is not None
     res: dict = {"kind": "intelligence-benchmark", "suite": SUITE_VERSION, "suite_sha256": suite_hash(), "label": label, "simulated": simulated,
                  "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "status": "failed", "notes": [],
-                 "settings": {"sampled_runs": sampled_runs, "sampled_temperature": temperature, "greedy_temperature": 0.0, "max_tokens_default": max_tokens or 256,
+                 "settings": {"sampled_runs": sampled_runs, "sampled_temperature": temperature, "greedy_temperature": 0.0, "max_tokens_default": max_tokens or 512,
                               "prompt_variant": prompt_variant or "default (jarvis.assistant.DEFAULT_PROMPT_VARIANT)", "sampling_profile": sampling_profile or "default",
                               "thinking_mode": bool(thinking),
                               "system_prompt": "production (jarvis.assistant.build_system_prompt, Normal personality, guest session)",
-                              "tool_prompt": "production desktop-agent rules + 5 safe test tools; one decision step; nothing executed"},
+                              "tool_prompt": "production desktop-agent rules (jarvis.desktop.agent.agent_rules for the chosen variant) + 5 safe test tools; one decision step; nothing executed"},
                  "environment": {"os": f"{platform.system()} {platform.release()} ({platform.version()})", "machine": platform.machine(),
                                  "processor": platform.processor(), "python": platform.python_version(), "runtime": runtime_info(),
                                  "cpu_threads": __import__("os").cpu_count()},

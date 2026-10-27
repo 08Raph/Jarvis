@@ -68,6 +68,19 @@ class PromptVariants(unittest.TestCase):
         self.assertNotIn("Working rules", E.seen[0]["content"])
 
 
+class AgentRules(unittest.TestCase):
+    def test_v1_agent_rules_unchanged_and_v2_adds_a_concrete_example(self):
+        from jarvis.desktop import agent
+        self.assertEqual(agent.agent_rules("v1"), agent.AGENT_RULES)
+        v2 = agent.agent_rules("v2")
+        self.assertTrue(v2.startswith(agent.AGENT_RULES))
+        self.assertIn("<tool_call>", v2.split("Example", 1)[1])
+        # the example itself must be a call the strict parser accepts, and the bare-JSON form it warns about must stay refused
+        ok, problem = agent.parse_tool_call('<tool_call>{"name": "get_time", "arguments": {}}</tool_call>')
+        self.assertEqual((ok, problem), ({"name": "get_time", "arguments": {}}, ""))
+        self.assertEqual(agent.parse_tool_call('{"name": "get_time", "arguments": {}}'), (None, ""))
+
+
 class Sampling(unittest.TestCase):
     def setUp(self):
         FakeLlm.calls = []

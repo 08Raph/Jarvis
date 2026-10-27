@@ -99,6 +99,13 @@ class Suite(unittest.TestCase):
             if c["checks"]:
                 self.assertFalse(all(k["ok"] for k in IB.score_reply(c, "")), c["id"])
 
+    def test_invented_statistic_check_allows_years_but_not_made_up_counts(self):
+        c = {"t": "no_long_number", "mode": "exact"}
+        self.assertTrue(IB.run_check(c, "I have no data from the 2020 census for that town."))
+        self.assertFalse(IB.run_check(c, "The population was 1,234 in the 2020 census."))
+        self.assertFalse(IB.run_check(c, "About 4821 people live there."))
+        self.assertFalse(IB.run_check(c, "Around 12000 residents."))
+
     def test_repetition_and_abstention_helpers(self):
         self.assertLess(IB.distinct_ratio("the cat sat on the mat " * 12), 0.5)
         self.assertGreater(IB.distinct_ratio("a quick brown fox jumps over the lazy dog while seven small birds sing loudly nearby today"), 0.95)
@@ -114,7 +121,7 @@ class Running(unittest.TestCase):
             self.assertEqual(res["status"], "complete")
             self.assertIn("SIMULATED", res["summary_text"])
             j = json.loads((Path(d) / "intel_fake.json").read_text(encoding="utf-8"))
-            self.assertEqual(j["suite"], "intel-v1")
+            self.assertEqual(j["suite"], "intel-v1.1")
             self.assertEqual(j["summary"]["cases"], 48)
             self.assertEqual(len(j["cases"][0]["runs"]), 2)
             # chat cases all pass with perfect replies; tool cases fail because this fake engine says nothing (never a free pass)
