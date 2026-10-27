@@ -66,7 +66,11 @@ function Shot($name) {
 function Top-Windows([int]$procId) {
     $c = New-Object System.Windows.Automation.PropertyCondition($AE::ProcessIdProperty, $procId)
     $col = $AE::RootElement.FindAll($TS::Children, $c)
-    $out = @(); foreach ($e in $col) { $out += $e }; return $out
+    $out = @(); foreach ($e in $col) { $out += $e }
+    # a modal dialog (the wizard, a message box) is OWNED by the main window and UI Automation lists it below its owner, not on the desktop
+    $wc = New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+    foreach ($o in @($out)) { try { foreach ($c in $o.FindAll($TS::Children, $wc)) { $out += $c } } catch { } }
+    return $out
 }
 function Find-Win([int]$procId, [string]$pattern) {
     foreach ($w in (Top-Windows $procId)) { try { if ($w.Current.Name -like $pattern) { return $w } } catch { } }
@@ -158,16 +162,19 @@ function Start-App {
 }
 function Stop-AppGracefully($p) {
     if ($p.HasExited) { Note "app had already exited (code $($p.ExitCode))"; return }
-    $main = Find-Win $p.Id "Project JARVIS 0*"
-    $closed = $false
-    foreach ($w in (Top-Windows $p.Id)) {
-        try {
-            $wp = $null
-            if ($w.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$wp)) { $wp.Close(); $closed = $true; Start-Sleep -Milliseconds 700 }
-        } catch { }
+    $end = (Get-Date).AddSeconds(40); $answered = @()
+    while (-not $p.HasExited -and (Get-Date) -lt $end) {
+        $wins = Top-Windows $p.Id
+        # a "Close Jarvis?" question or an information box may be open: answer it like a user would (Yes / OK) with a real click
+        $box = $wins | Where-Object { try { $_.Current.Name -match "^(Close Jarvis\?|Project JARVIS)$" } catch { $false } } | Select-Object -First 1
+        if ($box) { $b = Find-Btn $box "^(&?Yes|Yes|OK)$"; if ($b) { $answered += $box.Current.Name; try { Click-El $b $box } catch { } ; Start-Sleep -Seconds 1; continue } }
+        foreach ($w in ($wins | Where-Object { try { $_.Current.Name -notmatch "^(Close Jarvis\?)$" } catch { $false } } | Select-Object -First 1)) {
+            try { $wp = $null; if ($w.TryGetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern, [ref]$wp)) { $wp.Close() } } catch { }
+        }
+        Start-Sleep -Seconds 2
     }
-    if (-not $p.WaitForExit(25000)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Note "app did not exit within 25 s after the close request; force-stopped (a finding)"; Start-Sleep -Seconds 2 }
-    else { Note "app exited by itself after the window close request (exit code $($p.ExitCode))" }
+    if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue; Note "app did not exit within 40 s after close requests; force-stopped (a finding)"; Start-Sleep -Seconds 2 }
+    else { Note ("app exited after the window close request (exit code {0}){1}" -f $p.ExitCode, $(if ($answered.Count) { "; dialogs answered: " + ($answered -join ", ") } else { "" })) }
 }
 function Get-Setup { try { return (Get-Content "$data\setup_state.json" -Raw -ErrorAction Stop | ConvertFrom-Json) } catch { return $null } }
 function Big-Files { if (Test-Path $data) { return @(Get-ChildItem $data -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Length -gt 1MB }) } else { return @() } }
@@ -188,6 +195,7 @@ function Progress-Sample($win) {
 }
 function Open-Wizard($p, $sec = 90) {
     $w = Wait-Win $p.Id "*setup" $sec
+    if (-not $w) { $names = (Top-Windows $p.Id | ForEach-Object { try { $_.Current.Name } catch { "?" } }) -join " | "; Log "  windows of the process: $names"; Note "windows seen: $names"; Shot "no-wizard-found"; foreach ($t in (Top-Windows $p.Id)) { Dump-Tree $t ("nowizard-" + (($t.Current.Name -replace '[^A-Za-z0-9]', '_'))) } }
     Assert $w "no window titled '* setup' appeared within $sec s"
     Start-Sleep -Seconds 2
     return $w
@@ -203,6 +211,7 @@ function Ask($p, [string]$question, [string]$expectRegex, [int]$sec = 240) {
     $inp = $null
     foreach ($e in (All-Els $main)) { try { if ($e.Current.Name -eq "Message" -and $e.Current.ControlType.ProgrammaticName -ne "ControlType.Text") { $inp = $e; break } } catch { } }
     Assert $inp "chat input 'Message' not found"
+    Dump-Tree $main "main-before-typing"
     Click-El $inp $main
     Start-Sleep -Milliseconds 400
     [System.Windows.Forms.SendKeys]::SendWait($question)
@@ -210,7 +219,7 @@ function Ask($p, [string]$question, [string]$expectRegex, [int]$sec = 240) {
     Start-Sleep -Milliseconds 600
     $typedBack = El-Text $inp
     Note ("typed with real key events; the box then holds: '{0}'" -f ($typedBack -replace "\s+", " ").Trim())
-    Assert ($typedBack -match [regex]::Escape($question.Substring(0, 12))) "the typed text did not arrive in the Message box"
+    if ($typedBack -notmatch [regex]::Escape($question.Substring(0, 12))) { Note "Message box text not readable through UI Automation; relying on the echo in the conversation instead"; Shot "typed-unreadable"; Dump-Tree $main "main-after-typing" }
     Click-Btn $main "^Send$" 10
     $ok = $false; $conv = $null
     $end = (Get-Date).AddSeconds($sec)
