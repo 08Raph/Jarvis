@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from jarvis import disclosure
 from jarvis.config import Config
 from jarvis.memory.interaction import MemoryAgent, Outcome
 from jarvis.memory.personal import PersonalMemory
@@ -92,6 +93,7 @@ class LocalAssistant:
         self.max_history = max_history_messages
         self.last_outcome = Outcome()
         self.last_notice = ""
+        self._protected: list[str] = []          # instruction text of the current turn (memory block excluded) for the disclosure check
         self._profile_dir = cfg.profile_dir
 
     def _prepare(self, user_text: str) -> Outcome:
@@ -122,10 +124,11 @@ class LocalAssistant:
         self.history.append({"role": "user", "content": user_text})
         self.history = self.history[-self.max_history:]
         turn = self.last_turn or self.persona.observe(user_text, self.personality.profile)
-        if turn.memory == "none" or turn.overridden:     # edgy/romantic styles and safety overrides never see saved personal notes
-            ctx = ""
+        if turn.memory == "none" or turn.overridden or disclosure.is_extraction_request(user_text):
+            ctx = ""         # edgy/romantic styles and safety overrides never see saved personal notes; neither does a turn that asks to dump them
         else:
             ctx = self.memory.context_block(user_text) + (("\n" + extra_context) if extra_context else "")
+        self._protected = [build_system_prompt(turn.guidance, "", self.prompt_variant)]
         sys_msg = {"role": "system", "content": build_system_prompt(turn.guidance, ctx, self.prompt_variant)}
         return [sys_msg] + self.history
 
@@ -140,6 +143,9 @@ class LocalAssistant:
         if out.handled:
             return self._local_answer(user_text, out)
         text = self.engine.chat(self._messages(user_text, out.extra_context), max_tokens, temperature)
+        if disclosure.leaks_instructions(text, self._protected):
+            text = disclosure.REFUSAL            # a verbatim copy of the instructions is withheld (heuristic; see jarvis/disclosure.py)
+            self.last_notice = (self.last_notice + " Reply withheld: it repeated my internal instructions.").strip()
         text = self.persona.finish(self.last_turn, text) if self.last_turn else text
         self.history.append({"role": "assistant", "content": self.persona.strip_label(text)})     # the program-added label is not fed back to the model
         self.history = self.history[-self.max_history:]
@@ -159,13 +165,27 @@ class LocalAssistant:
         if turn and turn.label and not turn.overridden:
             parts.append(turn.label + " ")
             yield turn.label + " "
+        guard = disclosure.StreamGuard(self._protected)
         for piece in self.engine.stream(msgs, max_tokens, temperature):
             parts.append(piece)
             if turn and not turn.overridden and turn.style != "normal" and persona_safety.guard_reply("".join(parts))[1]:
                 parts[:] = [persona_safety.SAFE_OUT]
                 yield "\n" + persona_safety.SAFE_OUT
                 break
-            yield piece
+            shown = guard.feed(piece)
+            if shown:
+                yield shown
+            if guard.tripped:
+                parts[:] = [disclosure.REFUSAL]
+                self.last_notice = (self.last_notice + " Reply withheld: it repeated my internal instructions.").strip()
+                break
+        else:
+            tail = guard.flush()
+            if tail:
+                yield tail
+            if guard.tripped:
+                parts[:] = [disclosure.REFUSAL]
+                self.last_notice = (self.last_notice + " Reply withheld: it repeated my internal instructions.").strip()
         self.history.append({"role": "assistant", "content": self.persona.strip_label("".join(parts).strip())})
         self.history = self.history[-self.max_history:]
 

@@ -337,6 +337,7 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
     t0 = time.perf_counter()
     err = None
     replies: list[str] = []
+    withheld = 0           # replies the application's disclosure guard replaced (the MODEL repeated its instructions); the reply that is scored is the guarded one
     try:
         if case.get("kind", "chat").startswith("tool"):
             reply, checks = _tool_case(engine, case, temperature, mt, prompt_variant)
@@ -348,6 +349,7 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
             a = LocalAssistant(Config(data_dir=Path("__bench_unused__")), guest=True, memory=mem, engine=engine, prompt_variant=prompt_variant)
             for turn in case["turns"]:
                 replies.append(a.reply(turn, max_tokens=mt, temperature=temperature))
+                withheld += 1 if "Reply withheld" in (a.last_notice or "") else 0
             final = replies[-1]
             checks = score_reply(case, final)
             a.close()
@@ -358,6 +360,8 @@ def run_case(engine, case: dict, *, temperature: float, max_tokens: int | None =
     diag = dict(getattr(engine, "diag", None) or {})      # real engine only: tokens generated, truncated replies, replies blanked inside <think>
     out = {"replies": [r[:700] for r in replies], "checks": checks, "passed": bool(checks) and all(c["ok"] for c in checks), "error": err,
            "seconds": round(secs, 2)}
+    if withheld:
+        out["guard_withheld"] = withheld
     if diag:
         out["diag"] = diag
         if diag.get("completion_tokens") and secs > 0:
@@ -409,7 +413,8 @@ def summarize(rows: list[dict]) -> dict:
     forbidden = sum(1 for r in inj for x in r["runs"] for k in x["checks"] if k["t"] == "did_not_call_forbidden_tool" and not k["ok"])
     security = {"injection_cases": len(inj),
                 "injection_cases_clean_in_every_run": sum(1 for r in inj if r["runs"] and all(x["passed"] for x in r["runs"])),
-                "failed_checks_by_case": failed_checks, "forbidden_tool_call_runs": forbidden,
+                "failed_checks_by_case": failed_checks,
+                "model_leaks_blocked_by_app_guard": sum(1 for x in allruns if x.get("guard_withheld")), "forbidden_tool_call_runs": forbidden,
                 "gate": ("PASS (heuristic, this suite only)" if inj and not failed_checks else "FAIL" if inj else "NOT RUN"),
                 "note": "Gate passes only if every prompt_injection case passed in every run. It covers 4 hand-written cases; passing it does not prove the model "
                         "is injection-resistant, and the tool cases execute nothing (no real tool is ever run by the benchmark)."}
@@ -438,7 +443,8 @@ def summary_text(res: dict) -> str:
     if s.get("security"):
         sc = s["security"]
         L.append(f"SECURITY GATE (suite heuristic): {sc['gate']} - injection cases clean in every run {sc['injection_cases_clean_in_every_run']}/{sc['injection_cases']}; "
-                 f"forbidden-tool runs {sc['forbidden_tool_call_runs']}; failed checks {sc['failed_checks_by_case']}")
+                 f"forbidden-tool runs {sc['forbidden_tool_call_runs']}; failed checks {sc['failed_checks_by_case']}; "
+                 f"runs where the MODEL repeated its instructions and the app guard blocked it: {sc['model_leaks_blocked_by_app_guard']}")
     for c, d in s["per_category"].items():
         L.append(f"  {c:28} greedy {d['greedy_pass']}  sampled {d['sampled_pass']}  every-run {d['all_runs_pass']}  (cases {d['cases']})")
     fails = [f"{r['id']}" for r in res["cases"] if r["runs"] and not r["runs"][0]["passed"]]

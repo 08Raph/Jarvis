@@ -284,6 +284,8 @@ class PersonalMemory:
 
         def add(label, rows):
             for r in rows:
+                if secrets.find_secret(r["text"]):
+                    continue          # defence in depth: a note that looks like a secret (e.g. saved before the write-time check existed) is never shown to the model
                 if r["id"] not in seen:
                     seen.add(r["id"])
                     lines.append(f"- [{label}] {r['text']}")
