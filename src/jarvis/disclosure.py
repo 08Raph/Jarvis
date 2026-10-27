@@ -56,6 +56,21 @@ def is_long_message(text: str) -> bool:
     return len(text or "") > LONG_MESSAGE_CHARS
 
 
+_DOC_FENCE = re.compile(r"```|<<<|^-{3,}\s*$", re.M)
+_DOC_QUOTE = re.compile(r"^\s*>", re.M)
+_DOC_HEADER = re.compile(r"^(?:from|to|subject|date|cc|sent):\s*\S", re.I | re.M)
+
+
+def is_document_like(text: str) -> bool:
+    """Is this turn probably carrying pasted material (a document, email, web page, log) rather than a personal request?
+    The chat path has no attachment channel - a document arrives as ordinary user text - so this is a structural guess: a long
+    message, a fenced/quoted block, or email-style headers. It is deliberately biased towards 'yes': a wrong 'yes' only means
+    saved NOTES are left out of that one turn (standing preferences still apply); a wrong 'no' is the old behaviour."""
+    t = text or ""
+    return (len(t) > LONG_MESSAGE_CHARS or bool(_DOC_FENCE.search(t)) or len(_DOC_QUOTE.findall(t)) >= 3
+            or len(_DOC_HEADER.findall(t)) >= 2)
+
+
 def looks_like_instruction(note: str) -> bool:
     """A saved note that reads as an attempt to give the model commands (override rules, forge tool/system tags). Such a note is not shown to the
     model; it is NOT deleted or changed."""

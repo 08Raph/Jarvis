@@ -219,10 +219,14 @@ class MemoryMinimisation(unittest.TestCase):
         self.assertIn("Okafor", m.context_block("Summarize this. dentist Okafor Elm Street. " * 3))
         self.assertIn("Okafor", m.context_block("Summarize this document in one sentence. " + "dentist Okafor Elm Street. " * 30))
 
-    def test_document_and_request_still_works_when_the_request_names_the_topic(self):
+    def test_document_turn_no_longer_receives_notes_even_when_the_request_names_the_topic(self):
+        """Behaviour changed in Stage 5 round 4 (was: 2 notes allowed). The same request WITHOUT the pasted document still gets the note."""
         e = Seen("normal")
         make(e, self.mem()).reply("When is the Falcon launch? Compare it with this:\n\n" + "filler text. " * 80 + "\n\nIs it right?")
-        self.assertIn("March 3", e.prompt())
+        self.assertNotIn("March 3", e.prompt())
+        e2 = Seen("normal")
+        make(e2, self.mem()).reply("When is the Falcon launch?")
+        self.assertIn("March 3", e2.prompt())
 
     def test_instruction_like_and_tag_forging_notes_are_not_shown_but_not_deleted(self):
         m = PersonalMemory.guest()

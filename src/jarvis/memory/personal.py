@@ -290,7 +290,7 @@ class PersonalMemory:
                                                            and row.get("category") in ("explicit_preference", "temporary_task")):
             return None
         if row.get("source") in ("assistant_summary", "assistant_inferred"):
-            label = "auto-summary, written by the assistant"
+            label = "auto-summary, written by the assistant; unverified, may repeat claims from pasted text"
         return f"- [{label}] {disclosure.neutralise_note(text)}"
 
     def context_block(self, query: str = "", max_chars: int = 1500, note_limit: int = 5) -> str:
@@ -317,7 +317,7 @@ class PersonalMemory:
         add("correction", [r for r in self.list("correction") if r["text"].startswith("Avoid:")][-5:])
         add("for now", self.list("temporary_task"))
         q = disclosure.retrieval_query(query)
-        if q:
+        if q and note_limit > 0:
             add("saved note", self.search(q, limit=note_limit, categories=self.NOTE_CATEGORIES))
         if not lines:
             return ""

@@ -87,8 +87,8 @@ def resolve_window(env: Env, window: str | None, hwnd: int | None) -> dict:
     if not hits:
         raise LookupError(f"no open window matches '{window}'")
     if len(hits) > 1:
-        raise LookupError(f"{len(hits)} windows match '{window}': " + "; ".join(f"[{w['hwnd']}] {w['title']}" for w in hits[:8])
-                          + " - give the handle (hwnd) to choose")
+        raise LookupError(f"{len(hits)} windows match '{window}': " + "; ".join(f"[{w['hwnd']}] ({w.get('process')})" for w in hits[:8])
+                          + " - give the handle (hwnd) to choose; list_windows shows the titles")      # titles are outside text: not echoed in an error
     return hits[0]
 
 
@@ -301,7 +301,7 @@ def h_type_text(a, env):
     else:
         v, ev = None, "keystrokes were sent; the result could not be read back (check with ui_read or check_visible)"
     return Outcome(v is not False, f"typed {len(a['text'])} character(s) into '{w['title']}'" if v is not False else "typing did not show up",
-                   verified=v, evidence=ev, data={"hwnd": w["hwnd"]})
+                   verified=v, evidence=ev, data={"hwnd": w["hwnd"]}, untrusted_text=w["title"])
 
 
 def h_press_keys(a, env):
@@ -310,7 +310,8 @@ def h_press_keys(a, env):
     _focus_checked(env, w)
     env.backend.press(vks)
     return Outcome(True, f"pressed {a['keys']} in '{w['title']}'", verified=None,
-                   evidence="keys were sent; check the effect with an observation tool", data={"hwnd": w["hwnd"]})
+                   evidence="keys were sent; check the effect with an observation tool", data={"hwnd": w["hwnd"]},
+                   untrusted_text=w["title"])
 
 
 def h_mouse_click(a, env):
@@ -323,7 +324,7 @@ def h_mouse_click(a, env):
     env.backend.click(x, y, a["button"], a["double"])
     return Outcome(True, f"clicked at ({a['x']},{a['y']}) in '{w['title']}'", verified=None,
                    evidence="click was sent; coordinates are a fallback - prefer ui_act. Check the effect with an observation tool",
-                   data={"hwnd": w["hwnd"], "screen_x": x, "screen_y": y})
+                   data={"hwnd": w["hwnd"], "screen_x": x, "screen_y": y}, untrusted_text=w["title"])
 
 
 # ----------------------------------------------------------------------------- screen
@@ -355,7 +356,7 @@ def h_screenshot(a, env):
     p = _save_png(env, png)
     ok = p.exists() and p.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
     return Outcome(ok, f"screenshot of {title} saved ({width}x{height})", verified=ok, evidence="PNG file written and checked",
-                   data={"path": str(p), "width": width, "height": height})
+                   data={"path": str(p), "width": width, "height": height}, untrusted_text=title if hwnd else "")
 
 
 def _ocr(env, a) -> tuple[dict, str]:
@@ -477,15 +478,15 @@ SPECS: list[ToolSpec] = [
              W + SEL + (Arg("action", "str", choices=("invoke", "toggle", "select", "expand", "collapse", "set_value", "focus")),
                         Arg("value", "str", required=False, max_len=5000)), h_ui_act, untrusted_output=True),
     ToolSpec("type_text", "type text into a window (it is brought to the front first)", "input", S.INPUT,
-             W + (Arg("text", "str", max_len=2000),), h_type_text),
+             W + (Arg("text", "str", max_len=2000),), h_type_text, untrusted_output=True),
     ToolSpec("press_keys", "press a key or shortcut such as ctrl+s or enter (no Windows key)", "input", S.INPUT,
-             W + (Arg("keys", "str", max_len=40, no_newlines=True),), h_press_keys),
+             W + (Arg("keys", "str", max_len=40, no_newlines=True),), h_press_keys, untrusted_output=True),
     ToolSpec("mouse_click", "click at a point RELATIVE to a window's top-left corner (fallback when ui_act cannot be used)", "input",
              S.INPUT, W + (Arg("x", "int", min=0, max=20000), Arg("y", "int", min=0, max=20000),
                            Arg("button", "str", required=False, default="left", choices=("left", "right", "middle")),
-                           Arg("double", "bool", required=False, default=False)), h_mouse_click),
+                           Arg("double", "bool", required=False, default=False)), h_mouse_click, untrusted_output=True),
     ToolSpec("screenshot", "save a screenshot of a window or the screen (kept on this PC, last 20 only)", "screen", S.OBSERVE,
-             W, h_screenshot, timeout=30),
+             W, h_screenshot, timeout=30, untrusted_output=True),
     ToolSpec("read_screen_text", "OCR the text visible in a window or on screen", "screen", S.OBSERVE, W, h_read_screen_text,
              timeout=60, untrusted_output=True),
     ToolSpec("check_visible", "check whether some text is visible in a window (accessibility first, then OCR)", "ui", S.OBSERVE,

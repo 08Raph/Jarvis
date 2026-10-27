@@ -151,3 +151,50 @@ Prompt-bearing tokenizer error absent from: engine exception, crash.log, console
 
 ### Status
 Stage 5 remains **open/blocked**: real-model comparison, real-model injection/leak validation and Windows validation are outstanding.
+
+## 11. Final targeted pass: document turns, outside-data marking, summary attribution (2026-10-27; from `8aeff74`; checkpoint: local tag `stage5-pre-final-targeted-pass`)
+Evidence: **source inspection + automated application-level tests** (`tests/test_p26_final_pass.py`, FAKE engines, SIMULATED desktop). **No real-model testing was performed.** Nothing here shows that a real model resists injection.
+
+### 1. Document-heavy requests (confirmed behavior before the change)
+* The chat assistant has **no attachment or document channel**: a document is ordinary user text, so "existing reliable application context" does not exist. (`grep` of `assistant.py`, `controller.py`, `interaction.py`: no document ingestion.)
+* Before: a long message (>600 chars) still got up to 2 matching notes, and recall branches (`PAST_REF`/`LAST_TIME`) could add recalled records.
+* **Change:** `disclosure.is_document_like(text)` = long (>600 chars) **or** a fenced/`---`/`<<<` block **or** ≥3 `>`-quoted lines **or** ≥2 email headers (`From:`/`Subject:`…). A structural guess, deliberately biased to "yes". On such a turn **no saved notes and no recalled records** are put in the prompt (`note_limit=0`, `extra_context` dropped). Standing preferences, "Avoid:" corrections and temporary instructions still apply (style, not private facts); the older extraction-request guard still drops memory entirely.
+* **Trade-off (accepted):** a long, purely personal message ("a long journal entry asking for advice") also loses note personalisation for that turn; the user can ask the personal question as a separate short message. The turn is not reported to the user (no notice was added). Nothing is deleted or disabled; the next ordinary turn gets notes again (tested). A short document without those cues is still an "ordinary" turn (5 notes, lookup restricted to first/last paragraph as in section 9) — **residual risk.**
+* Memory *writes* from message text are mostly start-of-message anchored (`remember …`), so a pasted document does not write notes unless the user's message starts with such a command (source reading, not exhaustively tested).
+
+### 2. Agent tools that expose UI/window data (audit; hostile title = attacker-set window title / element name)
+The mechanism that matters downstream: `executor` sets `ctx.tainted` when a tool with `untrusted_output=True` returns `untrusted_text`; `policy.decide` then forces confirmation for every non-OBSERVE tool. `observation()` neutralises `<`/`>` in message/evidence/data and wraps `untrusted_text` in `<untrusted_data>`. The tests drive each tool through `DesktopAgent` + real parser/executor/policy with a hostile title, then require taint, no tag forging, and a declined follow-up write.
+| Tool | Outside content returned | Marked untrusted + taints (before → now) | Confirmation |
+|---|---|---|---|
+| `list_windows` | titles, process names | yes → yes | observe: none; later changes confirmed |
+| `focus_window` | title (message, data) | yes → yes | MODIFY per policy; later changes confirmed |
+| `check_visible` | title, element name | **no → yes** (round 3) | observe; later changes confirmed |
+| `type_text` | title in message | **no → yes** | INPUT: per input-confirm setting / first use per program; later all confirmed |
+| `press_keys` | title in message | **no → yes** | as above |
+| `mouse_click` | title in message | **no → yes** | as above |
+| `screenshot` | title when a window is named (image itself is never sent to the model, only path/size) | **no → yes** (when titled) | screen capture always asked |
+| `ui_act` | element name/state | yes → yes | INPUT; `invoke` on destructive-sounding names always asked |
+Also fixed: `resolve_window`'s "N windows match" error echoed every title; it now lists handle + process and points to `list_windows`.
+Unchanged/unverified: error text from the real Windows backend (UI Automation/COM exceptions) could embed element or window names — not observable here (simulated backend only). Taint is per-task and coarse by design; it cannot tell a benign title from a hostile one.
+
+### 3. Summaries
+* Before: the summariser saw the last 20 messages including pasted documents; its output (e.g. a document's claim) could be saved as an "auto-summary" note and reappear in later prompts.
+* **Change:** (a) pasted-looking user turns are given to the summariser as only their request paragraphs plus "[pasted text of N characters left out of this summary]"; (b) the prompt requires saying who each statement comes from and forbids stating pasted claims as facts about the user; (c) when a session had pasted text the program appends a fixed note — "(This session included pasted text; claims that came from it are unverified.)" — so attribution does not depend on the model; (d) summaries cut to 700 chars; (e) later prompts label them "auto-summary, written by the assistant; unverified, may repeat claims from pasted text"; (f) round-3 checks stay (instruction-like / copied-prompt summary not saved; failure saves nothing).
+* **Limits:** the assistant's *replies* about a document are still in the summariser's input and can restate its claims; a model can still write a plain-sounding false statement that passes keyword checks; `is_document_like` can miss a short document. No keyword filter finds all malicious content. Existing stored summaries are untouched (not rewritten).
+
+### Data each model can still receive
+* **Chat model:** system prompt; standing preferences/corrections/temporary instructions; on ordinary turns ≤5 matching notes (incl. labelled auto-summaries) plus recalled records; on document-like turns none of those notes; history; pasted text.
+* **Agent model:** rules, tool catalogue, allowed folders, tool results (file text, titles, UI labels, OCR) — no saved memory.
+* **Summariser:** last 20 messages with pasted text elided (see limits).
+
+### Tests and results
+`tests/test_p26_final_pass.py` (17, all FAKE/SIMULATED): malicious document, personalisation retained, 4 ambiguous shapes, non-document controls, recall dropped with control, notes still stored and returning, tag-free prompt; all 8 listed UI/window tools (taint, tag neutralisation, declined write, no files created), ambiguous-window error, title cannot authorise; summary attribution (document elided, fixed note present only when pasted, later-prompt labels, instruction-like rejected, failure safe). 11 of 17 fail on the pre-change source; the rest are controls. One older test (`test_p24_disclosure`) was **updated on purpose** because it asserted the old behaviour (2 notes on a document turn).
+
+**Linux suite: 1848 run, 0 failed, 6 skipped** (from 1831), ~151 s, no timeouts. Commands: `PYTHONPATH=src python -I -m unittest discover -s tests -p "test_p26_final_pass.py"` (17 OK), `… -p "test_p24_disclosure.py"` (35 OK), `… -p "test_desktop*.py"` (241 OK, 1 skipped), `… -p "test_p2*.py"` (OK), then `PYTHONPATH=src timeout 900 python -I -m unittest discover -s tests`.
+
+### Stage 5 blockers that remain (no further disclosure heuristics planned unless a test shows a concrete hole)
+1. Real-model comparison Qwen3-1.7B/4B/8B/14B on a ≥16 GB Windows PC per `docs/EXPERIMENT_QWEN3_14B.md` (not run).
+2. Real-model security validation: injection (inj1–inj4), system-prompt leak, memory exfiltration, document-turn behaviour, summary contamination — all application-level results above are fake-engine only.
+3. Windows 11 validation of the UI-tool path (real UI Automation errors, titles, OCR).
+4. Qwen3.5-4B thinking-mode A/B; gpt-oss harmony adapter (gated on 14B result).
+Stage 5 is **not complete**.
