@@ -6,6 +6,8 @@ Everything the unit tests do with a model uses a scripted fake; it says nothing 
 This protocol is for a person with a Windows PC, the `llama-cpp-python` runtime and an installed GGUF model. The sandbox this code was written in has none of those.
 Use it together with `STAGE7_VALIDATION_RUNBOOK.md` (setup, exit codes, evidence matrix).
 
+> **Doing the first run? Start with `STAGE7_FIRST_REAL_RUN_CHECKLIST.md`** (a short, ordered Windows checklist with the verified first command). This file is the full reference.
+
 ## 0. The four adult-only modes are restricted
 
 Savage, Flirty, Sexy and Romantic are **temporarily unavailable in the product** (`styles.ADULT_MODES_RESTRICTED = True`) until this review has been done. They cannot be selected by the UI,

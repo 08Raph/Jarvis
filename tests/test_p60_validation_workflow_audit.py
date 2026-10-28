@@ -136,5 +136,81 @@ class ProbeAndProtocol(Base):
                 self.assertNotIn(bad, text, (f, bad))
 
 
+class FirstRunChecklist(AppCase):
+    """Every command in the Windows checklist must be accepted by the program's real argument parser (no invented flags), and its claims must match the code."""
+    DOC = DOCS / "STAGE7_FIRST_REAL_RUN_CHECKLIST.md"
+    PLACEHOLDERS = {"<id>": "x", "<path-to-file>": "f.gguf", "<SPDX id>": "MIT", "<url>": "https://e.x", "<trusted hash>": "0" * 64}
+
+    def commands(self):
+        import re
+        import shlex
+        text = self.DOC.read_text(encoding="utf-8")
+        raw = [m.group(1) for m in re.finditer(r"^python -m jarvis (.*?)(?:\s+#.*)?$", text, re.M)]
+        raw += [m.group(1) for m in re.finditer(r"`python -m jarvis ([^`]+)`", text)]
+        out = []
+        for c in [r for r in raw if r.strip() != "..."]:
+            c = c.replace("$E\\data", "DATA")
+            for k, v in self.PLACEHOLDERS.items():
+                c = c.replace(k, v)
+            out.append(shlex.split(c))
+        return out
+
+    def test_every_command_parses_with_the_real_parser(self):
+        cmds = self.commands()
+        self.assertGreaterEqual(len(cmds), 7)
+        self.assertTrue(any("audit" in c for c in cmds) and any("add-gguf" in c for c in cmds) and any("selftest" in c for c in cmds))
+        parser = cli.build_parser()
+        for argv in cmds:
+            with self.subTest(argv=argv), mock.patch("sys.stderr", io.StringIO()):
+                try:
+                    parser.parse_args(argv)
+                except SystemExit as e:
+                    self.fail(f"not accepted by the real parser: {argv} (exit {e.code})")
+
+    def test_first_run_command_is_the_exact_proposed_one_and_runs_without_restricted_modes(self):
+        text = self.DOC.read_text(encoding="utf-8")
+        self.assertIn("persona audit --styles normal calm --categories serious_sensitive serious_undetected_probe\n", text)
+        args = cli.build_parser().parse_args(["--data-dir", "d", "persona", "audit", "--styles", "normal", "calm", "--categories", "serious_sensitive", "serious_undetected_probe"])
+        self.assertFalse(args.include_restricted_modes)
+        self.assertFalse(args.no_controls)
+        self.assertIn("36 replies in total", text)
+        self.assertIn("(6 replies)", text)
+
+    def test_replies_generated_match_the_documented_counts(self):
+        self.install_model()
+        FakeLlama.reply = "A scripted reply."
+        for controls, expected in ((True, 36), (False, 6)):
+            a = REAL_ASSISTANT(self.cfg, engine_factory=fake_engine_factory, guest=True)
+            n, eng = [0], a._eng()
+            orig = eng.chat
+
+            def counted(*x, _o=orig, _n=n, **k):
+                _n[0] += 1
+                return _o(*x, **k)
+            eng.chat = counted
+            audit.run(a, styles=["normal", "calm"], categories=["serious_sensitive", "serious_undetected_probe"], simulated=True, with_controls=controls)
+            a.close()
+            self.assertEqual(n[0], expected, controls)
+
+    def test_the_checklist_names_real_report_fields_exit_codes_and_no_invented_flags(self):
+        text = self.DOC.read_text(encoding="utf-8")
+        rep = audit.run(self.guest_assistant(), styles=["normal"], categories=["ordinary"], simulated=True, with_controls=False)
+        for field in ("evidence_status", "simulated_model", "complete", "missing_cases", "incomplete", "aborted", "interrupted", "restricted_not_evaluated", "human_reviewed",
+                      "automated_analysis", "human_scores"):
+            self.assertIn(field, text)
+            self.assertIn(field, rep)
+        for phrase in ("exit code 2", "exit code 1", "exit code 3", "UNVERIFIED", "one phrasing and one sample", "check, not proof"):
+            self.assertIn(phrase, text)
+        for banned in ("--cloud", "--download", "--api-key", "--force"):
+            self.assertNotIn(banned, text)
+
+    def guest_assistant(self):
+        self.install_model()
+        FakeLlama.reply = "A scripted reply."
+        a = REAL_ASSISTANT(self.cfg, engine_factory=fake_engine_factory, guest=True)
+        self.addCleanup(a.close)
+        return a
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -152,3 +152,6 @@ Path scrubber rewritten (spaces in folder names, forward-slash drive paths, ~, %
 
 ## Validation-readiness audit
 Empty/blank/label-only model replies are now failed cases (previously a report could be REAL MODEL, COMPLETE with no answers). Reports state the probe is a single limited sample. test_p60 (11). Restriction constant, detector and frozen datasets untouched. Real model, PySide6, Windows, audio NOT run.
+
+## Real-model validation handoff
+New docs/STAGE7_FIRST_REAL_RUN_CHECKLIST.md: ordered Windows checklist (runtime, model, first limited audit, report checks, stop conditions, redaction). Every command in it is parsed by the real argument parser in test_p60; documented reply counts (36 / 6 with --no-controls) are checked against a real run with the fake model. No code behaviour changed. Real model, PySide6, Windows, audio NOT run.
