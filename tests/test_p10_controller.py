@@ -91,6 +91,16 @@ class ChatTests(AppCase):
         self.assertFalse(c.send("x" * 9000))
         self.assertEqual(c.transcript.entries[-1].kind, "error")
 
+    def test_explain_error_scrubs_the_home_folder_from_model_load_errors(self):
+        from pathlib import Path
+        from jarvis.inference.gguf_engine import RuntimeUnavailable
+        model = str(Path.home() / "ProjectJarvis" / "models" / "m" / "model.gguf")
+        for msg in (f"The model file could not be loaded: ValueError: Failed to load model from file: {model}",):
+            for exc in (RuntimeUnavailable(msg), "RuntimeUnavailable: " + msg):
+                out = explain_error(exc)
+                self.assertNotIn(str(Path.home()), out)
+                self.assertIn("could not be loaded", out)
+
     def test_explain_error_hides_unknown_details(self):
         self.assertIn("Unexpected problem", explain_error("ZeroDivisionError: secret"))
         self.assertNotIn("secret", explain_error("ZeroDivisionError: secret"))

@@ -41,6 +41,10 @@ def explain_error(exc) -> str:
         name, msg = type(exc).__name__, str(exc)
     if name == "NoActiveModel":
         return msg
+    if name in ("IntegrityError", "InferenceError", "RuntimeUnavailable"):
+        from jarvis.app.diagnostics import scrub_paths      # the runtime's own load error can quote the model file's full path (it contains the Windows user name)
+        from jarvis.disclosure import scrub_error_text
+        msg = scrub_paths(scrub_error_text(msg))
     if name == "IntegrityError":
         return msg + "  Run `jarvis models verify`, or reinstall the model with `jarvis setup`."
     if name == "InferenceError":
