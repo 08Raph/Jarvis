@@ -16,7 +16,7 @@ no network use during local inference. Local use needs no account. An optional J
 | Backups, schema-version guard, `restore`; first-run setup; CLI (`python -m jarvis`) | Implemented, tested |
 | PyInstaller spec, Inno Setup script, build + clean-install scripts | Written; **not run or compiled** |
 | GPT model, trainer, inference engine (research track) | Written, **never run** (needs PyTorch) |
-| Local open-weight chat model: GGUF install/verify, guarded download, chat, streaming, hardware fit, selftest | Implemented; tested with a fake runtime only. **Real inference NOT tested**; run `jarvis selftest` on Windows (docs/LOCAL_MODEL.md) |
+| Local open-weight chat model: GGUF install/verify, guarded download, chat, streaming, hardware fit, selftest | Implemented; tested with a fake runtime and fake child processes on Linux only. `jarvis selftest` runs the load and one short generation in a separate, time-limited worker process and checks the answer to "What is 2+2?" (a limited smoke test). **Real inference, real llama.cpp crash behaviour, Windows and the PyInstaller build are NOT tested** (docs/LOCAL_MODEL.md, docs/STAGE7_FIRST_REAL_RUN_CHECKLIST.md) |
 | Voice session logic, wake matching, speech filter, personality engine | Implemented, tested with fakes |
 | Real microphone / Vosk / Windows speech backends | Written; **never run on real hardware** (see docs/VOICE.md) |
 | Jarvis Online: server with sign-in, consent, **learning OFF by default (explicit opt-in)**, export/delete-chats/delete-account; client `jarvis online` (blocked in `--guest`) | Implemented, tested on localhost; **no AI model behind it**, TLS/internet untested (docs/ONLINE.md) |
@@ -38,7 +38,7 @@ Without an installed model the CLI says so and exits; it never fabricates answer
     python -m jarvis models install PKG --id ID --sha256 HASH   # or --accept-unverified
     python -m jarvis models list|verify|select|rollback|remove ID
     python -m jarvis chat ["text"]                  # local model (interactive if no text); needs runtime + model
-    python -m jarvis models catalog|fetch|add-gguf ... ; python -m jarvis selftest ; python -m jarvis runtime --require
+    python -m jarvis models catalog|fetch|add-gguf ... ; python -m jarvis selftest [--load-timeout S] [--generate-timeout S] ; python -m jarvis runtime --require
     python -m jarvis backup | restore FILE
     python -m jarvis voice show|set|devices|voices|say|run     # see docs/VOICE.md (voice hardware untested)
     python -m jarvis online connect|register|login|chat|learning|export|delete-account   # optional service, docs/ONLINE.md
