@@ -351,12 +351,17 @@ class ModelStore:
                 if not quick and not problems and meta.get("package_sha256") and sha256_file(f) != meta["package_sha256"]:
                     problems.append("the registered file's SHA-256 changed since it was registered")
             return (not problems), problems
-        for name, expect in meta["files"].items():
+        files, sizes = meta.get("files"), meta.get("sizes", {})
+        if not isinstance(files, dict) or not files or not all(isinstance(k, str) and isinstance(v, str) for k, v in files.items()):
+            return False, ["meta.json does not list the model's files correctly ('files' is missing, empty or the wrong type); nothing was changed"]
+        if not isinstance(sizes, dict):
+            return False, ["meta.json has an invalid 'sizes' entry (the wrong type); nothing was changed"]
+        for name, expect in files.items():
             f = d / name
             if not f.is_file():
                 problems.append(f"{name}: missing")
-            elif quick and name in meta.get("sizes", {}):
-                if f.stat().st_size != meta["sizes"][name]:
+            elif quick and name in sizes:
+                if f.stat().st_size != sizes[name]:
                     problems.append(f"{name}: size changed")
                 elif name.endswith(".gguf"):
                     with open(f, "rb") as fh:

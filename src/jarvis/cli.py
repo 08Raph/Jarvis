@@ -501,7 +501,11 @@ def _selftest(cfg: Config, store: ModelStore) -> int:
     from datetime import datetime, timezone
     from jarvis.inference.gguf_engine import GGUFEngine, RuntimeUnavailable, runtime_info
     active = store.active()
-    if active is None or store.kind(active) != "gguf":
+    try:
+        kind = store.kind(active) if active is not None else None
+    except (ValueError, AttributeError, OSError):
+        kind = "gguf"          # damaged meta.json: the integrity check below reports it; the model is never loaded
+    if active is None or kind != "gguf":
         print("No chat model selected. Run `jarvis setup` first.", file=sys.stderr)
         return 2
     ok, problems = store.verify(active)
