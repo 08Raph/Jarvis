@@ -27,7 +27,9 @@ This is a source package, not a release or an installer.
 
 ## B. Safe staged commands (PowerShell)
 
-Open **Windows PowerShell** (not as administrator). Everything goes under `C:\jv`, which can be deleted afterwards.
+Open **Windows PowerShell** (not as administrator). The log, source, virtual environment and data folder all go under `C:\jv`, which can be deleted afterwards. Other programs (pip, Python, Windows) may still write a few files elsewhere; see "Clean-up" at the end.
+
+**After any `STOP` message or failed "Stop if" condition, do not run the next stage.** In particular, Stage C extracts nothing unless Stage B printed `HASH MATCHES`.
 
 ### Stage 0: start a log you can safely share
 ```powershell
@@ -86,7 +88,7 @@ $PY = "C:\jv\venv\Scripts\python.exe"
 & $PY --version
 ```
 **Expect:** the extracted archive has a single top folder `ProjectJarvis-source`, so the project lives in `C:\jv\src\ProjectJarvis-source` (that is the folder containing `pyproject.toml`). `& $PY --version` prints `Python 3.12.x`.
-**Stop if:** it prints "STOP", or `C:\jv\src` does not contain `ProjectJarvis-source`, or the venv step fails.
+**Stop if:** it prints "STOP", or `C:\jv\src` does not contain `ProjectJarvis-source`, or the venv step fails. After a "STOP" do not continue: the two venv lines that follow the extraction block still run, but nothing was extracted and no later stage may be run.
 The commands call the venv's Python directly, so you do not need `Activate.ps1` (which a default execution policy may block).
 
 ### Stage D: install the project (no model weights)
@@ -94,9 +96,9 @@ The commands call the venv's Python directly, so you do not need `Activate.ps1` 
 cd C:\jv\src\ProjectJarvis-source
 Test-Path .\pyproject.toml
 & $PY -m pip install -e .
-& $PY -m jarvis version
+& $PY -m jarvis --data-dir C:\jv\data version
 ```
-**Expect:** `True`; pip ends with `Successfully installed ... project-jarvis-0.6.0 ...` (it also installs numpy, cryptography and tzdata from pypi.org); `jarvis version` prints `0.6.0`. This step downloads Python packages only. It never downloads a model.
+**Expect:** `True`; pip ends with `Successfully installed ... project-jarvis-0.6.0 ...` (it also installs numpy, cryptography and tzdata from pypi.org); `jarvis version` prints `0.6.0`. This step downloads Python packages only. It never downloads a model. `--data-dir` goes **before** the subcommand and keeps the program's data folder (an empty `models` folder is created there) inside `C:\jv\data` instead of your Windows profile.
 **Stop if:** `Test-Path` is `False` (you are in the wrong folder), pip prints an error (save the last 15 lines), or the version command fails.
 
 ### Stage E: attempt the wheel-only runtime install
@@ -115,7 +117,7 @@ This installs a package from a third-party index (the `llama-cpp-python` project
 
 ### Stage F: runtime check
 ```powershell
-& $PY -m jarvis runtime --require
+& $PY -m jarvis --data-dir C:\jv\data runtime --require
 "exit code: $LASTEXITCODE"
 ```
 **Expect (success):** JSON containing `"available": true`, `"version": "0.3.36"`, `"cpu_avx2": true` and probably `"gpu_offload_supported": false` (the CPU wheel has no GPU), then `exit code: 0`.
@@ -162,4 +164,4 @@ $D = "C:\jv\data"
 - The full first-run procedure after this is `docs/STAGE7_FIRST_REAL_RUN_CHECKLIST.md`.
 
 ## E. Clean-up
-Everything created by this guide is inside `C:\jv` (the log, the source, the environment and, later, the data folder). Delete that folder to remove it. Nothing outside it is modified.
+The log, source, virtual environment and data folder created by this guide are inside `C:\jv`. Delete that folder to remove them. Not covered by that: the ZIP in your Downloads folder, and files written by other programs outside `C:\jv`, namely pip's download cache and temporary files (normally under your Windows profile and temp folder) and Python itself if you installed it. The author has not observed what pip writes on Windows. The project's own commands in this guide are given `--data-dir C:\jv\data`, so they should not create the default `ProjectJarvis` profile folder; that was checked on Linux only.
