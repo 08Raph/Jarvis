@@ -301,9 +301,17 @@ class AssistantAndCliTests(unittest.TestCase):
         ctx = mock.patch.dict(sys.modules, {"llama_cpp": mod}) if fake_runtime else mock.patch.dict(sys.modules, {})
         import io, contextlib
         out, err = io.StringIO(), io.StringIO()
-        with ctx, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            if not fake_runtime: sys.modules.pop("llama_cpp", None)
-            rc = cli.main(["--data-dir", str(self.cfg.data_dir), *args])
+        with contextlib.ExitStack() as stack:
+            if fake_runtime and args and args[0] == "selftest":
+                # `selftest` runs the model in a SEPARATE process, which the in-process fake module above cannot reach: the helper script starts that
+                # process with an equivalent fake runtime (see tests/selftest_fake_worker.py and tests/test_p63_selftest_hardening.py).
+                from jarvis import selftest_core
+                helper = Path(__file__).resolve().parent / "selftest_fake_worker.py"
+                stack.enter_context(mock.patch.object(selftest_core, "worker_command", lambda cfg, run_id, model_id: [
+                    sys.executable, str(helper), "ok", "--data-dir", str(cfg.data_dir), "selftest-worker", "--run-id", run_id, "--model-id", model_id]))
+            with ctx, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                if not fake_runtime: sys.modules.pop("llama_cpp", None)
+                rc = cli.main(["--data-dir", str(self.cfg.data_dir), *args])
         return rc, out.getvalue(), err.getvalue()
 
     def test_cli_chat_with_no_model(self):

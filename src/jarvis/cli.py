@@ -102,7 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("--context-tokens", type=int, help="context window to use for this model (default: the engine default)")
     mg.add_argument("--no-think", action="store_true", help="Qwen3-style model: switch the hidden thinking phase off with /no_think")
     mg.add_argument("--no-select", action="store_true", help="install only; keep the currently selected model (used for side-by-side benchmarks)")
-    sub.add_parser("selftest", help="REAL test: load the active model on this PC, generate text, measure speed")
+    stp = sub.add_parser("selftest", help="REAL test: load the active model on this PC (in a separate, time-limited process), generate text, check the answer, measure speed")
+    stp.add_argument("--load-timeout", type=_seconds_arg, metavar="SECONDS", help="stop the test if generation has not started after this long (default 600)")
+    stp.add_argument("--generate-timeout", type=_seconds_arg, metavar="SECONDS", help="stop the test if the short generation takes longer than this (default 180)")
+    sw = sub.add_parser("selftest-worker", help=argparse.SUPPRESS)       # internal: the separate process `selftest` starts; not for direct use
+    sw.add_argument("--run-id", required=True)
+    sw.add_argument("--model-id", required=True)
     pf = sub.add_parser("perf", help="REAL multi-token speed measurement of the active model (load time, first token, sustained tokens/s, peak memory); writes perf.json")
     pf.add_argument("--out", help="folder for perf.json and perf_summary.txt")
     pf.add_argument("--runs", type=int, default=3, help="measured runs (max 10)")
@@ -496,10 +501,20 @@ def _chat_gguf(args, cfg: Config, store: ModelStore, active: str) -> int:
         return 3
 
 
-def _selftest(cfg: Config, store: ModelStore) -> int:
-    import time as _t
-    from datetime import datetime, timezone
-    from jarvis.inference.gguf_engine import GGUFEngine, RuntimeUnavailable, runtime_info
+def _seconds_arg(text: str) -> float:
+    try:
+        v = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError("must be a number of seconds") from None
+    if not 5 <= v <= 7200:
+        raise argparse.ArgumentTypeError("must be between 5 and 7200 seconds")
+    return v
+
+
+def _selftest(cfg: Config, store: ModelStore, load_timeout: float | None = None, generate_timeout: float | None = None) -> int:
+    """Exit codes: 0 passed; 2 no chat model selected; 3 integrity/runtime/load/generation failure or empty reply; 4 timed out; 5 the test process
+    ended abnormally (native crash suspected); 6 the reply was not a valid answer; 130 cancelled. See jarvis/selftest_core.py for the design and limits."""
+    from jarvis import selftest_core as core
     active = store.active()
     try:
         kind = store.kind(active) if active is not None else None
@@ -512,30 +527,21 @@ def _selftest(cfg: Config, store: ModelStore) -> int:
     if not ok:
         print(f"Model failed its integrity check: {problems}", file=sys.stderr)
         return 3
-    print(f"Loading {active} (this can take a while the first time)...", flush=True)
-    result = {"model_id": active, "app_version": __version__, "time": datetime.now(timezone.utc).isoformat(),
-              "runtime": runtime_info(), "passed": False}
+    print(f"Loading {active} in a separate, time-limited test process (this can take a while the first time)...", flush=True)
     try:
-        meta = json.loads((store.path(active) / "meta.json").read_text(encoding="utf-8"))
-        result["model_sha256"] = meta.get("package_sha256")
-        eng = GGUFEngine(store.path(active))
-        result["load_seconds"] = round(eng.load_seconds, 2)
-        t0 = _t.perf_counter()
-        text = eng.chat([{"role": "system", "content": "You are a helpful assistant."},
-                         {"role": "user", "content": "What is 2+2? Answer with just the number."}], max_tokens=48, temperature=0.0)
-        dt = _t.perf_counter() - t0
-        n = eng._count(text)
-        result.update(gpu_layers_requested=eng.gpu_layers_requested, answer=text, generation_seconds=round(dt, 2), output_tokens=n,
-                      tokens_per_second=round(n / dt, 2) if dt > 0 and n else None,
-                      answer_mentions_4=("4" in text), passed=bool(text.strip()))
-    except RuntimeUnavailable as exc:
-        result["error"] = str(exc)
-    except Exception as exc:
-        result["error"] = f"{type(exc).__name__}: {exc}"
-    (cfg.data_dir / "selftest.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
-    if "error" in result:
-        _LAST["err"] = "runtime_unavailable" if "not available" in result["error"] else "load_failed"
-    rv = str(result["runtime"].get("version", ""))
+        result = core.run_selftest(cfg, store, active, load_timeout=load_timeout or core.LOAD_TIMEOUT,
+                                   generate_timeout=generate_timeout or core.GENERATE_TIMEOUT)
+    except OSError as exc:
+        print(f"SELFTEST FAILED: the report file could not be written ({type(exc).__name__}), so nothing was loaded.", file=sys.stderr)
+        _LAST["err"] = "unknown"
+        return 3
+    prev = result.get("previous_run")
+    if prev:
+        print(f"(Note: an earlier self-test did not finish; its last recorded stage was '{prev.get('last_stage', 'unknown')}'.)", file=sys.stderr)
+    kind_ = (result.get("failure") or {}).get("kind")
+    if kind_:
+        _LAST["err"] = {"runtime_unavailable": "runtime_unavailable", "load_failed": "load_failed", "worker_error": "load_failed"}.get(kind_, "unknown")
+    rv = str((result.get("runtime") or {}).get("version", ""))
     extra = {"runtime_version": rv} if re.fullmatch(r"\d{1,3}\.\d{1,3}\.\d{1,3}", rv) else {}
     if result.get("load_seconds") is not None:
         extra["load_seconds"] = result["load_seconds"]
@@ -543,9 +549,12 @@ def _selftest(cfg: Config, store: ModelStore) -> int:
         extra["tokens_per_second"] = result["tokens_per_second"]
     _tel(cfg, "selftest_result", model=_catalog_or_custom(store, active), passed=bool(result["passed"]), **extra)
     _dump(result)
-    print("SELFTEST PASSED: the model loaded and produced text on this PC." if result["passed"]
-          else "SELFTEST FAILED: see the error above.", file=sys.stderr)
-    return 0 if result["passed"] else 3
+    if result["passed"]:
+        print("SELFTEST PASSED: the model loaded and gave a valid answer to a test question on this PC.", file=sys.stderr)
+    else:
+        print(f"SELFTEST FAILED: {result.get('error') or 'see the report above'}  [stage: {(result.get('failure') or {}).get('stage', '?')}, "
+              f"exit code {result['exit_code']}]", file=sys.stderr)
+    return int(result["exit_code"])
 
 
 def _expected_size_arg(text: str) -> int:
@@ -1172,7 +1181,10 @@ def _main(argv: list[str] | None = None) -> int:
         _dump(info)
         return 0 if info["available"] or not args.require else 3
     if args.cmd == "selftest":
-        return _selftest(cfg, store)
+        return _selftest(cfg, store, args.load_timeout, args.generate_timeout)
+    if args.cmd == "selftest-worker":
+        from jarvis import selftest_core
+        return selftest_core.run_worker(cfg, store, args.run_id, args.model_id)
     if args.cmd == "perf":
         from jarvis.eval import perf
         return perf.run_cli(cfg.data_dir, Path(args.out) if args.out else None, args.runs, args.warmup, args.max_tokens)

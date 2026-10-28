@@ -214,9 +214,14 @@ class FirstRunChecklist(AppCase):
         self.assertIn("never moved or changed", text)
 
     def test_selftest_messages_and_codes_quoted_in_the_checklist_exist_in_the_cli(self):
-        src = (Path(__file__).resolve().parent.parent / "src" / "jarvis" / "cli.py").read_text(encoding="utf-8")
-        for needle in ("SELFTEST PASSED", "SELFTEST FAILED", "return 0 if result[\"passed\"] else 3", "\"passed\": False"):
+        base = Path(__file__).resolve().parent.parent / "src" / "jarvis"
+        src = (base / "cli.py").read_text(encoding="utf-8")
+        core = (base / "selftest_core.py").read_text(encoding="utf-8")
+        for needle in ("SELFTEST PASSED", "SELFTEST FAILED", "return int(result[\"exit_code\"])"):
             self.assertIn(needle, src)
+        # the codes the checklist quotes: 0 = passed, 2 = no model, 3 = failed (the selftest now also has 4, 5, 6 and 130: see selftest_core)
+        self.assertIn("EXIT_PASSED, EXIT_NO_MODEL, EXIT_FAILED, EXIT_TIMEOUT, EXIT_CRASHED, EXIT_INVALID, EXIT_CANCELLED = 0, 2, 3, 4, 5, 6, 130", core)
+        self.assertIn("\"passed\": False", core)
 
     def guest_assistant(self):
         self.install_model()
