@@ -7,6 +7,11 @@ It starts the built jarvis.exe (a few short child processes, each with a time li
                  writes its result file for OUR run id, stops at "no model.gguf" (so nothing was loaded) and records the stages runtime_check and
                  loading_model. With the llama.cpp runtime present the outcome must be load_failed and the runtime must be reported available.
 
+Optional (--synthetic-model, meant for disposable CI runners, NOT for the default build): also 4. supervised   installs a header-only SYNTHETIC .gguf (written
+by this script, never a real model) in the throw-away folder and runs the real `jarvis.exe selftest` on it. The supervisor must start the packaged worker,
+the real llama.cpp runtime must REFUSE the file (outcome load_failed, exit 3), the stages must be recorded truthfully and no transient file may remain.
+If the runtime crashes on that file the check FAILS and says so (that is information about the runtime, not a Jarvis pass).
+
 WHAT THIS DOES NOT PROVE: that a real model loads or answers, that inference works, that the supervising `jarvis.exe selftest` starts the packaged
 worker successfully end to end (that needs a real model: docs/STAGE7_FIRST_REAL_RUN_CHECKLIST.md), or how a real native crash looks. The supervisor
 never runs inference itself (the code has no such path); this script cannot observe that from outside, the Linux tests of the code do.
@@ -18,7 +23,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -123,6 +130,57 @@ def check_worker(g: Gate, exe: str, d: Path, timeout: float, allow_no_runtime: b
     g.check("worker: it did not write the supervisor's report", not (d / "selftest.json").exists())
 
 
+def write_synthetic_gguf(path: Path) -> None:
+    """A tiny GGUF-shaped file (header, a few metadata keys, padding). It has no tensors and no weights: any real loader must refuse it."""
+    def s(x: str) -> bytes:
+        b = x.encode()
+        return struct.pack("<Q", len(b)) + b
+    kvs = {"general.architecture": "qwen3", "general.name": "Synthetic CI file (not a model)", "general.license": "mit", "qwen3.context_length": 4096}
+    body = b""
+    for k, v in kvs.items():
+        body += s(k) + (struct.pack("<I", 8) + s(v) if isinstance(v, str) else struct.pack("<I", 4) + struct.pack("<I", v))
+    body += s("tokenizer.ggml.tokens") + struct.pack("<I", 9) + struct.pack("<I", 8) + struct.pack("<Q", 2) + s("a") + s("b")
+    body += s("tokenizer.ggml.scores") + struct.pack("<I", 9) + struct.pack("<I", 6) + struct.pack("<Q", 3) + struct.pack("<fff", 1, 2, 3)
+    path.write_bytes(b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 0) + struct.pack("<Q", len(kvs) + 2) + body + b"\0" * 1000)
+
+
+def check_supervised(g: Gate, exe: str, d: Path, timeout: float, allow_no_runtime: bool) -> None:
+    f = d / "synthetic.gguf"
+    write_synthetic_gguf(f)
+    rc, out, err = run_exe(exe, d, ["models", "add-gguf", str(f), "--id", "ci-synthetic", "--license", "MIT",
+                                    "--license-url", "https://example.invalid/synthetic", "--accept-unverified"], timeout)
+    if not g.check("supervised: the synthetic file installs", rc == 0, f"exit {rc}; {err.strip()[:200]}"):
+        return
+    for n in WORKER_FILES:
+        (d / n).unlink(missing_ok=True)
+    rc, out, err = run_exe(exe, d, ["selftest", "--load-timeout", "120", "--generate-timeout", "60"], timeout)
+    rep = read_json(d / "selftest.json")
+    if rc is None or rep is None:
+        g.check("supervised: selftest finished and wrote its report", False, f"exit {rc}; {err.strip()[:200]}")
+        return
+    if rep.get("status") == "crashed":
+        g.check("supervised: the runtime refused the file without crashing", False,
+                f"worker ended abnormally: {rep.get('worker_exit')!r}; stage {rep.get('stage')!r} (real llama.cpp crashed on a header-only file)")
+        return
+    rt = rep.get("runtime") if isinstance(rep.get("runtime"), dict) else {}
+    want_kind, want_stages = ("load_failed", ["runtime_check", "loading_model"]) if rt.get("available") is True else ("runtime_unavailable", ["runtime_check"])
+    if want_kind == "runtime_unavailable" and not allow_no_runtime:
+        g.check("supervised: the llama.cpp runtime is present", False, "runtime reported unavailable")
+        return
+    fail = rep.get("failure") if isinstance(rep.get("failure"), dict) else {}
+    g.check("supervised: documented outcome (exit 3, status failed, passed false)", (rc, rep.get("status"), rep.get("exit_code"), rep.get("passed")) == (3, "failed", 3, False),
+            f"exit {rc}, status {rep.get('status')!r}, exit_code {rep.get('exit_code')!r}")
+    g.check(f"supervised: failure kind is {want_kind}", fail.get("kind") == want_kind, f"{fail.get('kind')!r}: {str(fail.get('message', ''))[:120]}")
+    names = [x.get("stage") for x in rep.get("stages", []) if isinstance(x, dict)]
+    ordered = ["started", "starting_worker", *want_stages]
+    it = iter(names)
+    g.check("supervised: stages were recorded in order", all(any(n == w for n in it) for w in ordered), f"{names!r}")
+    g.check("supervised: schema 2 report with a run id", rep.get("schema") == 2 and bool(re.fullmatch(r"[0-9a-f]{12}", str(rep.get("run_id")))))
+    g.check("supervised: no answer, no abnormal worker exit, no interrupted-run note",
+            not any(k in rep for k in ("answer", "worker_exit", "previous_run")), f"keys: {sorted(rep)}")
+    g.check("supervised: transient worker files were removed", not [n for n in WORKER_FILES[1:] if (d / n).exists()])
+
+
 def safe_remove(d: Path) -> bool:
     """Delete the folder only if it is a direct child of the system temp folder with this script's prefix."""
     try:
@@ -139,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--exe", required=True, help="path to the built jarvis.exe (the console executable)")
     ap.add_argument("--allow-no-runtime", action="store_true", help="the build deliberately has no llama.cpp runtime (-SkipLocalRuntime)")
     ap.add_argument("--timeout", type=float, default=180.0, help="seconds allowed for each step (default 180)")
+    ap.add_argument("--synthetic-model", action="store_true", help="also run the supervised selftest on a header-only synthetic .gguf (CI runners only; the real runtime must refuse it)")
     ap.add_argument("--keep", action="store_true", help="keep the temporary data folder for inspection")
     ap.add_argument("--not-frozen", action="store_true", help="TESTS ONLY: do not require that the program reports being frozen")
     a = ap.parse_args(argv)
@@ -156,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
         check_readiness(g, str(exe), d, a.timeout, require_frozen=not a.not_frozen)
         check_cli_without_model(g, str(exe), d, a.timeout)
         check_worker(g, str(exe), d, a.timeout, a.allow_no_runtime)
+        if a.synthetic_model:
+            check_supervised(g, str(exe), d, a.timeout, a.allow_no_runtime)
     finally:
         if a.keep:
             print(f"Kept: {d}")

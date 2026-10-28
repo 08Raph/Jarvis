@@ -1,0 +1,223 @@
+# Windows CI for pull requests and pushes: a fast Linux test lane, then a real Windows build of the PyInstaller exe + Inno Setup installer, the Windows unit
+# suite, the packaged-worker gate and a silent install check. NO model is downloaded unless a person starts this workflow by hand AND types the consent value
+# below. Documentation: docs/WINDOWS_CI.md. Repository visibility can change (it was PUBLIC when last checked on 2026-10-28; do not rely on that): runner minutes,
+# artifact storage and any runner multiplier depend on visibility and the account plan, so check Settings and the Billing/Usage pages. A green run proves only
+# what its steps checked (see the "What this run did NOT verify" section of the run summary); it does not mean Project Jarvis is finished.
+name: windows-ci
+permissions:
+  contents: read
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "config.sample.toml"
+      - "build_installer.bat"
+      - ".github/workflows/windows-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "packaging/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - "config.sample.toml"
+      - "build_installer.bat"
+      - ".github/workflows/windows-ci.yml"
+  workflow_dispatch:
+    inputs:
+      real_inference_consent:
+        description: "OPTIONAL real-model test. Leave EMPTY for no download. To download Qwen3-1.7B Q4_K_M (about 1.28 GB, Apache-2.0, from huggingface.co/ggml-org/Qwen3-1.7B-GGUF, checked by the app's own SHA-256 path, kept only on this runner) and run the packaged selftest on it, type exactly: yes-download-qwen3-1.7b-q4_k_m"
+        required: false
+        default: ""
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux-tests:
+    name: Linux unit tests (fast lane)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install the project and the extras the tests use (no PySide6, no llama.cpp, no PyInstaller)
+        run: python -m pip install -e ".[docs,monitor]"
+      - name: Full unit suite
+        timeout-minutes: 20
+        run: |
+          mkdir -p ci-logs
+          set +e
+          python -m unittest discover -s tests > ci-logs/unittest-linux.log 2>&1
+          echo "unittest exit code: $?"
+          python scripts/ci_summarize_unittest.py ci-logs/unittest-linux.log --json ci-logs/unittest-linux.json --summary "$GITHUB_STEP_SUMMARY" --title "Linux unit tests"
+          exit $?
+      - name: Release-asset checks on the source tree
+        run: python scripts/check_release_assets.py --source
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-test-logs
+          path: ci-logs/
+          retention-days: 14
+          if-no-files-found: warn
+
+  windows-package:
+    name: Windows build, frozen worker gate, install check
+    runs-on: windows-2022
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: x64
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - id: build
+        name: Build with scripts/build_windows.ps1 (PyInstaller, release-asset checks, frozen-exe smoke tests incl. the worker gate, VC++ DLL check, Inno Setup installer, checksums)
+        timeout-minutes: 60
+        shell: powershell
+        run: |
+          $env:Path += ";C:\Program Files (x86)\Inno Setup 6"
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          # -SkipTests only because the unit suite runs in its own step below, so a Windows-only test failure cannot hide the packaging result. -SkipTorch: Qwen-only build.
+          try { & { .\scripts\build_windows.ps1 -SkipTorch -SkipTests } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - id: unit
+        name: Windows unit tests (full suite, real counts)
+        if: always() && hashFiles('.venv/Scripts/python.exe') != ''
+        continue-on-error: true
+        timeout-minutes: 30
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          $env:PYTHONUTF8 = "1"   # many tests read source files without an encoding; Windows defaults to cp1252 (a test-side issue; the app passes encodings explicitly)
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          .\.venv\Scripts\python.exe -m unittest discover -s tests *> ci-logs\unittest-windows.log
+          .\.venv\Scripts\python.exe scripts\ci_summarize_unittest.py ci-logs\unittest-windows.log --json ci-logs\unittest-windows.json --summary $env:GITHUB_STEP_SUMMARY --title "Windows unit tests"
+          exit $LASTEXITCODE
+      - id: gate
+        name: Packaged worker gate against the REAL built jarvis.exe (readiness, no-model exit, worker dispatch, supervised selftest on a synthetic header-only file)
+        if: always() && hashFiles('dist/ProjectJarvis/jarvis.exe') != ''
+        continue-on-error: true
+        timeout-minutes: 20
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          .\.venv\Scripts\python.exe scripts\verify_frozen_worker.py --exe dist\ProjectJarvis\jarvis.exe --synthetic-model --timeout 300 *> ci-logs\frozen_worker_gate.log
+          $code = $LASTEXITCODE
+          $t = Get-Content ci-logs\frozen_worker_gate.log
+          $t | ForEach-Object { Write-Host $_ }
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value (@("### Packaged worker gate (real jarvis.exe): exit code $code", '```') + $t + @('```', ''))
+          exit $code
+      - id: install
+        name: Silent install / launch / uninstall check of the built installer
+        if: always() && hashFiles('dist/installer/ProjectJarvis-Setup-*.exe') != ''
+        continue-on-error: true
+        timeout-minutes: 20
+        shell: powershell
+        run: |
+          $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          $global:LASTEXITCODE = 0
+          & { .\scripts\clean_install_test.ps1 -Installer $i } *>&1 | Tee-Object -FilePath ci-logs\clean_install.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - id: real
+        name: "OPTIONAL real-model test of the packaged selftest (runs only when the consent value was typed on a manual run)"
+        if: always() && github.event_name == 'workflow_dispatch' && inputs.real_inference_consent == 'yes-download-qwen3-1.7b-q4_k_m' && hashFiles('dist/ProjectJarvis/jarvis.exe') != ''
+        continue-on-error: true
+        timeout-minutes: 40
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Continue"
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          $X = (Resolve-Path dist\ProjectJarvis\jarvis.exe).Path
+          $D = Join-Path $env:RUNNER_TEMP "jarvis-real"
+          $id = "qwen3-1.7b-q4_k_m"
+          & $X --data-dir $D models fetch $id --yes *> ci-logs\real_fetch.log
+          if ($LASTEXITCODE -ne 0) {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value "### Real inference through the packaged worker: **BLOCKED**`n`nThe model could not be downloaded or installed (exit $LASTEXITCODE; see real_fetch.log). Inference was not tested.`n"
+            exit 3
+          }
+          & $X --data-dir $D models verify $id *> ci-logs\real_verify.log
+          if ($LASTEXITCODE -ne 0) { Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value "### Real inference through the packaged worker: **BLOCKED**`n`nThe downloaded model failed its integrity check (exit $LASTEXITCODE).`n"; exit 3 }
+          & $X --data-dir $D selftest *> ci-logs\real_selftest_console.log
+          $code = $LASTEXITCODE
+          if (Test-Path "$D\selftest.json") { Copy-Item "$D\selftest.json" ci-logs\real_selftest.json }
+          .\.venv\Scripts\python.exe scripts\ci_check_selftest_report.py --data-dir $D --exit-code $code --model-id $id --summary $env:GITHUB_STEP_SUMMARY
+          $verdict = $LASTEXITCODE
+          Remove-Item $D -Recurse -Force -ErrorAction SilentlyContinue
+          exit $verdict
+      - name: Cleanup (stray processes; uninstall left by the install check)
+        if: always()
+        shell: powershell
+        run: |
+          Get-Process jarvis-gui,jarvis -ErrorAction SilentlyContinue | Stop-Process -Force
+          $u = "$env:LOCALAPPDATA\Programs\ProjectJarvis\unins000.exe"
+          if (Test-Path $u) { $p = Start-Process $u -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -PassThru; $null = $p.Handle; $p.WaitForExit() }
+          exit 0
+      - name: Run summary with honest labels (PASS / FAIL / NOT RUN / PARTIAL)
+        if: always()
+        shell: powershell
+        run: |
+          function Label($o) { switch ($o) { "success" { "PASS" } "failure" { "FAIL" } default { "NOT RUN" } } }
+          $real = if ("${{ steps.real.outcome }}" -eq "skipped") { "NOT RUN (no consent value typed; nothing was downloaded)" } else { (Label "${{ steps.real.outcome }}") + " (see the real-inference section above for PASS / FAIL / BLOCKED detail)" }
+          $sha = (git rev-parse HEAD)
+          $lines = @(
+            "## windows-ci summary for commit $sha", "",
+            "| Check | Result |", "|---|---|",
+            "| Windows build: PyInstaller exe + Inno Setup installer + release-asset checks + frozen-exe smoke tests | $(Label '${{ steps.build.outcome }}') |",
+            "| Windows unit tests (counts in the section above) | $(Label '${{ steps.unit.outcome }}') |",
+            "| Packaged worker gate on the real exe, incl. supervised selftest on a synthetic file | $(Label '${{ steps.gate.outcome }}') |",
+            "| Silent install / launch / uninstall of the built installer | $(Label '${{ steps.install.outcome }}') |",
+            "| Frozen GUI offscreen self-test (inside the build) | PARTIAL: Qt pages build offscreen; looks, scaling and interaction are not verified |",
+            "| Real local inference through the packaged worker | $real |",
+            "| Interactive GUI, voice (microphone, speakers, wake word), computer-control safety, clean-PC acceptance | NOT RUN (cannot be done on a hosted runner) |", "",
+            "### What this run did NOT verify", "",
+            "- Real model quality, general reasoning, or any model other than the one in the optional step.",
+            "- Timeouts, abnormal worker exits and worker start failures on the REAL exe (those are covered only by fake child processes in the Linux tests).",
+            "- Behaviour on your own PC, other CPUs, antivirus, GUI scaling, dark mode, audio hardware.",
+            "- Anything that needs a person looking at the screen. See docs/WINDOWS_CI.md and your Windows acceptance runbook.", "")
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value $lines
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value @("Runner: $((Get-CimInstance Win32_OperatingSystem).Caption), Python $(python --version 2>&1)", "")
+      - id: stage_logs
+        name: Stage vetted diagnostic logs for upload (guard)
+        if: always()
+        shell: powershell
+        run: .\scripts\ci_stage_upload.ps1 -Kind logs -Out upload-staging\logs
+      - uses: actions/upload-artifact@v4
+        if: always()   # the staging folder holds only files that passed the guard
+        with:
+          name: windows-ci-logs
+          path: upload-staging/logs
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Final gate - the run is red while any check above failed
+        if: always() && (steps.build.outcome == 'failure' || steps.unit.outcome == 'failure' || steps.gate.outcome == 'failure' || steps.install.outcome == 'failure' || steps.real.outcome == 'failure')
+        shell: powershell
+        run: |
+          Write-Host "build=${{ steps.build.outcome }} unit=${{ steps.unit.outcome }} gate=${{ steps.gate.outcome }} install=${{ steps.install.outcome }} real=${{ steps.real.outcome }}"
+          exit 1
+      # The installer is uploaded only on pushes and manual runs (not on pull requests), only after the final gate, and only when every check actually passed.
+      - name: Stage installer for upload (guard)
+        id: stage_installer
+        if: success() && github.event_name != 'pull_request' && steps.build.outcome == 'success' && steps.unit.outcome == 'success' && steps.gate.outcome == 'success' && steps.install.outcome == 'success'
+        shell: powershell
+        run: .\scripts\ci_stage_upload.ps1 -Kind installer -Out upload-staging\installer
+      - uses: actions/upload-artifact@v4
+        if: success() && steps.stage_installer.outcome == 'success'
+        with:
+          name: ProjectJarvis-installer
+          path: upload-staging/installer
+          retention-days: 3
+          if-no-files-found: error

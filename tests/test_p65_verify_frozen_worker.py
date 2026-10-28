@@ -40,9 +40,10 @@ class GateAgainstStandIns(unittest.TestCase):
 
     def exe(self, frozen=True, fake_runtime=False, prelude=""):
         path = f'"{ROOT / "src"}"' + (f':"{self.root / "fake"}"' if fake_runtime else "")
-        run = (f"import sys, runpy; sys.frozen = True; sys.argv[0] = r'{ENTRY}'; runpy.run_path(r'{ENTRY}', run_name='__main__')" if frozen
-               else f"import sys, runpy; sys.argv[0] = r'{ENTRY}'; runpy.run_path(r'{ENTRY}', run_name='__main__')")
         p = self.root / "jarvis"
+        # a PyInstaller exe is its own sys.executable; the stand-in must say so too, or the supervisor would start the bare Python interpreter as its worker
+        run = (f"import sys, runpy; sys.frozen = True; sys.executable = r'{p}'; sys.argv[0] = r'{ENTRY}'; runpy.run_path(r'{ENTRY}', run_name='__main__')" if frozen
+               else f"import sys, runpy; sys.argv[0] = r'{ENTRY}'; runpy.run_path(r'{ENTRY}', run_name='__main__')")
         p.write_text(f'#!/bin/sh\nexport PYTHONPATH={path}\n{prelude}\nexec "{sys.executable}" -c "{run}" "$@"\n', encoding="utf-8")
         p.chmod(p.stat().st_mode | stat.S_IEXEC)
         return str(p)
@@ -108,6 +109,43 @@ class GateAgainstStandIns(unittest.TestCase):
         rc, out, _ = self.gate(str(wrapper))
         self.assertEqual(rc, 1)
         self.assertIn("FAIL  worker: outcome is the expected one", out)
+
+    def test_synthetic_model_check_passes_when_the_runtime_refuses_the_file(self):
+        rc, out, err = self.gate(self.exe(fake_runtime=True), "--synthetic-model")
+        self.assertEqual(rc, 0, out + err)
+        self.assertIn("PASS  supervised: failure kind is load_failed", out)
+        self.assertIn("PASS  supervised: transient worker files were removed", out)
+        self.assertEqual(self.leftovers(), [])
+
+    def test_synthetic_model_check_without_a_runtime_needs_the_allow_flag(self):
+        exe = self.exe()
+        rc, out, _ = self.gate(exe, "--synthetic-model", "--allow-no-runtime")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASS  supervised: failure kind is runtime_unavailable", out)
+        self.assertEqual(self.gate(exe, "--synthetic-model")[0], 1)
+
+    def test_synthetic_model_check_reports_a_native_crash_as_a_failure(self):
+        (self.root / "crash").mkdir()
+        (self.root / "crash" / "llama_cpp.py").write_text(
+            '__version__ = "0.0.0"\nimport os\ndef llama_supports_gpu_offload():\n    return False\nclass Llama:\n    def __init__(self, **kw):\n        os._exit(139)\n', encoding="utf-8")
+        exe = self.exe(prelude="")
+        text = Path(exe).read_text(encoding="utf-8").replace(f':"{self.root / "fake"}"', "")
+        Path(exe).write_text(text.replace("export PYTHONPATH=", f'export PYTHONPATH="{self.root / "crash"}":', 1), encoding="utf-8")
+        rc, out, _ = self.gate(exe, "--synthetic-model")
+        self.assertEqual(rc, 1)
+        self.assertIn("FAIL  supervised: the runtime refused the file without crashing", out)
+
+    def test_the_synthetic_check_is_off_by_default(self):
+        rc, out, _ = self.gate(self.exe(fake_runtime=True))
+        self.assertEqual(rc, 0)
+        self.assertNotIn("supervised:", out)
+
+    def test_the_synthetic_file_is_gguf_shaped_but_has_no_weights(self):
+        f = self.root / "s.gguf"
+        V.write_synthetic_gguf(f)
+        data = f.read_bytes()
+        self.assertTrue(data.startswith(b"GGUF"))
+        self.assertLess(len(data), 4096)
 
     def test_missing_executable_and_bad_timeout_are_usage_errors(self):
         with contextlib.redirect_stderr(io.StringIO()):
