@@ -731,7 +731,20 @@ class MainWindow(QMainWindow):
             self.persona_spins[key] = sp
             form.addRow(label, sp)
         v.addLayout(form)
-        self.persona_adult = QCheckBox("I am 18 or older and want adult-only styles (Savage, Flirty, Romantic) available")
+        v.addWidget(_label("Customize the current style (0 = the style as designed; each step shifts it, but the style keeps its character):", heading=True))
+        cform = QFormLayout()
+        self.persona_ctl_spins = {}
+        for key, label in (("humor", "Humor"), ("warmth", "Warmth"), ("directness", "Directness"), ("formality", "Formality"), ("verbosity", "Verbosity")):
+            sp = QSpinBox()
+            sp.setRange(-2, 2)
+            sp.setAccessibleName(label + " adjustment")
+            sp.editingFinished.connect(lambda k=key, s=sp: self._persona_control(k, s.value()))
+            self.persona_ctl_spins[key] = sp
+            cform.addRow(label + " (-2 less ... +2 more)", sp)
+        v.addLayout(cform)
+        self.persona_limit = _label("", muted=True)
+        v.addWidget(self.persona_limit)
+        self.persona_adult = QCheckBox("I am 18 or older and want adult-only styles (Savage, Flirty, Sexy, Romantic) available")
         self.persona_adult.setAccessibleName("Adult opt-in")
         self.persona_adult.clicked.connect(self._persona_adult)
         v.addWidget(self.persona_adult)
@@ -770,6 +783,11 @@ class MainWindow(QMainWindow):
             sp.blockSignals(True)
             sp.setValue(st["settings"][k])
             sp.blockSignals(False)
+        for k, sp in self.persona_ctl_spins.items():
+            sp.blockSignals(True)
+            sp.setValue(st["settings"][k])
+            sp.blockSignals(False)
+        self.persona_limit.setText(st["limitation"])
         self.persona_adult.blockSignals(True)
         self.persona_adult.setChecked(st["settings"]["adult_optin"])
         self.persona_adult.blockSignals(False)
@@ -1298,6 +1316,12 @@ class MainWindow(QMainWindow):
     def _persona_level(self, key, value):
         try:
             self.ctl.persona_level(key, value)
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _persona_control(self, key, value):
+        try:
+            self.ctl.persona_control(key, value)
         except Exception as e:  # noqa: BLE001
             self.error_box(e)
 

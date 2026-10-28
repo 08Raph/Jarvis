@@ -33,7 +33,7 @@ from jarvis.personality.persona import (CRISIS_GUIDANCE, DEFAULTS, EMERGENCY_GUI
 from jarvis.personality.styles import STYLES, SLIDERS, style_guidance  # noqa: E402
 
 SRC = ROOT / "src" / "jarvis"
-ADULT = {"savage", "flirty", "romantic"}
+ADULT = {"savage", "flirty", "sexy", "romantic"}
 STOPS = ["please stop", "stop roasting me", "that's enough", "this is too much", "go back to normal", "be normal", "tone it down", "cut it out",
          "stop flirting", "you're making me uncomfortable", "normal mode please", "drop the act", "i don't like this"]
 DISTRESS = ["I want to die", "i'm going to kill myself", "I've been thinking about self-harm", "I can't go on", "I had a panic attack"]
@@ -78,7 +78,7 @@ class Registry(Base):
             elif sid != "normal":
                 self.assertTrue(style_guidance(sid, dict(DEFAULTS)), f"{sid} has no guidance")
             self.assertTrue(0.5 <= st.speech_rate <= 2.0)
-        self.assertEqual({s.trait_mode for s in STYLES.values() if s.trait_mode}, {"Professional JARVIS", "Technical Engineer", "Concise Operator"})
+        self.assertEqual({s.trait_mode for s in STYLES.values() if s.trait_mode}, {"Professional JARVIS", "Friendly Companion", "Technical Engineer", "Concise Operator", "Humorous Assistant"})
         # specialised/edgy styles that can mislead are shown as roleplay; the helpful ones are not mislabelled as roleplay
         for sid in ("savage", "flirty", "romantic", "conspiracy", "debate", "explainer"):
             self.assertTrue(STYLES[sid].roleplay, sid)
@@ -721,7 +721,7 @@ class WindowStatic(unittest.TestCase):
         self.assertIn('"Personality"', src)
         calls = {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Attribute) and n.value.attr == "ctl"}
         persona_calls = {c for c in calls if c.startswith("persona_")}
-        self.assertEqual(persona_calls, {"persona_state", "persona_set", "persona_normal", "persona_reset", "persona_level", "persona_adult", "persona_preview"})
+        self.assertEqual(persona_calls, {"persona_state", "persona_set", "persona_normal", "persona_reset", "persona_level", "persona_adult", "persona_preview", "persona_control"})
         for name in ("Settings", "grant", "enable_category", "set_mode("):
             seg = src[src.index("def _personality_page"):src.index("# ------------------------------------------------------------ Status")]
             self.assertNotIn(name, seg)

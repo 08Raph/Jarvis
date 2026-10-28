@@ -214,7 +214,13 @@ def build_parser() -> argparse.ArgumentParser:
     ppl = pps.add_parser("level", help="roast|profanity|flirt|argument|motivation")
     ppl.add_argument("name")
     ppl.add_argument("value", type=int)
-    ppa = pps.add_parser("adult", help="explicit opt-in for adult-only styles (Savage, Flirty, Romantic)")
+    ppc = pps.add_parser("control", help="humor|warmth|directness|formality|verbosity, as an offset -2..2 from the active style's default")
+    ppc.add_argument("name")
+    ppc.add_argument("value", type=int)
+    ppsu = pps.add_parser("suite", help="REAL-MODEL 15-scenario evaluation across personalities (needs a working model; read the saved transcripts yourself)")
+    ppsu.add_argument("--styles", nargs="*", help="only these style ids")
+    ppsu.add_argument("--scenarios", nargs="*", help="only these scenario ids")
+    ppa = pps.add_parser("adult", help="explicit opt-in for adult-only styles (Savage, Flirty, Sexy, Romantic)")
     ppa.add_argument("setting", choices=["on", "off"])
     ppa.add_argument("--confirm-adult", action="store_true", help="required with 'on': you confirm you are 18+ and want adult-only styles")
     ppo = pps.add_parser("option", help="language | level | minutes | hands_busy")
@@ -854,6 +860,10 @@ def _persona_cmd(args, cfg: Config) -> int:
             pe.reset()
         elif c == "level":
             pe.set_level(args.name, args.value)
+        elif c == "control":
+            pe.set_control(args.name, args.value)
+        elif c == "suite":
+            return _persona_suite(args, cfg)
         elif c == "adult":
             if args.setting == "on" and not args.confirm_adult:
                 print("error: adult-only styles need an explicit opt-in: add --confirm-adult to confirm you are 18 or older.", file=sys.stderr)
@@ -899,6 +909,26 @@ def _persona_selfcheck(args, cfg: Config) -> int:
     print(f"{rep['automatic_checks_passed']}/{rep['automatic_checks_total']} automatic checks passed. Saved: {path}\n"
           "These checks do not judge tone: open the file and read each reply to decide whether the style sounds right.")
     return 0 if rep["automatic_checks_passed"] == rep["automatic_checks_total"] else 1
+
+
+def _persona_suite(args, cfg: Config) -> int:
+    from jarvis.assistant import LocalAssistant, NoActiveModel
+    from jarvis.inference.gguf_engine import RuntimeUnavailable
+    from jarvis.personality import evalsuite
+    try:
+        a = LocalAssistant(cfg, guest=True)           # guest: no saved memory or settings are read or changed
+    except (NoActiveModel, RuntimeUnavailable, IntegrityError) as exc:
+        print(f"Cannot run the suite: {exc}", file=sys.stderr)
+        return 2
+    try:
+        rep = evalsuite.run(a, styles=args.styles or None, scenarios=args.scenarios or None, simulated=False,
+                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True))
+    finally:
+        a.close()
+    path = evalsuite.save(rep, cfg.data_dir)
+    print(f"{rep['passed']}/{rep['run']} scenario checks passed ({len(rep['not_run'])} not run: no voice harness on the command line). Saved: {path}\n"
+          "These checks verify program behaviour only. Open the file and read the replies to judge tone, wit and warmth.")
+    return 0 if not rep["failed"] else 1
 
 
 _LAST: dict = {}

@@ -32,7 +32,7 @@ from jarvis.voice.console import Controls  # noqa: E402
 from jarvis.voice.settings import VoiceSettings  # noqa: E402
 
 SRC = ROOT / "src" / "jarvis"
-ADULT = ("savage", "flirty", "romantic")
+ADULT = ("savage", "flirty", "sexy", "romantic")
 
 # ---- detector corpus (measured, not assumed). Positives must be caught; negatives must NOT be.
 STOP_YES = ["please stop", "stop it", "I said stop", "quit it", "lay off", "back off", "knock it off", "cut it out", "that's enough", "enough already", "enough of this",

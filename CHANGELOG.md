@@ -123,3 +123,8 @@ Kokoro (`kokoro-onnx`, ONNX Runtime, CPU) added as a second engine through the S
 **Not verified:** real Kokoro inference, real model download, real audio, PySide6, Windows (see `docs/STAGE6_5_KOKORO.md`).
 ### Tests
 - New: `tests/test_p46_kokoro.py` (97 tests, all fakes).
+
+## Stage 7: Full personality system
+- 17 personalities (new: Friendly Companion, Humorous Assistant, Sexy; Hype Coach renamed), each with a versioned behaviour spec.
+- Five persistent customization controls (offsets with per-mode identity limits), Personality page controls, `persona control` CLI.
+- 15-scenario x 17-mode evaluation suite (`jarvis persona suite`); docs/STAGE7_PERSONALITY.md.

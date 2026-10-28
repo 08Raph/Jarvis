@@ -14,6 +14,7 @@ from pathlib import Path
 
 from jarvis.personality import safety
 from jarvis.personality.engine import INVARIANTS, PersonalityProfile
+from jarvis.personality.spec import CONTROLS, OFFSET_RANGE, SPEC_VERSION, SPECS, spec_guidance
 from jarvis.personality.styles import LEVEL_TEXT, NORMAL, SLIDERS, STYLES, Style, style_guidance
 
 PERSONA_FILE = "persona.json"
@@ -53,6 +54,13 @@ class PersonaSettings:
     level: str = "beginner"
     minutes: int = 3
     hands_busy: bool = False
+    # Stage 7: user customisation as offsets from the active mode's own defaults (0 = the mode as designed). Persisted; changes apply from the next message.
+    humor: int = 0
+    warmth: int = 0
+    directness: int = 0
+    formality: int = 0
+    verbosity: int = 0
+    schema_version: int = SPEC_VERSION
 
     def validate(self) -> "PersonaSettings":
         def need(c, m):
@@ -67,11 +75,18 @@ class PersonaSettings:
         need(isinstance(self.language, str) and bool(_LANG.match(self.language)), "language must be a plain language name")
         need(self.level in LEVELS_OK, f"level must be one of {LEVELS_OK}")
         need(isinstance(self.minutes, int) and not isinstance(self.minutes, bool) and 1 <= self.minutes <= 60, "minutes must be 1..60")
+        for c in CONTROLS:
+            v = getattr(self, c)
+            need(isinstance(v, int) and not isinstance(v, bool) and OFFSET_RANGE[0] <= v <= OFFSET_RANGE[1], f"{c} must be a whole number {OFFSET_RANGE[0]}..{OFFSET_RANGE[1]}")
+        need(isinstance(self.schema_version, int) and not isinstance(self.schema_version, bool) and 1 <= self.schema_version <= SPEC_VERSION, "unsupported settings version")
         need(not (STYLES[self.style].adult_only and not self.adult_optin), f"{STYLES[self.style].label} needs the adult opt-in first")
         return self
 
     def sliders(self) -> dict[str, int]:
         return {k: getattr(self, k) for k in SLIDERS}
+
+    def offsets(self) -> dict[str, int]:
+        return {k: getattr(self, k) for k in CONTROLS}
 
 
 @dataclass
@@ -135,6 +150,19 @@ class Persona:
             raise ValueError(f"unknown setting {name!r}; choose from {list(_RANGE)}")
         self._apply(**{name: value})
 
+    def set_control(self, name: str, value: int) -> None:
+        """One of the five persistent customisation controls (humor, warmth, directness, formality, verbosity), as an offset from the mode's default."""
+        if name not in CONTROLS:
+            raise ValueError(f"unknown control {name!r}; choose from {list(CONTROLS)}")
+        self._apply(**{name: value})
+
+    def effective_controls(self, style: str | None = None) -> dict[str, int]:
+        """The levels (1..5) actually used for a style after the user's offsets and the mode's identity limits."""
+        return SPECS[style or self.settings.style].effective(self.settings.offsets())
+
+    def reset_controls(self) -> None:
+        self._apply(**{c: 0 for c in CONTROLS})
+
     def set_option(self, **kw) -> None:
         bad = set(kw) - {"language", "level", "minutes", "hands_busy"}
         if bad:
@@ -167,7 +195,7 @@ class Persona:
         out = []
         for st in STYLES.values():
             out.append({"id": st.id, "label": st.label, "summary": st.summary, "roleplay": st.roleplay, "adult_only": st.adult_only,
-                        "available": (not st.adult_only) or self.settings.adult_optin, "sliders": list(st.sliders),
+                        "available": (not st.adult_only) or self.settings.adult_optin, "sliders": list(st.sliders), "controls": SPECS[st.id].effective(self.settings.offsets()),
                         "current": st.id == self.settings.style})
         return out
 
@@ -180,20 +208,22 @@ class Persona:
         return {"id": st.id, "label": st.label, "summary": st.summary, "roleplay": st.roleplay, "adult_only": st.adult_only,
                 "needs_opt_in": st.adult_only and not self.settings.adult_optin,
                 "sliders": {k: {"value": getattr(self.settings, k), "meaning": LEVEL_TEXT[k][getattr(self.settings, k)]} for k in st.sliders},
+                "behavior_spec_version": SPEC_VERSION, "effective_controls": SPECS[st.id].effective(self.settings.offsets()),
                 "memory": "Saved personal notes are NOT given to the model in this style." if st.memory == "none" else "Saved notes are used as usual.",
                 "model_instructions": self._compose(trial, PersonalityProfile())}
 
     # ---- per turn
     def _compose(self, s: PersonaSettings, profile: PersonalityProfile) -> str:
         st = STYLES[s.style]
+        spec = spec_guidance(st.id, s.offsets()) + "\nThe levels in the behaviour spec take precedence over any older style profile above."
         if st.trait_mode:
             base = PersonalityProfile.from_mode(st.trait_mode).behavior_instructions()
-            return base + "\n" + SAFETY_BLOCK
+            return base + "\n" + spec + "\n" + SAFETY_BLOCK
         if st.id == NORMAL:
-            return NORMAL_GUIDANCE + "\n" + profile.behavior_instructions() + "\n" + SAFETY_BLOCK
+            return NORMAL_GUIDANCE + "\n" + profile.behavior_instructions() + "\n" + spec + "\n" + SAFETY_BLOCK
         extra = {"language": s.language, "level": s.level, "minutes": s.minutes}
         busy = " The user is busy with their hands or eyes: keep it very short." if s.hands_busy else ""
-        return style_guidance(st.id, s.sliders(), extra) + busy + "\n" + "\n".join(INVARIANTS) + "\n" + SAFETY_BLOCK
+        return style_guidance(st.id, s.sliders(), extra) + busy + "\n" + spec + "\n" + "\n".join(INVARIANTS) + "\n" + SAFETY_BLOCK
 
     def observe(self, user_text: str, profile: PersonalityProfile | None = None) -> Turn:
         """Called once per user message BEFORE the model sees it. May return the user to Normal (persisted) or override the style for this turn only."""

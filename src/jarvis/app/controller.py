@@ -1121,7 +1121,9 @@ class AppController:
     def persona_state(self) -> dict:
         from dataclasses import asdict
         return {"indicator": self.persona.indicator(), "styles": self.persona.listing(), "settings": asdict(self.persona.settings),
-                "note": self.persona.load_note, "default": "normal"}
+                "note": self.persona.load_note, "default": "normal",
+                "effective_controls": self.persona.effective_controls(),
+                "limitation": "A personality is written guidance for the language model. A small local model may follow it only loosely; Jarvis does not rewrite replies to fake a style."}
 
     def persona_set(self, style: str) -> str:
         msg = self.persona.set_style(style)
@@ -1142,6 +1144,15 @@ class AppController:
 
     def persona_level(self, name: str, value: int) -> None:
         self.persona.set_level(name, int(value))
+        self._notify("persona")
+
+    def persona_control(self, name: str, value: int) -> None:
+        """Humor / warmth / directness / formality / verbosity, as an offset (-2..+2) from the active mode's default. Applies from the next message; history and memory are untouched."""
+        self.persona.set_control(name, int(value))
+        self._notify("persona")
+
+    def persona_controls_reset(self) -> None:
+        self.persona.reset_controls()
         self._notify("persona")
 
     def persona_option(self, **kw) -> None:
