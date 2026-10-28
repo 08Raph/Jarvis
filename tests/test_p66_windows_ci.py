@@ -169,9 +169,22 @@ class WorkflowShape(unittest.TestCase):
         for name in set(re.findall(r"scripts[\\/]([A-Za-z0-9_]+\.(?:py|ps1))", self.text)):
             self.assertTrue((ROOT / "scripts" / name).is_file(), name)
 
-    def test_the_installer_is_never_uploaded_from_a_pull_request(self):
-        step = self.text[self.text.index("id: stage_installer"):]
-        self.assertIn("github.event_name != 'pull_request'", step)
+    def test_nothing_is_uploaded_cached_or_staged_as_a_workflow_artifact(self):
+        """The account's Actions artifact storage may be full: no artifact upload, no cache, no staging for upload. Output stays in the run log and summary."""
+        t = self.text
+        self.assertEqual(sorted(set(re.findall(r"uses:\s*(\S+)", t))), ["actions/checkout@v4", "actions/setup-python@v5"])
+        for needle in ("upload-artifact", "download-artifact", "actions/cache", "retention-days", "ci_stage_upload", "upload-staging", "cache:", "cache-dependency-path"):
+            self.assertNotIn(needle, t, needle)
+
+    def test_results_stay_visible_in_the_run_log_and_summary(self):
+        t = self.text
+        self.assertGreaterEqual(t.count("ci_summarize_unittest.py"), 2)          # Linux and Windows counts
+        self.assertGreaterEqual(t.count("GITHUB_STEP_SUMMARY"), 5)
+        self.assertIn("tee ci-logs/unittest-linux.log", t)                       # Linux output is shown, not only saved
+        self.assertIn("Get-Content ci-logs\\unittest-windows.log", t)             # Windows output is printed into the log
+        self.assertIn("PASS / FAIL / NOT RUN / PARTIAL", t)
+        self.assertIn("ci_check_selftest_report.py", t)                          # PASS / FAIL / BLOCKED for the optional real-model step
+        self.assertIn("Final gate", t)
 
     @unittest.skipUnless(__import__("importlib").util.find_spec("yaml"), "PyYAML is not installed")
     def test_parsed_structure(self):
@@ -183,6 +196,10 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(on["pull_request"]["paths"], on["push"]["paths"])
         self.assertEqual(d["permissions"], {"contents": "read"})
         self.assertEqual(set(d["jobs"]), {"linux-tests", "windows-package"})
+        for job in d["jobs"].values():
+            for step in job["steps"]:
+                self.assertTrue(set(step.get("uses", "x")) and "upload" not in str(step.get("uses", "")) and "cache" not in str(step.get("uses", "")))
+                self.assertNotIn("cache", step.get("with", {}))
         for name, job in d["jobs"].items():
             self.assertIn("timeout-minutes", job, name)
             self.assertIn(job["runs-on"], ("ubuntu-24.04", "windows-2022"))

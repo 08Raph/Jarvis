@@ -16,7 +16,7 @@ Triggers: pull requests and pushes to `main` that touch `src/`, `tests/`, `packa
 | → Packaged worker gate | `verify_frozen_worker.py --synthetic-model` against the **real** `dist\ProjectJarvis\jarvis.exe` (see below) | |
 | → Silent install check | `scripts\clean_install_test.ps1` installs the built installer, launches, uninstalls (keeps data). This runner is not a clean PC | |
 | → OPTIONAL real-model test | only on a manual run with the consent value typed (see below) | network, ~1.28 GB |
-| → Upload | logs (14 days) through the upload guard; the installer (3 days) only on pushes and manual runs, only when every check passed | |
+| (no upload) | **Nothing is uploaded as a workflow artifact and nothing is cached** (the account's Actions artifact storage was full). All output is in the run log (collapsible groups) and the run summary | |
 
 Every run ends with a summary table that labels each check **PASS / FAIL / NOT RUN / PARTIAL** and lists what it did not verify.
 
@@ -28,7 +28,7 @@ Timeouts, abnormal worker exits (crash codes) and worker start failures on the *
 
 ## Optional real-model test (opt-in, manual only)
 Actions → **windows-ci** → *Run workflow* → in `real_inference_consent` type exactly `yes-download-qwen3-1.7b-q4_k_m`. Leave it empty for the normal run (nothing is downloaded).
-- Source: `huggingface.co/ggml-org/Qwen3-1.7B-GGUF` (Qwen3-1.7B Q4_K_M), Apache-2.0, about 1.28 GB, downloaded through the app's own consent and SHA-256 path (`models fetch ... --yes`; the typed value is the consent), kept only on the runner (a fresh data folder, deleted at the end, never cached, never uploaded; the upload guard also refuses `.gguf` files).
+- Source: `huggingface.co/ggml-org/Qwen3-1.7B-GGUF` (Qwen3-1.7B Q4_K_M), Apache-2.0, about 1.28 GB, downloaded through the app's own consent and SHA-256 path (`models fetch ... --yes`; the typed value is the consent), kept only on the runner (a fresh data folder, deleted at the end, never cached, never uploaded).
 - It then runs `models verify` and the packaged `jarvis.exe selftest` and judges `selftest.json` with `scripts/ci_check_selftest_report.py`:
   - **BLOCKED** – model could not be downloaded or verified, no model selected, or the runtime is unavailable (reported separately, never as a pass);
   - **FAIL** – load, generation, empty/invalid answer, timeout, crash, or a "pass" whose report contradicts itself;
@@ -38,10 +38,10 @@ Actions → **windows-ci** → *Run workflow* → in `real_inference_consent` ty
 ## Run it from GitHub
 1. Push the branch (this repository's owner decides when). Pull requests and pushes to `main` that touch the paths above start `windows-ci` automatically.
 2. Or: GitHub → **Actions** → **windows-ci** → **Run workflow** → pick the branch → (optional consent value) → *Run workflow*. Manual runs need the workflow file to be on the default branch to appear in the list.
-3. Open the run → **Summary** for the label table and counts; download `windows-ci-logs` for `build.log`, `unittest-windows.log/.json`, `frozen_worker_gate.log`, `clean_install.log` (and `real_selftest.json` if the optional step ran).
+3. Open the run → **Summary** for the label table and counts. The full output is in the step logs: the build, the `unittest output` group, the gate output, the install check and (optional step) the downloaded-model selftest report. There are no downloadable artifacts, so this workflow provides no installer; build one with `scripts\build_windows.ps1` on your PC.
 
 ## Cost and limits
-Hosted runners only. Repository visibility decides whether runner minutes and artifact storage are free; check Settings and Billing/Usage before relying on it (a Windows build takes tens of minutes). `linux-tests` is the cheap lane; `windows-package` is the expensive one, with a 100-minute job limit and per-step limits. Actions are version-constrained (`@v4`, `@v5`) first-party actions, not pinned to commit hashes.
+Hosted runners only. Repository visibility decides whether runner minutes and artifact storage are free; check Settings and Billing/Usage before relying on it (a Windows build takes tens of minutes). `linux-tests` is the cheap lane; `windows-package` is the expensive one, with a 100-minute job limit and per-step limits. No artifacts are stored, so this workflow adds nothing to Actions storage. Actions are version-constrained (`@v4`, `@v5`) first-party actions, not pinned to commit hashes.
 
 ## Still needs your own Windows PC
 Interactive GUI use (looks, scaling, dark mode, focus), microphone/speaker/wake-word voice, computer-control prompts, a genuinely clean-PC install and upgrade, antivirus/SmartScreen behaviour, other CPUs, real timeouts and crashes of the worker, model quality, and final release acceptance. See your Windows acceptance runbook and `docs/WINDOWS_TEST_CHECKLIST.md`.
