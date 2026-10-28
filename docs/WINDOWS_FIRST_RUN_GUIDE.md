@@ -51,19 +51,33 @@ py -3.12 -c "import sys,struct,platform,ctypes; print(sys.version); print(struct
 **Stop if:** the architecture is not 64-bit / AMD64, `py -3.12` is "not found" (install 64-bit Python 3.12 from python.org, then repeat), RAM is under 8, free disk is under 5, or `AVX2: False`.
 **Save:** the screen output (it is in the log).
 
-### Stage B: verify the ZIP before extracting it
-Download the ZIP first (its name and SHA-256 come from the chat message that gave it to you). Then:
+### Stage B: find and verify the ZIP before extracting it
+Download the ZIP first and keep **exactly one** `ProjectJarvis-source-*.zip` in your Downloads folder (move any older ones elsewhere). Use the SHA-256 from the chat message that accompanied **this newly generated ZIP**, not a hash from an older archive or an earlier message; keep it ready to paste. A file name matching is **not** proof the file is the right or an intact one; only the hash comparison is.
 ```powershell
-$ZIP = "$HOME\Downloads\ProjectJarvis-source-797573f-with-windows-guide.zip"
-Test-Path $ZIP
-(Get-FileHash $ZIP -Algorithm SHA256).Hash.ToLower()
+$ZIP = $null
+$found = @(Get-ChildItem -Path "$HOME\Downloads" -Filter "ProjectJarvis-source-*.zip" -File | Where-Object { $_.Extension -eq ".zip" })
+"Matching ZIP files in Downloads: " + $found.Count
+$found | ForEach-Object { "  " + $_.FullName }
+if ($found.Count -ne 1) {
+  "STOP: need exactly one ProjectJarvis-source-*.zip in Downloads (found $($found.Count)). Move the ones you do not want elsewhere, then run this stage again."
+} else {
+  $file = $found[0]
+  "Selected file : " + $file.Name
+  "Full path     : " + $file.FullName
+  "Size (bytes)  : " + $file.Length
+  $actual = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+  "SHA-256       : " + $actual
+  $expected = (Read-Host "Paste the SHA-256 given in the chat for this ZIP").Trim().ToLower()
+  if ($actual -eq $expected) { $ZIP = $file.FullName; "HASH MATCHES. Selected: $ZIP" } else { "STOP: the hash does NOT match. Do not extract this file." }
+}
 ```
-**Expect:** `True`, then a 64-character hash that equals, character for character, the hash given in the chat with this ZIP.
-**Stop if:** `False` (fix the file name or location), or the hash differs in any character (delete the file and re-download; do not extract it). If you were not given a hash, do not continue.
+**Expect:** `Matching ZIP files in Downloads: 1`, the full path and file name of the ZIP you downloaded (check that they are the file you expect), its size, a 64-character hash, and then `HASH MATCHES. Selected: ...`.
+**Stop if:** it prints `STOP` (zero or several matching ZIPs, so the intended archive is ambiguous, or the hash differs; in the last case delete the file and download it again), or the pasted hash is empty or from a different message. If you were not given a hash, do not continue.
+The PowerShell in this stage has **not been parsed or run** by the author (no PowerShell was available), so a typing or syntax error is possible. If PowerShell complains about the syntax rather than printing one of the messages above, stop and send the error text.
 
 ### Stage C: extract the source and create an isolated environment
 ```powershell
-if (Test-Path C:\jv\src) { "STOP: C:\jv\src already exists" } else {
+if (-not $ZIP) { "STOP: Stage B did not select a verified ZIP" } elseif (Test-Path C:\jv\src) { "STOP: C:\jv\src already exists" } else {
   Expand-Archive -Path $ZIP -DestinationPath C:\jv\src
   Get-ChildItem C:\jv\src
 }
