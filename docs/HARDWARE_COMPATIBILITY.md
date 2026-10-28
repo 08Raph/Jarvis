@@ -34,7 +34,7 @@ entry (<12 GB RAM, no usable GPU) / mainstream (12-24 GB RAM or >=4 GB usable VR
 |---|---|---|---|---|---|---|
 | qwen3-1.7b-q4_k_m | 1.7 B | Q4_K_M | ~1.3 GB | ~3 GB | Apache-2.0 | publisher page read during earlier development |
 | qwen3-4b-q4_k_m | 4 B | Q4_K_M | ~2.5 GB | ~5 GB | Apache-2.0 (to confirm) | **not fetched**: publisher unreachable from the build sandbox |
-| qwen3-8b-q4_k_m | 8 B | Q4_K_M | ~5.0 GB | ~12 GB | Apache-2.0 (to confirm) | **not fetched** |
+| qwen3-8b-q4_k_m | 8 B | Q4_K_M | ~5.03 GB (rounded page value) | ~12 GB | Apache-2.0 (publisher page tag) | **not fetched** (repository corrected to `Qwen/Qwen3-8B-GGUF`; install on request, never auto-selected) |
 
 The exact file, size and SHA-256 are resolved from the host at download time; confirm the licence on the model page before first use.
 `verified_hardware` is empty for every model: nothing has been loaded and answered on any recorded machine.

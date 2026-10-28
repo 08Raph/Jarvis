@@ -38,7 +38,8 @@ def validate(model_dir: str | Path, *, llama_factory=None, n_gpu_layers: int = 0
         res["real_validation_passed"] = all(done) and not simulated
         return res
 
-    f = d / "model.gguf"
+    from jarvis.models.gguf import model_file
+    f = model_file(d)
     if not mark("model_downloaded", f.is_file(), "" if f.is_file() else f"no model.gguf in {d}"):
         return finish()
     try:

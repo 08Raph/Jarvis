@@ -6,7 +6,7 @@ and is recorded in an in-memory audit log (feature, host, time, bytes sent; neve
 
 | Feature | Purpose | Default | Status |
 |---|---|---|---|
-| model_download | fetch a model package you chose | off (enable per action) | Implemented |
+| model_download | fetch a model package you chose; also the one-time read of the model host's public metadata by the **System & Model Readiness** page (huggingface.co API only, no model file; asked first, switched on for that action only) | off (enable per action) | Implemented |
 | update_check | fetch a signed version manifest; never installs | off | Implemented |
 | web_research | Prompt 7 `web_fetch`/`web_search` tools: public https pages, Wikipedia, or your own SearXNG; each request is asked | off | Implemented; sends only the URL/search words you approve (secrets and passages of documents you read are refused); private addresses refused |
 | web_search | web lookups for answers | off | **Not implemented**; cannot be enabled |

@@ -14,7 +14,7 @@ DATAS = [
 ]
 # user-facing documentation shipped with the app (maintainer review notes and test checklists stay in the source repository)
 DOCS = ["RELEASE_NOTES.md", "TROUBLESHOOTING.md", "MODEL_DISTRIBUTION.md", "PRIVACY_AND_NETWORK.md", "LOCAL_MODEL.md", "DESKTOP_CONTROL.md",
-        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md"]
+        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md", "IN_APP_PREFLIGHT.md"]
 
 # Files that MUST exist in the built folder (relative to dist/ProjectJarvis)
 REQUIRED_IN_DIST = ["jarvis.exe", "jarvis-gui.exe", "LICENSE", "THIRD_PARTY_NOTICES.md", "build_info.json", "config.sample.toml",
@@ -26,7 +26,10 @@ FORBIDDEN_PATTERNS = ["*.pem", "*.key", "*_private.*", "*private_key*", "*signin
 FORBIDDEN_TOP_LEVEL = ["tests", "server", ".github", "scripts", "src", ".venv", "build"]
 
 # Python modules the frozen app needs although PyInstaller cannot see them statically (dynamic imports); optional ones are included only if installed
-HIDDEN_REQUIRED = ["jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop"]
+HIDDEN_REQUIRED = ["jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop",
+                   "jarvis.preflight.runner", "jarvis.preflight.metadata", "jarvis.preflight.hf_fetch", "jarvis.preflight.history",
+                   "jarvis.brains.service", "jarvis.brains.viewmodel", "jarvis.brains.compat", "jarvis.brains.archs", "jarvis.models.gguf_vocab",
+                   "jarvis.voice.engines", "jarvis.voice.manager", "jarvis.voice.preview", "jarvis.voice.inputcheck", "jarvis.voice.viewmodel", "jarvis.voice.kokoro_engine", "jarvis.models.kokoro_files"]      # System & Model Readiness page (imported lazily)
 OPTIONAL_PACKAGES = ["llama_cpp", "sounddevice", "_sounddevice_data", "vosk", "comtypes", "psutil", "pypdf"]
 MANDATORY_PACKAGES_FOR_RELEASE = ["PySide6", "numpy", "cryptography"]    # the build FAILS if these are missing
 

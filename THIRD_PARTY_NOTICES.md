@@ -21,4 +21,6 @@ Versions and licenses below were read from the packages installed in the build e
 - **psutil 7.2.2**: optional network interface state for system_info (not bundled unless installed). License metadata: BSD-3-Clause. Note: BSD-3-Clause; keep notice.
 - **pyinstaller**: build tool (not shipped, but its bootloader is embedded). NOT INSTALLED when this file was generated, so version and license were not read. Note: GPL-2.0 with bootloader exception; verify.
 
+Optional, NOT bundled (installed by the user; see docs/STAGE6_5_KOKORO.md): **kokoro-onnx** (MIT, read on its PyPI page), the **Kokoro-82M** model files (Apache-2.0 as stated by the publisher; downloaded only after the user confirms), and the packages kokoro-onnx installs, including **espeak-ng** (GPL-3.0). The licences of its other dependencies (phonemizer-fork, espeakng-loader, onnxruntime) were not individually verified; check them before ever bundling any of it.
+
 Python itself is distributed under the PSF License. This summary is informational, not legal advice.

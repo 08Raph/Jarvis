@@ -45,6 +45,11 @@ def _windows_ok() -> tuple[bool | None, str]:
     return ok, f"Windows {platform.version()} ({platform.machine()})" + ("" if ok else f" is older than the supported minimum {V.MIN_WINDOWS}")
 
 
+VERIFICATION_TEXT = ("How the download is checked: the file's size and SHA-256 are read from huggingface.co when you start the download, and the file is refused "
+                     "if it is larger than expected, incomplete, or its SHA-256 (computed on this PC from the bytes received) differs. The expected value comes "
+                     "from the same host as the file, so this detects a damaged or incomplete download, not a tampered repository. If the host publishes no "
+                     "checksum the download is refused.")
+
 class SetupEngine:
     def __init__(self, cfg: Config, store, policy, *, llama_factory=None, sleep: Callable[[float], None] = time.sleep,
                  hardware=None, runtime: dict | None = None):
@@ -126,19 +131,22 @@ class SetupEngine:
             rows.append({"id": m.id, "title": m.title, "license": m.license_spdx, "license_url": m.license_url, "download_gb": round(m.approx_size_bytes / 1e9, 2),
                          "memory_need_gb_estimate": ev["need_gb"], "fits": bool(ev["cpu_fits"] or ev["gpu_fits"]) and ev["disk_ok"], "disk_ok": ev["disk_ok"],
                          "metadata_confirmed": not m.metadata_status.startswith("from-publisher-knowledge"), "note": m.note,
+                         "repo": m.repo, "quantization": m.quant, "needs_free_gb": round((int(m.approx_size_bytes * 1.2) + 500_000_000) / 1e9, 1),
+                         "verification": VERIFICATION_TEXT, "auto_recommended": m.auto_recommend,
                          "installed": m.id in {x["id"] for x in self.store.installed()}})
         return {"recommended": ch.model.id if ch.model else None, "mode_estimate": ch.mode, "reasons": ch.reasons, "alternatives": ch.alternatives,
                 "models": rows, "tier": ch.tier, "note": "Memory figures are estimates. Only models whose size and licence were read from the publisher are recommended automatically."}
 
     # ------------------------------------------------------------------ step 3
     def download(self, model_id: str, progress: Callable[[int, int], None] | None = None, cancel: threading.Event | None = None,
-                 attempts: int = 3) -> dict:
+                 attempts: int = 3, activate: bool = True) -> dict:
+        """activate=False (Import Brain): install the verified file but do NOT make it the active brain; switching is a separate, tested step."""
         try:
             m = catalog.get(model_id)
         except KeyError:
             return {"ok": False, "kind": "unknown_model", "message": f"'{model_id}' is not in the model list."}
         try:
-            if self.store.active() == m.id and self.store.verify(m.id)[0]:
+            if (self.store.active() == m.id or not activate) and self.store.verify(m.id)[0]:
                 return {"ok": True, "already_installed": True, "model_id": m.id}
         except Exception:     # noqa: BLE001 - a damaged install is simply downloaded again
             pass
@@ -146,6 +154,7 @@ class SetupEngine:
         need = int(m.approx_size_bytes * 1.2) + 500_000_000
         if free < need:
             return {"ok": False, "kind": "disk_space", "message": f"Not enough free disk space: {free / 1e9:.1f} GB free, about {need / 1e9:.1f} GB needed."}
+        from jarvis.models.diskspace import DiskSpaceError
         from jarvis.models.manager import IntegrityError
         from jarvis.net.policy import NetworkDisabled
 
@@ -159,14 +168,21 @@ class SetupEngine:
             try:
                 with self.policy.grant_once("model_download"):
                     meta = self.store.download_gguf(m, prog)
-                self.store.set_active(meta["id"])
-                return {"ok": True, "model_id": meta["id"], "attempts": n, "sha256_verified_against_publisher": True}
+                if activate:
+                    self.store.set_active(meta["id"])
+                return {"ok": True, "model_id": meta["id"], "attempts": n, "activated": activate, "sha256_verified_against_publisher": True,
+                        "integrity": {"size_checked": True, "sha256_computed_locally": True, "expected_checksum_source": "huggingface.co API (same host as the file)",
+                                      "independent_of_host": False}}
             except Cancelled:
                 return {"ok": False, "kind": "cancelled", "message": "Download cancelled. The partial file was removed."}
+            except DiskSpaceError as e:
+                return {"ok": False, "kind": "disk_space", "message": f"The model was not installed: {e}"}
             except IntegrityError as e:
                 return {"ok": False, "kind": "integrity", "message": f"The downloaded file was rejected and not installed: {e}"}
             except NetworkDisabled as e:
                 return {"ok": False, "kind": "network_blocked", "message": f"Network access for model download is switched off: {e}"}
+            except LookupError as e:      # the host's file list does not hold exactly the one expected file (or is malformed): retrying cannot help and it is not the connection
+                return {"ok": False, "kind": "host_changed", "message": f"The model was not downloaded: {e}. This is not a connection problem and retrying will not help; the model list may need updating."}
             except Exception as e:     # noqa: BLE001 - network failures arrive as many exception types
                 last = f"{type(e).__name__}: {e}"
                 if cancel is not None and cancel.is_set():
@@ -176,6 +192,25 @@ class SetupEngine:
         return {"ok": False, "kind": "network", "message": f"The download failed after {attempts} tries ({last}). Check the internet connection and press Retry. Nothing was installed."}
 
     # ------------------------------------------------------------------ step 4
+    def _identity(self, model_id: str) -> tuple[bool, str]:
+        """What the installed file says it is, from the GGUF header recorded at install. A Qwen3 catalog entry must carry the 'qwen3' architecture. The header is
+        written by whoever made the file, so this catches a wrong file, not a forged one. No header recorded (older or manual install) is reported, not failed."""
+        try:
+            g = json.loads((self.store.path(model_id) / "meta.json").read_text(encoding="utf-8")).get("gguf")
+        except (OSError, ValueError, AttributeError):
+            g = None
+        if not isinstance(g, dict) or not g.get("architecture"):
+            return True, "no GGUF header was recorded for this install; identity not checked"
+        arch, name = str(g.get("architecture")), str(g.get("name") or "unnamed")
+        try:
+            want = catalog.get(model_id).architecture
+        except KeyError:
+            want = ""
+        want = want or ("qwen3" if "qwen3" in model_id.lower() else "")
+        if want and arch != want:
+            return False, f"the file declares architecture '{arch}' (name '{name}'), not {want}"
+        return True, f"the file declares architecture '{arch}', name '{name}' (self-declared by the file's maker)"
+
     def verify(self, model_id: str, cancel: threading.Event | None = None) -> dict:
         """Load the actual model, send a real prompt, measure CPU (and GPU when a GPU backend exists), choose and SAVE the mode, then re-test the way the app will run."""
         from jarvis.eval import winvalidate
@@ -191,6 +226,10 @@ class SetupEngine:
         ok, problems = self.store.verify(model_id)
         if not check("model file integrity (full SHA-256)", ok, "; ".join(problems) or "matches the recorded checksum"):
             return res
+        ident_ok, ident_detail = self._identity(model_id)
+        if not check("model identity (GGUF header)", ident_ok, ident_detail):
+            res["recovery"] = "The installed file is not the model this entry names. Remove it and install the model again."
+            return res
         rt = self._runtime()
         if not check("AI runtime present", rt.get("available"), str(rt.get("error", rt.get("version", "")))):
             res["recovery"] = "Reinstall Project JARVIS; the AI runtime is part of the installer."
@@ -199,9 +238,13 @@ class SetupEngine:
 
         def run_once(layers: int):
             eng = GGUFEngine(mdir, llama_factory=self.factory, n_gpu_layers=layers)
-            with winvalidate.Sampler() as s:
-                g = winvalidate._gen(eng, [{"role": "user", "content": PROMPT}], 64)
-            return eng, g, s.summary()
+            try:
+                with winvalidate.Sampler() as s:
+                    g = winvalidate._gen(eng, [{"role": "user", "content": PROMPT}], 64)
+                return eng, g, s.summary()
+            except BaseException:
+                eng.close()           # a failed or cancelled generation must not leave a loaded model behind
+                raise
         try:
             eng, g, rs = run_once(0)
         except RuntimeUnavailable as e:
@@ -215,6 +258,7 @@ class SetupEngine:
         check("CPU generated a reply", bool(g["text"].strip()), f"{g['tokens']} tokens, {g['tokens_per_second']} tokens/s")
         res["cpu"] = {k: g[k] for k in ("seconds", "first_token_seconds", "tokens", "tokens_per_second")} | {"load_seconds": round(eng.load_seconds, 2), "resources": rs}
         res["sample_reply"] = g["text"][:300]
+        eng.close()           # one copy of the model in memory at a time: this one is finished (load time and speed are already recorded)
         layers, gpu_note, verified = 0, "CPU mode.", False
         acc = selector.acceleration_state(self._hardware(), rt)
         res["gpu"] = {"detected": acc["gpu_detected"], "backend_available": acc["backend_available"], "tried": False, "verified": False}
@@ -225,6 +269,7 @@ class SetupEngine:
             try:
                 geng, gg, grs = run_once(-1)
                 res["gpu"].update(load_seconds=round(geng.load_seconds, 2), tokens_per_second=gg["tokens_per_second"], resources=grs)
+                geng.close()
                 check("model loads with GPU offload", True, f"{geng.load_seconds:.1f} s")
                 util = grs.get("gpu_util_max_percent") or 0
                 faster = bool(gg["tokens_per_second"] and g["tokens_per_second"] and gg["tokens_per_second"] > 1.2 * g["tokens_per_second"])
@@ -247,7 +292,10 @@ class SetupEngine:
         # final: exactly the way the app will load it (no explicit layers), and confirm the saved mode is what it used
         try:
             app_eng = GGUFEngine(mdir, llama_factory=self.factory)
-            out = app_eng.chat([{"role": "user", "content": "Reply with the single word: ready"}], max_tokens=16, temperature=0.0)
+            try:
+                out = app_eng.chat([{"role": "user", "content": "Reply with the single word: ready"}], max_tokens=16, temperature=0.0)
+            finally:
+                app_eng.close()
             check("the app's own engine answers", bool(out.strip()), out.strip()[:60])
             check("configured mode matches what was verified", app_eng.gpu_layers_requested == layers,
                   f"engine used {app_eng.gpu_layers_requested} GPU layers, setup chose {layers}")

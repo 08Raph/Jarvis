@@ -126,7 +126,8 @@ class ModelStep(Base):
         self.assertEqual(r["recommended"], MID)
         row = next(x for x in r["models"] if x["id"] == MID)
         self.assertEqual(row["license"], "Apache-2.0"); self.assertGreater(row["download_gb"], 1)
-        self.assertFalse(next(x for x in r["models"] if x["id"] == "qwen3-8b-q4_k_m")["metadata_confirmed"])
+        self.assertFalse(next(x for x in r["models"] if x["id"] == "qwen3-4b-q4_k_m")["metadata_confirmed"])      # still not read from the host's API
+        self.assertTrue(next(x for x in r["models"] if x["id"] == "qwen3-8b-q4_k_m")["metadata_confirmed"])      # corrected to the publisher's own repository (page-read)
 
     def test_too_little_memory_gives_reason_not_crash(self):
         r = self.engine(hw=Hardware("W", 2, 2.0, 50.0)).recommend()

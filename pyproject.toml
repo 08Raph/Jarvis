@@ -14,8 +14,9 @@ dependencies = ["numpy>=1.26", "cryptography>=42", "tzdata>=2024.1; sys_platform
 train = ["torch>=2.3"]
 ui = ["PySide6>=6.7,<7"]
 build = ["pyinstaller>=6.6"]
-local = ["llama-cpp-python>=0.3"]
+local = ["llama-cpp-python==0.3.36"]   # pinned: evidence in docs/STAGE5_MODEL_SOURCE_VERIFICATION.md section 27
 voice = ["sounddevice>=0.4.6", "vosk>=0.3.45"]
+kokoro = ["kokoro-onnx>=0.4.0", "sounddevice>=0.4.6"]   # optional local neural voice (Stage 6.5); installed by the user, not bundled: it pulls in GPL espeak-ng
 docs = ["pypdf>=4"]
 monitor = ["psutil>=5.9"]
 desktop = ["comtypes>=1.4; sys_platform == 'win32'"]

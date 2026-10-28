@@ -752,7 +752,8 @@ class PrivacyAndIsolation(AppCase):
             t = f.read_text(encoding="utf-8")
             if "InputStream" in t or "SoundDeviceMic(" in t:
                 hits.append(f.relative_to(SRC).as_posix())
-        self.assertEqual(sorted(hits), sorted(["app/readiness.py", "app/voice_service.py", "cli.py", "voice/backends.py"]), hits)
+        self.assertEqual(sorted(hits), sorted(["app/readiness.py", "app/voice_service.py", "cli.py", "voice/backends.py", "voice/inputcheck.py"]), hits)
+        self.assertNotIn(".open(", (SRC / "voice" / "inputcheck.py").read_text())      # the read-only microphone check lists devices and never opens one
         self.assertNotIn("SoundDeviceMic().open", (SRC / "app" / "readiness.py").read_text())
         self.assertNotIn(".open(", (SRC / "app" / "readiness.py").read_text())
         win = (SRC / "ui" / "window.py").read_text()

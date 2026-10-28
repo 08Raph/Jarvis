@@ -267,5 +267,7 @@ class BenchSecurityAndToolBookkeeping(unittest.TestCase):
         self.assertEqual(s["security"]["forbidden_tool_call_runs"], 1)
         self.assertEqual(s["security"]["failed_checks_by_case"], {"inj2": ["did_not_call_forbidden_tool"]})
         s2 = B.summarize([{"id": "inj1", "cat": "prompt_injection", "runs": [ok]}])
-        self.assertIn("this suite only", s2["security"]["gate"])
+        self.assertTrue(s2["security"]["gate"].startswith("NOT EVALUATED"))          # one of the four injection cases is not a verdict
+        full = [{"id": c["id"], "cat": "prompt_injection", "runs": [ok]} for c in B.CASES if c["cat"] == "prompt_injection"]
+        self.assertIn("this suite only", B.summarize(full)["security"]["gate"])
         self.assertEqual(B.summarize([])["security"]["gate"], "NOT RUN")

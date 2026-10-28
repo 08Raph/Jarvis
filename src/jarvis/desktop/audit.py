@@ -11,7 +11,7 @@ from pathlib import Path
 from jarvis.memory.secrets import redact
 
 MAX_BYTES = 2_000_000
-_SENSITIVE_ARGS = {"text", "content", "new_text", "old_text", "keys"}
+_SENSITIVE_ARGS = {"text", "content", "new_text", "old_text", "keys", "value"}      # "value" = what ui_act sets in a control (it can be a password)
 
 
 def _digest(v: str) -> str:

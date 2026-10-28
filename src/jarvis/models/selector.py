@@ -80,6 +80,8 @@ def select(hw, runtime: dict, *, prefer: str = "balanced", pinned: str | None = 
     accel = acceleration_state(hw, runtime)
     tier = hardware_tier(getattr(hw, "ram_gb", None), getattr(hw, "vram_gb", None), accel["backend_available"])
     ev = {m.id: evaluate(m, hw, accel) for m in models}
+    if not pinned:
+        models = tuple(m for m in models if m.auto_recommend)      # a model marked auto_recommend=False is fetchable on request, never chosen for the user
     if not include_unconfirmed and not pinned:      # never AUTO-recommend a model whose size/licence has not been read from the publisher
         models = tuple(m for m in models if not m.metadata_status.startswith("from-publisher-knowledge"))
     ok = [m for m in models if ev[m.id]["disk_ok"] and (ev[m.id]["gpu_fits"] or ev[m.id]["cpu_fits"])]

@@ -97,6 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     mg.add_argument("--license-url", help="where the license text can be read")
     mg.add_argument("--sha256", help="trusted SHA-256 of the file")
     mg.add_argument("--accept-unverified", action="store_true")
+    mg.add_argument("--expected-size-bytes", type=_expected_size_arg, metavar="N",
+                    help="optional: the publisher's size of the file in bytes; a file more than 115%% of it is refused before it is hashed or copied")
     mg.add_argument("--context-tokens", type=int, help="context window to use for this model (default: the engine default)")
     mg.add_argument("--no-think", action="store_true", help="Qwen3-style model: switch the hidden thinking phase off with /no_think")
     mg.add_argument("--no-select", action="store_true", help="install only; keep the currently selected model (used for side-by-side benchmarks)")
@@ -117,7 +119,7 @@ def build_parser() -> argparse.ArgumentParser:
     bi.add_argument("--sampling-profile", choices=("default", "publisher"), help="sampling settings to measure")
     bi.add_argument("--thinking", action="store_true", help="let a Qwen3 model think before answering (much slower on CPU)")
     bi.add_argument("--max-tokens", type=int, default=None, help="reply token limit per turn (default 512)")
-    bs = sub.add_parser("bench-security", help="REAL-MODEL security benchmark (sec-v1: injection, prompt leak, memory exfiltration, summary, tool authorization); raw model vs app results kept apart")
+    bs = sub.add_parser("bench-security", help="REAL-MODEL security benchmark (sec-v1.1: injection, prompt leak, memory exfiltration, summary, tool authorization); raw model vs app results kept apart")
     bs.add_argument("--model", help="installed model id (default: the active model)")
     bs.add_argument("--out", help="folder for sec_<label>.json and .txt")
     bs.add_argument("--sampled-runs", type=int, default=2, help="extra runs per case at temperature 0.7 (0-4)")
@@ -270,10 +272,15 @@ def _voice_cmd(args, cfg: Config) -> int:
         if c == "devices":
             _dump(SoundDeviceMic().devices())
         elif c == "voices":
-            _dump(SapiSpeaker().list_voices())
+            from jarvis.voice.engines import SapiEngine
+            vl = SapiEngine().list_voices()
+            _dump({c: [{"id": v.id, "name": v.name, "language": v.language_label or v.language, "engine": v.engine} for v in vl if v.category == c]
+                   for c in ("feminine", "masculine", "unspecified")})
         elif c == "say":
+            from jarvis.voice.engines import split_id
             from jarvis.voice.speakable import apply_pronunciations, speakable
-            SapiSpeaker().speak(apply_pronunciations(speakable(args.text), vs.pronunciations), vs.rate, vs.volume, vs.tts_voice)
+            SapiSpeaker().speak(apply_pronunciations(speakable(args.text), vs.pronunciations), vs.rate, vs.volume,
+                                  (split_id(vs.tts_voice)[1] if vs.tts_voice else None))
         elif c == "run":
             return _voice_run(args, cfg, vs)
     except (BackendUnavailable, OSError, FileNotFoundError) as exc:
@@ -522,6 +529,14 @@ def _selftest(cfg: Config, store: ModelStore) -> int:
     return 0 if result["passed"] else 3
 
 
+def _expected_size_arg(text: str) -> int:
+    from jarvis.models.diskspace import parse_expected_size
+    try:
+        return parse_expected_size(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def _models_gguf_cmd(args, cfg: Config, store: ModelStore, policy: NetworkPolicy) -> int:
     from jarvis.hardware import assess_gguf, detect_hardware
     from jarvis.models import catalog
@@ -585,8 +600,14 @@ def _models_gguf_cmd(args, cfg: Config, store: ModelStore, policy: NetworkPolicy
                 extra["context_tokens"] = args.context_tokens
             if args.no_think:
                 extra["no_think_suffix"] = True
-            meta = store.install_gguf(args.path, args.id, args.license, text, args.license_url or "", args.sha256, extra_meta=extra or None)
+            meta = store.install_gguf(args.path, args.id, args.license, text, args.license_url or "", args.sha256, extra_meta=extra or None,
+                                      expected_size_bytes=args.expected_size_bytes)
             _tel(cfg, "model_installed", model="custom", source="file")
+            if meta["size_limit_enforced"]:
+                print(f"Size limit enforced: the file is within 115% of the expected {meta['expected_size_bytes']} bytes.")
+            else:
+                print("NOTE: the expected-size limit was NOT enforced (no --expected-size-bytes given). Compare the file's size with the publisher's page yourself; "
+                      "stop if it is more than 15% larger.")
             if args.no_select:
                 print(f"Installed '{meta['id']}'. The selected model was NOT changed. Benchmark it with: jarvis bench-intel --model {meta['id']} --out <folder>")
                 return 0
@@ -1049,7 +1070,8 @@ def _main(argv: list[str] | None = None) -> int:
         try:
             if args.mcmd == "list":
                 _dump({"installed": store.installed(), "active": store.active(),
-                       "disk_usage_bytes": store.disk_usage_bytes()})
+                       "disk_usage_bytes": store.disk_usage_bytes(),
+                       "rollback_copies": store.rollback_copies(), "leftover_staging": store.staging_leftovers()})
             elif args.mcmd == "install":
                 _dump(store.install_package(args.package, args.id, expected_sha256=args.sha256,
                                             confirm_unlisted=args.accept_unverified))

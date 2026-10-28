@@ -28,6 +28,7 @@ class Hardware:
     vram_gb: float | None = None
     notes: list[str] = field(default_factory=list)
     avx2: bool | None = None   # None = unknown (not Windows / could not be read)
+    ram_available_gb: float | None = None   # memory free RIGHT NOW (changes second to second); None = could not be read
 
 
 def _ram_gb() -> float | None:
@@ -49,6 +50,32 @@ def _ram_gb() -> float | None:
         with open("/proc/meminfo", encoding="utf-8") as f:
             for line in f:
                 if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) * 1024 / 1e9
+    except Exception:
+        return None
+    return None
+
+
+def _ram_available_gb() -> float | None:
+    """Physical memory available to new programs right now (Windows: ullAvailPhys; Linux: MemAvailable). None when it cannot be read."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MS(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("sullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            ms = MS()
+            ms.dwLength = ctypes.sizeof(MS)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms)):  # type: ignore[attr-defined]
+                return ms.ullAvailPhys / 1e9
+            return None
+        with open("/proc/meminfo", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
                     return int(line.split()[1]) * 1024 / 1e9
     except Exception:
         return None
@@ -115,7 +142,8 @@ def detect_hardware(path: str | Path = ".") -> Hardware:
     if gpu is None:
         notes.append("no NVIDIA GPU detected (AMD/Intel GPUs are not detected); CPU inference would be used")
     return Hardware(os=f"{platform.system()} {platform.release()}", cpu_threads=os.cpu_count() or 1,
-                    ram_gb=ram, free_disk_gb=free, gpu_name=gpu, vram_gb=vram, notes=notes, avx2=avx2)
+                    ram_gb=ram, free_disk_gb=free, gpu_name=gpu, vram_gb=vram, notes=notes, avx2=avx2,
+                    ram_available_gb=_ram_available_gb())
 
 
 @dataclass(frozen=True)

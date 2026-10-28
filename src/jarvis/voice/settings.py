@@ -34,6 +34,8 @@ class VoiceSettings:
     speaker_muted: bool = False             # speaker mute (nothing is spoken; text still shown). Separate from the microphone mute `muted`
     post_speech_guard_seconds: float = 0.6  # after Jarvis finishes speaking, frames are ignored this long so its own echo is not heard as the user
     speak_in_window: bool = False           # the window reads replies aloud (Windows SAPI) only when this is turned on
+    voice_by_persona: dict[str, str] = field(default_factory=dict)   # OPTIONAL per-personality-mode voice ids; empty = every mode uses `tts_voice` (the global default)
+    vad_min_rms: float = 0.01               # speech-detection floor (0.001..0.2): higher = needs louder speech to count as speaking
 
     def validate(self) -> "VoiceSettings":
         def need(cond, msg):
@@ -57,6 +59,11 @@ class VoiceSettings:
              "pronunciations must map non-empty words to text")
         need(self.vosk_model is None or (isinstance(self.vosk_model, str) and 0 < len(self.vosk_model) <= 500 and "\x00" not in self.vosk_model), "vosk_model must be a folder path or empty")
         need(isinstance(self.speak_in_window, bool), "speak_in_window must be true or false")
+        need(self.tts_voice is None or (isinstance(self.tts_voice, str) and 0 < len(self.tts_voice) <= 200 and "\x00" not in self.tts_voice), "tts_voice must be a voice id or empty")
+        need(isinstance(self.voice_by_persona, dict) and len(self.voice_by_persona) <= 40
+             and all(isinstance(k, str) and 0 < len(k) <= 40 and isinstance(v, str) and 0 < len(v) <= 200 and "\x00" not in v for k, v in self.voice_by_persona.items()),
+             "voice_by_persona must map personality mode ids to voice ids")
+        need(isinstance(self.vad_min_rms, (int, float)) and not isinstance(self.vad_min_rms, bool) and 0.001 <= self.vad_min_rms <= 0.2, "vad_min_rms must be 0.001..0.2")
         need(isinstance(self.speaker_muted, bool), "speaker_muted must be true or false")
         need(isinstance(self.muted, bool), "muted must be true or false")
         need(isinstance(self.post_speech_guard_seconds, (int, float)) and not isinstance(self.post_speech_guard_seconds, bool) and 0.0 <= self.post_speech_guard_seconds <= 3.0, "post_speech_guard_seconds must be 0..3")

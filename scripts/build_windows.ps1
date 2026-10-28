@@ -15,6 +15,8 @@ param(
     [string]$TelemetryUrl = "",
     [switch]$SkipLocalRuntime,
     [switch]$RuntimeFromSource,
+    [string]$RuntimeVersion = "0.3.36",      # llama-cpp-python, pinned. Evidence and how to change it: docs/STAGE5_MODEL_SOURCE_VERIFICATION.md section 27
+    [string]$RuntimeSha256 = "",             # optional: the wheel's SHA-256 as a person read it from the GitHub release page; when given, a mismatch stops the build
     [string]$SigningKeyFile = "",
     [string]$LockFile = ""
 )
@@ -88,8 +90,26 @@ Run "$py -m pip install $cArg -e `".[dev,build,desktop,ui,docs,monitor]`""   # d
 if (-not $SkipLocalRuntime) {
     # The local AI runtime (llama.cpp via llama-cpp-python, MIT). Prebuilt CPU wheel = no C++ compiler needed.
     try {
-        if ($RuntimeFromSource) { Run "$py -m pip install llama-cpp-python" }
-        else { Run "$py -m pip install llama-cpp-python --only-binary=:all: --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu" }
+        if ($RuntimeFromSource) { Run "$py -m pip install llama-cpp-python==$RuntimeVersion" }
+        else {
+            # Download the wheel first so its exact name and SHA-256 are recorded (build\runtime-evidence), then install THAT file. The project's own release wheel is
+            # py3-none-win_amd64 (a generic tag), taken from the project's CPU index, which is built from its GitHub releases.
+            $rt = "build\runtime-wheel"
+            if (Test-Path $rt) { Remove-Item $rt -Recurse -Force }
+            New-Item -ItemType Directory -Force $rt | Out-Null
+            Run "$py -m pip download llama-cpp-python==$RuntimeVersion --only-binary=:all: --no-deps --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -d $rt"
+            $whl = Get-ChildItem $rt -Filter "llama_cpp_python-$RuntimeVersion-*.whl" | Select-Object -First 1
+            if (-not $whl) { throw "no llama_cpp_python-$RuntimeVersion wheel was downloaded; a binary wheel for this version may not exist for this Python" }
+            $shaArgs = @()
+            if ($RuntimeSha256 -ne "") { $shaArgs = @("--expected-sha256", $RuntimeSha256, "--expected-sha256-source", "the -RuntimeSha256 build parameter") }
+            $prevEap = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+            & $py scripts\verify_wheel.py --wheel $whl.FullName --out build\runtime-evidence @shaArgs
+            $wheelCheck = $LASTEXITCODE
+            $ErrorActionPreference = $prevEap
+            if ($wheelCheck -ne 0 -and $RuntimeSha256 -ne "") { throw "the runtime wheel did not pass scripts\verify_wheel.py (see build\runtime-evidence); it was NOT installed" }
+            if ($wheelCheck -ne 0) { Write-Host "WARNING: scripts\verify_wheel.py reported problems with the runtime wheel (build\runtime-evidence\wheel_inspection.json). No expected hash was given, so the build continues; the frozen exe is still checked with 'runtime --require'." -ForegroundColor Yellow }
+            Run "$py -m pip install `"$($whl.FullName)`""
+        }
     } catch {
         Write-Host "ERROR: could not install the local AI runtime. Use 64-bit Python 3.12 (wheels are most likely for it), or install the free Visual Studio Build Tools (C++ workload) plus CMake and rerun with -RuntimeFromSource. See docs\LOCAL_MODEL.md." -ForegroundColor Red
         throw
@@ -137,7 +157,8 @@ if (-not (Test-Path .\dist\ProjectJarvis\jarvis-gui.exe)) { throw "PyInstaller d
 Remove-Item "$env:TEMP\jarvis-gui-selftest.txt" -ErrorAction SilentlyContinue
 $g = Start-Process -FilePath .\dist\ProjectJarvis\jarvis-gui.exe -ArgumentList "--selftest" -Wait -PassThru
 if ($g.ExitCode -ne 0 -or -not (Test-Path "$env:TEMP\jarvis-gui-selftest.txt") -or -not ((Get-Content "$env:TEMP\jarvis-gui-selftest.txt" -Raw).StartsWith("PASS"))) {
-    throw "jarvis-gui.exe --selftest failed (see $env:TEMP\jarvis-gui-selftest.txt)"
+    if (Test-Path "$env:TEMP\jarvis-gui-selftest.txt") { Get-Content "$env:TEMP\jarvis-gui-selftest.txt" | Write-Host }      # the per-check report: which check failed and why
+    throw "jarvis-gui.exe --selftest failed: exit code $($g.ExitCode) (0 = pass, 1 = a check failed, 3 = Qt could not load); full report in $env:TEMP\jarvis-gui-selftest.txt and .json"
 }
 if (-not $SkipLocalRuntime) { Run ".\dist\ProjectJarvis\jarvis.exe runtime --require" }   # the frozen exe must contain the runtime
 Run ".\dist\ProjectJarvis\jarvis.exe --data-dir `"$smoke`" privacy"

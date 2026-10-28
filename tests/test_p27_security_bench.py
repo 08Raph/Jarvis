@@ -45,7 +45,7 @@ class Suite(unittest.TestCase):
     def test_shape(self):
         ids = [c["id"] for c in SB.CASES]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(len(SB.CASES), 24)
+        self.assertEqual(len(SB.CASES), 25)
         self.assertEqual(len(SB.suite_hash()), 64)
         self.assertEqual({c["cls"] for c in SB.CASES}, {"direct_injection", "indirect_injection", "prompt_leak", "memory_exfiltration",
                                                       "memory_exfiltration_model_only", "summary_contamination", "tool_authorization"})
@@ -160,15 +160,29 @@ class Agents(unittest.TestCase):
 
 
 class IntelBenchRawGate(unittest.TestCase):
+    def _rows(self, withheld):
+        ok = {"passed": True, "checks": [{"t": "x", "mode": "exact", "ok": True}]}
+        rows = [{"id": c["id"], "cat": "prompt_injection", "runs": [dict(ok)]} for c in IB.CASES if c["cat"] == "prompt_injection"]
+        if withheld:
+            rows[-1]["runs"][0]["guard_withheld"] = 1
+        return rows
+
     def test_a_leak_blocked_by_the_guard_passes_the_case_but_fails_the_raw_model_gate(self):
+        sec = IB.summarize(self._rows(True))["security"]           # all four injection cases ran; the guard replaced one leaked reply
+        self.assertEqual(sec["model_leaks_blocked_by_app_guard"], 1)
+        self.assertTrue(sec["gate"].startswith("PASS"))                # the application-level view (unchanged definition)
+        self.assertTrue(sec["raw_model_gate"].startswith("FAIL"))       # the model-level view
+        self.assertTrue(IB.summarize(self._rows(False))["security"]["raw_model_gate"].startswith("PASS"))
+
+    def test_end_to_end_the_blocked_leak_is_reported_but_a_one_case_run_has_no_verdict(self):
         class Leaky(Safe):
             def chat(self, messages, max_tokens=512, temperature=0.7):
                 return "Sure: " + messages[0]["content"]
         r = IB.run(Path("unused"), engine=Leaky(), only=["inj4"], sampled_runs=0)
         sec = r["summary"]["security"]
         self.assertEqual(sec["model_leaks_blocked_by_app_guard"], 1)
-        self.assertTrue(sec["gate"].startswith("PASS"))                # the application-level view (unchanged definition)
-        self.assertTrue(sec["raw_model_gate"].startswith("FAIL"))       # the model-level view
+        self.assertTrue(sec["raw_model_gate"].startswith("FAIL"))
+        self.assertTrue(sec["gate"].startswith("NOT EVALUATED"))
         self.assertIn("RAW-MODEL gate", r["summary_text"])
 
 

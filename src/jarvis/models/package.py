@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import struct
 import zipfile
+import zlib
 from pathlib import Path
 
 FORMAT = 1
@@ -18,6 +20,12 @@ REQUIRED_NAMES = frozenset({"model.pt", "tokenizer.json", "LICENSE.txt"})
 
 class PackageError(ValueError):
     pass
+
+
+# What the zip library and the JSON parser raise for damaged, hostile or unsupported archives. They are all reported as PackageError so a bad
+# package gives a clean one-line error (and no traceback) instead of a raw library exception.
+_ZIP_ERRORS = (zipfile.BadZipFile, zipfile.LargeZipFile, NotImplementedError, RuntimeError, EOFError, RecursionError, OverflowError,
+               struct.error, zlib.error)
 
 
 def sha256_file(path: str | Path) -> str:
@@ -43,11 +51,33 @@ def pack_model(model_dir: str | Path, out_path: str | Path, license_id: str) -> 
     return sha256_file(out_path)
 
 
+def declared_unpacked_bytes(pkg_path: str | Path, max_bytes: int = 8_000_000_000) -> int:
+    """Total unpacked size DECLARED in the package's zip directory (every entry counted, duplicates included), for the up-front free-space check.
+    The declared sizes are untrusted - extraction still counts the real bytes against ``max_bytes`` and verifies every file hash - so this is an
+    estimate, never a limit. Raises PackageError (fail closed) if the package cannot be read as a zip or declares more than ``max_bytes``."""
+    try:
+        with zipfile.ZipFile(pkg_path) as z:
+            total = sum(int(i.file_size) for i in z.infolist())
+    except (*_ZIP_ERRORS, OSError, ValueError) as exc:
+        raise PackageError("not a valid package") from exc
+    if total > max_bytes:
+        raise PackageError("package expands beyond the allowed size")
+    return total
+
+
 def validate_and_extract(pkg_path: str | Path, dest: str | Path, max_bytes: int = 8_000_000_000) -> dict:
     """Safely extract a package into an empty directory. Returns its manifest.
 
-    Rejects path traversal, unexpected names, size bombs, missing files, and hash mismatches.
+    Rejects path traversal, unexpected names, duplicate entries, size bombs, missing files, hash mismatches, and damaged or unsupported archives
+    (all as PackageError; OSError such as a full disk is passed through for the caller to translate).
     """
+    try:
+        return _validate_and_extract(pkg_path, dest, max_bytes)
+    except _ZIP_ERRORS:
+        raise PackageError("the package is damaged or uses an unsupported zip feature") from None
+
+
+def _validate_and_extract(pkg_path: str | Path, dest: str | Path, max_bytes: int) -> dict:
     dest = Path(dest)
     try:
         z = zipfile.ZipFile(pkg_path)
@@ -55,14 +85,23 @@ def validate_and_extract(pkg_path: str | Path, dest: str | Path, max_bytes: int 
         raise PackageError("not a valid package") from exc
     with z:
         infos = {i.filename: i for i in z.infolist()}
+        if len(infos) != len(z.infolist()):
+            raise PackageError("package has duplicate entries")
         if "manifest.json" not in infos:
             raise PackageError("package has no manifest.json")
         if infos["manifest.json"].file_size > 1_000_000:
             raise PackageError("manifest too large")
-        manifest = json.loads(z.read("manifest.json"))
+        try:
+            manifest = json.loads(z.read("manifest.json"))
+        except (ValueError, RecursionError):
+            raise PackageError("manifest is not valid JSON") from None
+        if not isinstance(manifest, dict):
+            raise PackageError("manifest must be a JSON object")
         if manifest.get("format") != FORMAT:
             raise PackageError("unsupported package format")
         files = manifest.get("files", {})
+        if not isinstance(files, dict):
+            raise PackageError("manifest file list is invalid")
         for name in infos:
             if name != "manifest.json" and name not in ALLOWED_NAMES:
                 raise PackageError(f"unexpected file in package: {name!r}")

@@ -103,7 +103,7 @@ class DistributionStaticTests(unittest.TestCase):
 
     def test_build_installs_and_verifies_local_ai_runtime(self):
         b = (ROOT / "scripts" / "build_windows.ps1").read_text()
-        self.assertIn("llama-cpp-python --only-binary=:all:", b)         # prebuilt wheel: no compiler for normal users
+        self.assertIn("llama-cpp-python==$RuntimeVersion --only-binary=:all:", b)         # prebuilt wheel, exact version: no compiler for normal users, no drift
         self.assertIn("abetlen.github.io/llama-cpp-python/whl/cpu", b)
         self.assertIn("runtime --require", b)                             # frozen exe is checked for the runtime
         self.assertLess(b.index("llama-cpp-python"), b.index("-m unittest discover"))

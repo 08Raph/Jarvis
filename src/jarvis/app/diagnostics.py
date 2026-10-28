@@ -49,7 +49,9 @@ INCLUDED_FIELDS = (
     "Hardware: CPU thread count, RAM, free disk space, GPU name and video memory (NVIDIA only), and whether the CPU reports AVX2.",
     "AI runtime: whether it loads, its version, and whether it was built with a GPU backend. Acceleration: detected / backend available / verified, and the saved mode.",
     "Model: its id, a quick file check (not a full hash), and the result of the last setup (checks passed or failed, speeds). Never the model's replies to you.",
-    "Which optional packages are present and which network features are switched on.",
+    "Brains: how many models are in the library, which is active, whether each is registered in place or stored by Jarvis, its architecture and quantization, and its last test result (pass/fail and time). Never file paths or replies.",
+    "The newest 'System & Model Readiness' result (its verdict and time only).",
+    "Which of the app's own files and program modules are present (names only), which optional packages are present and which network features are switched on.",
     "The tail of crash.log with secret-looking text removed.",
     "NOT included: conversations, memories, files, documents, screenshots, audio, API keys or passwords.")
 
@@ -78,6 +80,29 @@ def _hardware_and_accel(cfg: Config) -> dict:
     return out
 
 
+def _brains_summary(cfg: Config) -> dict:
+    """Library overview from the model records and brains.json only (no hashing, no loading). File paths and model replies are deliberately left out."""
+    import json
+    try:
+        from jarvis.models.manager import ModelStore
+        store = ModelStore(cfg.models_dir)
+        rep = store.installed_report()
+        try:
+            tests = json.loads((Path(cfg.data_dir) / "brains.json").read_text(encoding="utf-8")).get("last_tests", {})
+        except (OSError, ValueError, AttributeError):
+            tests = {}
+        rows = []
+        for m in rep["models"]:
+            g = m.get("gguf") if isinstance(m.get("gguf"), dict) else {}
+            t = tests.get(m.get("id")) or {}
+            rows.append({"id": m.get("id"), "origin": m.get("origin", "catalog" if m.get("catalog_id") else "unknown"), "registered_in_place": isinstance(m.get("linked"), dict),
+                         "architecture": g.get("architecture"), "quantization": g.get("quantization"), "size_bytes": m.get("size_bytes"),
+                         "last_test": ("passed" if t.get("ok") else "failed" if t else "never tested"), "last_test_at": t.get("at")})
+        return {"installed": len(rows), "active": store.active(), "damaged_entries": [d["id"] for d in rep["damaged"]], "models": rows}
+    except Exception as e:  # noqa: BLE001 - a diagnostics page must never crash
+        return {"error": f"could not read the brain library ({type(e).__name__})"}
+
+
 def _setup_summary(cfg: Config) -> dict:
     import json
     res: dict = {}
@@ -95,6 +120,61 @@ def _setup_summary(cfg: Config) -> dict:
     return res
 
 
+# ---------------------------------------------------------------------------------------------- packaged-app files and modules
+# What the built app must contain. packaging/manifest.py is the build-time source of truth and is NOT shipped in the app, so this list mirrors it;
+# tests/test_p35_validation.py fails if the two ever differ. The same functions feed the diagnostics report, the preflight "App files" check
+# and `jarvis-gui.exe --selftest`, so there is exactly one implementation.
+PACKAGED_FILES = (
+    "jarvis/telemetry/endpoint.txt", "jarvis/desktop/ocr_winrt.ps1", "config.sample.toml", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "build_info.json",
+    "docs/RELEASE_NOTES.md", "docs/TROUBLESHOOTING.md", "docs/MODEL_DISTRIBUTION.md", "docs/PRIVACY_AND_NETWORK.md", "docs/LOCAL_MODEL.md",
+    "docs/DESKTOP_CONTROL.md", "docs/MEMORY.md", "docs/VOICE.md", "docs/WINDOWS_DISTRIBUTION.md", "docs/IN_APP_PREFLIGHT.md")
+GENERATED_AT_BUILD = ("build_info.json",)          # written by the build; a source checkout legitimately has none
+REQUIRED_MODULES = ("jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop",
+                    "jarvis.preflight.runner", "jarvis.preflight.metadata", "jarvis.preflight.hf_fetch", "jarvis.preflight.history",
+                    "jarvis.brains.service", "jarvis.brains.viewmodel", "jarvis.brains.compat", "jarvis.brains.archs", "jarvis.models.gguf_vocab",
+                    "jarvis.voice.engines", "jarvis.voice.manager", "jarvis.voice.preview", "jarvis.voice.inputcheck", "jarvis.voice.viewmodel", "jarvis.voice.kokoro_engine", "jarvis.models.kokoro_files")
+
+
+def _resource_roots() -> tuple[str, Path, Path]:
+    """(mode, folder holding the `jarvis/...` data files, folder holding the other files). Frozen: PyInstaller's data folder (`_internal` for
+    PyInstaller 6). Source checkout: src/ and the project folder."""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", None) or Path(sys.executable).parent)
+        return "packaged", base, base
+    root = Path(__file__).resolve().parents[3]
+    return "source", root / "src", root
+
+
+def packaged_files() -> dict:
+    """Which files the app expects next to itself exist. A file check only (nothing is opened). Paths in the result are relative, never absolute."""
+    mode, pkg_base, other_base = _resource_roots()
+    rows = []
+    for rel in PACKAGED_FILES:
+        base = pkg_base if rel.startswith("jarvis/") else other_base
+        required = mode == "packaged" or rel not in GENERATED_AT_BUILD
+        try:
+            present = (base / rel).is_file()
+        except OSError:
+            present = False
+        rows.append({"file": rel, "present": present, "required": required})
+    missing = [r["file"] for r in rows if r["required"] and not r["present"]]
+    return {"mode": mode, "checked": len(rows), "missing_required": missing, "files": rows}
+
+
+def required_modules(import_them: bool = False) -> dict:
+    """Are the modules the frozen app loads lazily present? import_them=False only looks for them (cheap, used by the report); True really imports
+    each one (a measurement; used by the self-test). A module whose import fails is reported with a short, path-free reason."""
+    rows = []
+    for name in REQUIRED_MODULES:
+        if import_them:
+            problem = status.import_problem(name)
+            rows.append({"module": name, "present": problem is None, "imported": problem is None, "problem": problem})
+        else:
+            found = status.has_module(name)
+            rows.append({"module": name, "present": found, "imported": None, "problem": None if found else "not found"})
+    return {"imported": import_them, "missing": [r["module"] for r in rows if not r["present"]], "modules": rows}
+
+
 def collect(cfg: Config, build_info: dict | None = None) -> dict:
     ms = status.model_status(cfg)
     try:
@@ -110,9 +190,12 @@ def collect(cfg: Config, build_info: dict | None = None) -> dict:
         "windows_supported_minimum": V.MIN_WINDOWS,
         "data_dir": scrub_paths(str(cfg.data_dir)), "profile": cfg.profile, "free_disk_gb": free,
         "model": {"state": ms.state, "summary": ms.summary, "action": ms.action, "id": ms.model_id},
+        "packaged_app": {"files": packaged_files(), "modules": required_modules(False)},
+        "last_readiness_preflight": _last_preflight(cfg),
         "optional_dependencies": status.optional_dependencies(),
         "runtime_checks": status.runtime_checks(),
-        "legend": {"optional_dependencies": "true = the package was found on disk. It was NOT imported, so it can still fail to load.",
+        "legend": {"packaged_app": "files: existence only. modules: found on disk, NOT imported. A missing entry means this copy of Jarvis is incomplete (reinstall it).",
+                   "optional_dependencies": "true = the package was found on disk. It was NOT imported, so it can still fail to load.",
                    "runtime_checks": "measured: an import was attempted. loads=null means the package is absent and nothing was measured.",
                    "model.state": "a quick file check only; the model has not been loaded and no inference was run",
                    "features": "evidence says what kind of test exists; none of these rows is a measurement made on this PC"},
@@ -120,11 +203,25 @@ def collect(cfg: Config, build_info: dict | None = None) -> dict:
         "network_features": _network(cfg),
         **_hardware_and_accel(cfg),
         "setup": _setup_summary(cfg),
+        "brains": _brains_summary(cfg),
         "fields_included": list(INCLUDED_FIELDS),
         "crash_log_tail": log_tail(cfg),
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "note": "Local report. Nothing was sent anywhere. It contains no conversations, memories or file contents.",
     }
+
+
+def _last_preflight(cfg: Config) -> dict:
+    """The newest saved 'System & Model Readiness' result, summarised (already scrubbed when it was saved). {} if there is none."""
+    try:
+        from jarvis.preflight import history
+        runs = history.list_runs(cfg, limit=1)
+    except Exception:  # noqa: BLE001 - a diagnostics page must never crash
+        return {}
+    if not runs:
+        return {}
+    r = runs[0]
+    return {k: r.get(k) for k in ("run_id", "readable", "started_at_utc", "app_version", "include_online", "verdict", "checks")}
 
 
 def _network(cfg: Config) -> dict:

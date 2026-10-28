@@ -87,38 +87,85 @@ def gui_main() -> int:
         return 1
 
 
-def selftest() -> int:
-    """`jarvis-gui.exe --selftest`: build the real window with an offscreen Qt platform in a throw-away data folder, process events, close, and write
-    PASS/FAIL to %TEMP%\\jarvis-gui-selftest.txt (a windowed exe has no console). Used by the build script; it touches nothing of the user's."""
+SELFTEST_TIMEOUT_S = 180.0
+
+
+def _qt_checks(rep, cfg) -> None:
+    """The window part of the self-test. Real Qt widgets are built on Qt's OFFSCREEN platform (no screen, no real theme/DPI behaviour), every page is
+    refreshed WITHOUT the window's usual error swallowing, and 'Run Safe Preflight' (offline part) is started through the controller's worker exactly
+    as the button does and waited for while Qt events are processed. Failures are recorded as checks; they are not raised."""
+    import sys
+    from PySide6.QtWidgets import QApplication
+    from jarvis.app import selftest as S
+    from jarvis.app.controller import AppController
+    from jarvis.ui import window as W
+    from jarvis.ui.setup_dialog import SetupDialog
+    app = QApplication.instance() or QApplication(sys.argv)
+    bridge = W._Bridge()
+    ctl = AppController(cfg, simulate=True, dispatch=lambda fn: bridge.call.emit(fn))
+    win = W.MainWindow(ctl, bridge)
+    win.show()
+    dlg = SetupDialog(ctl, win)       # the wizard window must build and show too; it is closed straight away
+    dlg.show()
+    app.processEvents()
+    dlg.close()
+    names = [win.nav.item(i).text() for i in range(win.nav.count())]
+    for i in range(win.nav.count()):
+        win.nav.setCurrentRow(i)
+        app.processEvents()
+    rep.add("qt_window", "Window and pages build", S.PASS if names == list(W.PAGES) else S.FAIL, S.GENUINE,
+            f"{len(names)} pages built and visited on Qt platform '{app.platformName()}' (offscreen = no visible window): {', '.join(names)}"
+            if names == list(W.PAGES) else f"navigation {names} differs from the expected pages {list(W.PAGES)}")
+    bad = []
+    for n in W.PAGES:              # MainWindow.refresh() turns a page error into a status-bar message; call the page's own refresh so that an error is seen
+        try:
+            getattr(win, "_refresh_" + W._slug(n))()
+        except Exception as e:  # noqa: BLE001
+            bad.append(f"{n}: {type(e).__name__}: {str(e)[:120]}")
+    rep.add("qt_refresh", "Every page refreshes without error", S.FAIL if bad else S.PASS, S.GENUINE, "; ".join(bad) if bad else f"{len(W.PAGES)} page refresh methods ran directly.")
+    has = all(hasattr(win, a) for a in ("pf_run", "pf_cancel", "pf_table", "pf_verdict"))
+    if not has:
+        rep.add("preflight_offline", "Run Safe Preflight (offline part)", S.FAIL, S.GENUINE, "the System & Model Readiness page has no Run/Cancel button, result table or verdict label")
+    else:
+        S.run_preflight_via_controller(rep, ctl, cfg, app.processEvents, shown=lambda: (win.pf_table.rowCount(), win.pf_verdict.text()), timeout=SELFTEST_TIMEOUT_S)
+    S.add_limits(rep)
+    rep.add("controller_mode", "Controller mode", S.INFO, S.SIMULATED, "AppController(simulate=True): chat replies are stand-ins; nothing here exercises a model.")
+    win.close()
+    ctl.shutdown(timeout=2.0)
+    app.processEvents()
+
+
+def selftest(out_dir=None) -> int:
+    """`jarvis-gui.exe --selftest`: see jarvis.app.selftest for the checks, the kinds and the exit codes (0 pass, 1 a check failed, 3 Qt could not load).
+    Runs in a throw-away data folder and touches nothing of the user's; writes jarvis-gui-selftest.txt/.json to the temp folder."""
     import os
     import tempfile
     from pathlib import Path
-    out = Path(tempfile.gettempdir()) / "jarvis-gui-selftest.txt"
+    from jarvis.app import selftest as S
+    out = Path(out_dir) if out_dir else Path(tempfile.gettempdir())
+    rep = S.Report()
+    S.mark_running(out)
     try:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-        from PySide6.QtWidgets import QApplication
-        from jarvis.app.controller import AppController
-        from jarvis.config import Config
-        from jarvis.ui.window import MainWindow, _Bridge
-        with tempfile.TemporaryDirectory() as d:
-            cfg = Config(data_dir=Path(d) / "data")
-            app = QApplication.instance() or QApplication(sys.argv)
-            bridge = _Bridge()
-            ctl = AppController(cfg, simulate=True, dispatch=lambda fn: bridge.call.emit(fn))
-            win = MainWindow(ctl, bridge)
-            win.show()
-            from jarvis.ui.setup_dialog import SetupDialog
-            dlg = SetupDialog(ctl, win)       # the wizard window must build and show too (offscreen); it is closed straight away
-            dlg.show()
-            app.processEvents()
-            dlg.close()
-            for i in range(win.nav.count()):
-                win.nav.setCurrentRow(i)
-                app.processEvents()
-            win.close()
-            app.processEvents()
-        out.write_text("PASS\n", encoding="utf-8")
-        return 0
-    except BaseException as e:  # noqa: BLE001
-        out.write_text(f"FAIL {type(e).__name__}: {e}\n", encoding="utf-8")
-        return 1
+        qt_ok = True
+        try:
+            import PySide6.QtWidgets  # noqa: F401
+        except ImportError as e:      # PySide6 missing, or a DLL / Visual C++ runtime problem on Windows
+            qt_ok = False
+            rep.add("qt_load", "Qt (PySide6) loads", S.FAIL, S.GENUINE, f"{type(e).__name__}: {str(e)[:200]}")
+            rep.exit_override = S.EXIT_NO_QT
+        S.check_files(rep)
+        if qt_ok:
+            rep.add("qt_load", "Qt (PySide6) loads", S.PASS, S.GENUINE, "PySide6.QtWidgets imported.")
+            S.check_modules(rep)
+            from jarvis.config import Config
+            with tempfile.TemporaryDirectory() as d:
+                _qt_checks(rep, Config(data_dir=Path(d) / "data"))
+    except BaseException as e:  # noqa: BLE001 - the report must say what happened, never just disappear
+        rep.add("selftest_crash", "Self-test ran to the end", S.FAIL, S.GENUINE, f"{type(e).__name__}: {e}")
+    code = rep.exit_code()
+    try:
+        S.write(rep, out)
+    except OSError:
+        pass
+    return code

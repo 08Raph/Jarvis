@@ -160,7 +160,7 @@ class SapiSpeaker:
     )
     _LIST = ("Add-Type -AssemblyName System.Speech;"
              "(New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices()|"
-             "ForEach-Object{$_.VoiceInfo.Name+'|'+$_.VoiceInfo.Culture.Name}")
+             "ForEach-Object{$_.VoiceInfo.Name+'|'+$_.VoiceInfo.Culture.Name+'|'+$_.VoiceInfo.Gender+'|'+$_.VoiceInfo.Age+'|'+$_.Enabled}")
 
     def __init__(self, popen: Callable = subprocess.Popen, run: Callable = subprocess.run, exe: Path = POWERSHELL):
         self._popen, self._run, self.exe = popen, run, str(exe)
@@ -177,9 +177,14 @@ class SapiSpeaker:
                         capture_output=True, text=True, timeout=30)
         voices = []
         for line in out.stdout.splitlines():
-            if "|" in line:
-                n, c = line.strip().split("|", 1)
-                voices.append({"name": n, "culture": c})
+            line = line.strip()
+            if "|" not in line:
+                continue
+            parts = line.rsplit("|", 4) if line.count("|") >= 4 else line.split("|", 1)
+            rec = {"name": parts[0], "culture": parts[1]}
+            if len(parts) == 5:        # the engine's own words: Male / Female / Neutral / NotSet, Child / Teen / Adult / Senior / NotSet, True / False
+                rec.update(gender=parts[2], age=parts[3], enabled=parts[4].strip().lower() != "false")
+            voices.append(rec)
         return voices
 
     def speak(self, text: str, rate: float, volume: float, voice: str | None) -> None:
@@ -201,3 +206,8 @@ class SapiSpeaker:
 
     def is_speaking(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
+
+    def exit_code(self) -> int | None:
+        """Exit code of the speech process once it ended on its own (0 = the engine ran to the end). None while it runs, after stop(), or if nothing was started."""
+        p = self._proc
+        return None if p is None else p.poll()

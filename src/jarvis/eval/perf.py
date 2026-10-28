@@ -160,7 +160,8 @@ def measure(data_dir: Path, runs: int = RUNS, warmup: int = WARMUP, max_tokens: 
         cm = catalog.get(meta.get("catalog_id") or active)
     except Exception:  # noqa: BLE001
         pass
-    res["model"] = {"id": active, "file": str(mdir / "model.gguf").replace(str(Path.home()), "~"), "file_size_bytes": (mdir / "model.gguf").stat().st_size,
+    from jarvis.models.gguf import model_file
+    res["model"] = {"id": active, "file": str(model_file(mdir)).replace(str(Path.home()), "~"), "file_size_bytes": model_file(mdir).stat().st_size,
                     "sha256": meta.get("package_sha256"), "quantization": getattr(cm, "quant", None), "title": getattr(cm, "title", None),
                     "license": getattr(cm, "license_spdx", None), "context_tokens": meta.get("context_tokens")}
     ok, problems = store.verify(active)

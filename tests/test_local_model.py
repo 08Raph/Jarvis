@@ -68,8 +68,13 @@ class GGUFReaderTests(unittest.TestCase):
 
     def test_reads_metadata_and_skips_big_arrays(self):
         h = gguf.read_header(make_gguf(self.d / "a.gguf"))
-        self.assertEqual(gguf.summarize(h), {"name": "Fake 1.7B", "architecture": "qwen3", "license": "apache-2.0",
-                                              "context_length": 40960, "size_label": None})
+        summary = gguf.summarize(h)
+        self.assertEqual({k: summary[k] for k in ("name", "architecture", "license", "context_length", "size_label")},
+                         {"name": "Fake 1.7B", "architecture": "qwen3", "license": "apache-2.0", "context_length": 40960, "size_label": None})
+        # fields added for the memory estimate: absent from this synthetic header, so they are unknown (None / False), never guessed
+        self.assertEqual({k: summary[k] for k in ("block_count", "embedding_length", "head_count", "head_count_kv", "quantization", "file_type")},
+                         {"block_count": None, "embedding_length": None, "head_count": None, "head_count_kv": None, "quantization": None, "file_type": None})
+        self.assertEqual((summary["has_chat_template"], summary["chat_template_chars"], summary["gguf_version"]), (False, 0, 3))
 
     def test_rejects_bad_files(self):
         (self.d / "t.gguf").write_bytes(b"not a model at all")

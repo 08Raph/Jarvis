@@ -63,6 +63,7 @@ class LocalAssistant:
     def __init__(self, cfg: Config, engine_factory=None, max_history_messages: int = 40, guest: bool = False,
                  memory: PersonalMemory | None = None, engine=None, model_id: str | None = None,
                  prompt_variant: str | None = None):
+        self._owns_engine = engine is None      # an injected engine (the benchmarks share one across many assistants) belongs to the caller and is never closed here
         if engine is not None:         # an already-loaded engine (the intelligence benchmark); no model-store lookup
             self.engine = engine
             self.model_id = model_id or "injected-engine"
@@ -152,7 +153,7 @@ class LocalAssistant:
             return self._control_answer(user_text)
         if out.handled:
             return self._local_answer(user_text, out)
-        text = self.engine.chat(self._messages(user_text, out.extra_context), max_tokens, temperature)
+        text = self._eng().chat(self._messages(user_text, out.extra_context), max_tokens, temperature)
         if disclosure.leaks_instructions(text, self._protected):
             text = disclosure.REFUSAL            # a verbatim copy of the instructions is withheld (heuristic; see jarvis/disclosure.py)
             self.last_notice = (self.last_notice + " Reply withheld: it repeated my internal instructions.").strip()
@@ -176,7 +177,7 @@ class LocalAssistant:
             parts.append(turn.label + " ")
             yield turn.label + " "
         guard = disclosure.StreamGuard(self._protected)
-        for piece in self.engine.stream(msgs, max_tokens, temperature):
+        for piece in self._eng().stream(msgs, max_tokens, temperature):
             parts.append(piece)
             if turn and not turn.overridden and turn.style != "normal" and persona_safety.guard_reply("".join(parts))[1]:
                 parts[:] = [persona_safety.SAFE_OUT]
@@ -218,7 +219,7 @@ class LocalAssistant:
                      f"\n[pasted text of {len(m['content'])} characters left out of this summary]"}
             msgs.append(m)
         try:
-            text = self.engine.chat([{"role": "system", "content": SUMMARY_PROMPT}] + msgs, 160, 0.2).strip()
+            text = self._eng().chat([{"role": "system", "content": SUMMARY_PROMPT}] + msgs, 160, 0.2).strip()
         except Exception:  # noqa: BLE001 - a failed summary must not break closing the session; nothing is saved
             self.last_notice = "Summary not saved: the model could not produce one."
             return None
@@ -235,11 +236,43 @@ class LocalAssistant:
                               redact_secrets=True)
         return row
 
+    def _eng(self):
+        if getattr(self, "engine", None) is None:
+            raise NoActiveModel("No brain is active. Open Import Brain and activate an installed model. Jarvis does not use a cloud service instead.")
+        return self.engine
+
+    def release_engine(self) -> None:
+        """Free the current brain's memory now. Conversation history, memory, persona and settings stay exactly as they are; chat is refused until an engine is installed."""
+        eng, self.engine = getattr(self, "engine", None), None
+        closer = getattr(eng, "close", None) if getattr(self, "_owns_engine", False) else None
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
+
+    def swap_engine(self, engine, model_id: str) -> None:
+        """Install an already loaded and tested engine as this assistant's brain (the assistant now owns it and closes it on close())."""
+        old, owned = getattr(self, "engine", None), getattr(self, "_owns_engine", False)
+        self.engine, self.model_id, self._owns_engine = engine, model_id, True
+        closer = getattr(old, "close", None) if (owned and old is not engine) else None
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
+
     def close(self) -> None:
         try:
             self.memory.close()
         except Exception:
             pass
+        closer = getattr(getattr(self, "engine", None), "close", None) if getattr(self, "_owns_engine", False) else None
+        if callable(closer):
+            try:
+                closer()          # free the model's memory now (an 8B model is over 5 GB)
+            except Exception:
+                pass
 
 
 def summaries_enabled(cfg: Config) -> bool:

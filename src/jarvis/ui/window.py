@@ -11,14 +11,23 @@ import sys
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
-                               QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton, QSpinBox,
-                               QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
+                               QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
+                               QSplitter, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis import version as V
 from jarvis.app.controller import AppController, explain_error
+from jarvis.brains import viewmodel as BVM
 from jarvis.ui import theme
+from jarvis.voice import viewmodel as VVM
 
-PAGES = ["Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status"]
+READINESS = "System & Model Readiness"
+IMPORT_BRAIN = "Import Brain"
+PAGES = ["Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN]
+
+
+def _slug(name: str) -> str:
+    """'System & Model Readiness' -> 'system_model_readiness' (the suffix of the page's _refresh_ method)."""
+    return "_".join("".join(ch if ch.isalnum() else " " for ch in name.lower()).split())
 
 
 class _Bridge(QObject):
@@ -97,13 +106,14 @@ class MainWindow(QMainWindow):
         lay.setSpacing(0)
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
-        self.nav.setFixedWidth(170)
+        self.nav.setFixedWidth(210)
         self.nav.setAccessibleName("Sections")
         for n in PAGES:
             self.nav.addItem(n)
         self.stack = QStackedWidget()
         self.pages = {"Chat": self._chat_page(), "Missions": self._missions_page(), "Schedules": self._schedules_page(),
-                      "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Safety": self._safety_page(), "Status": self._status_page()}
+                      "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Safety": self._safety_page(), "Status": self._status_page(),
+                      READINESS: self._readiness_page(), IMPORT_BRAIN: self._import_brain_page()}
         for n in PAGES:
             self.stack.addWidget(self.pages[n])
         lay.addWidget(self.nav)
@@ -154,6 +164,13 @@ class MainWindow(QMainWindow):
             self.refresh("Voice")
         if topic == "voice":
             self.refresh("Voice")
+        if topic == "preflight":
+            self.refresh(READINESS)
+        if topic == "brains":
+            self.refresh(IMPORT_BRAIN)
+        if topic == "model":
+            self.refresh("Chat")
+            self.refresh("Status")
 
     def refresh_all(self):
         for n in PAGES:
@@ -161,7 +178,7 @@ class MainWindow(QMainWindow):
 
     def refresh(self, name):
         try:
-            getattr(self, "_refresh_" + name.lower())()
+            getattr(self, "_refresh_" + _slug(name))()
         except Exception as e:  # noqa: BLE001 - a page that cannot refresh says so; it never closes the app
             self.statusBar().showMessage(f"{name}: {explain_error(e)}", 8000)
 
@@ -812,6 +829,8 @@ class MainWindow(QMainWindow):
         row3.addWidget(_btn("Stop speaking", self.ctl.stop_speaking, tip="Silences Jarvis now and returns to listening."))
         row3.addStretch(1)
         v.addLayout(row3)
+        self._voice_selection_block(v)
+        self._voice_input_block(v)
         v.addWidget(_label("Personality used for spoken answers:", heading=True))
         self.voice_persona = _label("", wrap=False)
         self.voice_persona.setAccessibleName("Current personality for voice")
@@ -832,6 +851,357 @@ class MainWindow(QMainWindow):
         v.addStretch(1)
         return w
 
+    # ---- Stage 6: voice selection, preview, microphone and wake phrase (PySide6 NOT available in the authoring sandbox: never run; logic is in jarvis.voice.viewmodel)
+    def _voice_selection_block(self, v):
+        self._vc_asked = False
+        self._vc_sig = None
+        self._vc_selected = None
+        self._vc_cat = {}
+        self._vc_engine = None
+        self._vc_eng_sig = None
+        v.addWidget(_label("Voice", heading=True))
+        self.vc_engines = _label("", muted=True)
+        self.vc_engines.setTextFormat(Qt.TextFormat.PlainText)
+        self.vc_engines.setAccessibleName("Speech engines")
+        v.addWidget(self.vc_engines)
+        row = QHBoxLayout()
+        row.addWidget(_label("Engine:", wrap=False))
+        self.vc_engine = QComboBox()
+        self.vc_engine.setAccessibleName("Speech engine")
+        self.vc_engine.setMinimumWidth(260)
+        self.vc_engine.currentIndexChanged.connect(self._vc_engine_changed)
+        row.addWidget(self.vc_engine, 1)
+        self.vc_to_sapi_btn = _btn("Use Windows speech", self._vc_use_sapi, tip="Makes Windows built-in speech your default voice engine. Kokoro files stay installed.")
+        row.addWidget(self.vc_to_sapi_btn)
+        v.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(_label("Type:", wrap=False))
+        self.vc_category = QComboBox()
+        self.vc_category.setAccessibleName("Voice type")
+        self.vc_category.currentIndexChanged.connect(self._vc_category_changed)
+        row.addWidget(self.vc_category)
+        row.addWidget(_label("Voice:", wrap=False))
+        self.vc_voice = QComboBox()
+        self.vc_voice.setAccessibleName("Voice")
+        self.vc_voice.setMinimumWidth(260)
+        self.vc_voice.currentIndexChanged.connect(self._vc_voice_changed)
+        row.addWidget(self.vc_voice, 1)
+        row.addWidget(_btn("Refresh voices", self._vc_refresh, tip="Ask the speech engine which voices are installed on this PC."))
+        v.addLayout(row)
+        self.vc_empty = _label("", muted=True)
+        self.vc_empty.setTextFormat(Qt.TextFormat.PlainText)
+        v.addWidget(self.vc_empty)
+        self.vc_details = _label("", wrap=True)
+        self.vc_details.setTextFormat(Qt.TextFormat.PlainText)
+        self.vc_details.setAccessibleName("Voice details")
+        v.addWidget(self.vc_details)
+        row = QHBoxLayout()
+        self.vc_preview_btn = _btn("Preview Voice", self._vc_preview, primary=True, tip="Plays a short fixed sentence in the selected voice. Nothing is saved.")
+        self.vc_stop_btn = _btn("Stop", self._vc_stop, tip="Silences the sample at once.")
+        self.vc_apply_btn = _btn("Apply", self._vc_apply, tip="Saves the selected voice. It is used for the next thing Jarvis says and after a restart.")
+        for b in (self.vc_preview_btn, self.vc_stop_btn, self.vc_apply_btn):
+            row.addWidget(b)
+        self.vc_progress = QProgressBar()
+        self.vc_progress.setRange(0, 0)
+        self.vc_progress.setMaximumHeight(10)
+        self.vc_progress.setVisible(False)
+        self.vc_progress.setAccessibleName("Voice preview loading")
+        row.addWidget(self.vc_progress, 1)
+        v.addLayout(row)
+        self.vc_status = _label("", muted=True)
+        self.vc_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.vc_status.setAccessibleName("Voice preview status")
+        v.addWidget(self.vc_status)
+        self.vc_scope = QCheckBox("")
+        self.vc_scope.setAccessibleName("Apply to current personality mode only")
+        v.addWidget(self.vc_scope)
+        row = QHBoxLayout()
+        self.vc_clear_btn = _btn("Use my default voice for this mode again", self._vc_clear, tip="Removes the voice set for the current personality mode only.")
+        row.addWidget(self.vc_clear_btn)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.vc_resolution = _label("", wrap=True)
+        self.vc_resolution.setTextFormat(Qt.TextFormat.PlainText)
+        self.vc_resolution.setAccessibleName("Voice in use")
+        v.addWidget(self.vc_resolution)
+        self.vc_persona = _label("", muted=True)
+        self.vc_persona.setTextFormat(Qt.TextFormat.PlainText)
+        v.addWidget(self.vc_persona)
+        self.vc_recovery = _label("", wrap=True)
+        self.vc_recovery.setTextFormat(Qt.TextFormat.PlainText)
+        self.vc_recovery.setAccessibleName("Voice recovery options")
+        v.addWidget(self.vc_recovery)
+        v.addWidget(_label("Kokoro local voice", heading=True))
+        self.vk_text = _label("", muted=True, wrap=True)
+        self.vk_text.setTextFormat(Qt.TextFormat.PlainText)
+        self.vk_text.setAccessibleName("Kokoro status")
+        v.addWidget(self.vk_text)
+        row = QHBoxLayout()
+        self.vk_install_btn = _btn("Install / repair Kokoro model...", self._vk_install, tip="Downloads the missing Kokoro model files after you confirm. Nothing is downloaded without that.")
+        self.vk_cancel_btn = _btn("Cancel download", self._vk_cancel, tip="Stops the download and removes the partial files.")
+        self.vk_check_btn = _btn("Check model files", self._vk_check, tip="Re-reads the installed files and compares them with what was recorded when they were installed.")
+        for b in (self.vk_install_btn, self.vk_cancel_btn, self.vk_check_btn):
+            row.addWidget(b)
+        self.vk_progress = QProgressBar()
+        self.vk_progress.setRange(0, 100)
+        self.vk_progress.setMaximumHeight(10)
+        self.vk_progress.setVisible(False)
+        self.vk_progress.setAccessibleName("Kokoro download progress")
+        row.addWidget(self.vk_progress, 1)
+        v.addLayout(row)
+        self.vk_job = _label("", muted=True, wrap=True)
+        self.vk_job.setTextFormat(Qt.TextFormat.PlainText)
+        self.vk_job.setAccessibleName("Kokoro download status")
+        v.addWidget(self.vk_job)
+
+    def _voice_input_block(self, v):
+        self._vi_rep = None
+        v.addWidget(_label("Microphone and listening", heading=True))
+        row = QHBoxLayout()
+        row.addWidget(_label("Microphone:", wrap=False))
+        self.vi_mic = QComboBox()
+        self.vi_mic.setAccessibleName("Microphone")
+        self.vi_mic.setMinimumWidth(260)
+        self.vi_mic.activated.connect(self._vi_mic_chosen)
+        row.addWidget(self.vi_mic, 1)
+        row.addWidget(_btn("Check microphone and recogniser", self._vi_check, tip="Lists microphones and looks for the speech recogniser. Does NOT open the microphone or record."))
+        v.addLayout(row)
+        self.vi_report = _label("", muted=True)
+        self.vi_report.setTextFormat(Qt.TextFormat.PlainText)
+        self.vi_report.setAccessibleName("Microphone check result")
+        v.addWidget(self.vi_report)
+        row = QHBoxLayout()
+        row.addWidget(_label("Listening mode:", wrap=False))
+        self.vi_mode = QComboBox()
+        self.vi_mode.setAccessibleName("Listening mode")
+        for key, label in VVM.MODE_LABELS:
+            self.vi_mode.addItem(label, key)
+        self.vi_mode.activated.connect(self._vi_mode_chosen)
+        row.addWidget(self.vi_mode)
+        self.vi_ptt = _btn("Hold to talk", lambda: None, tip="Push-to-talk: hold this button while you speak (only in push-to-talk mode while hands-free is ON).")
+        self.vi_ptt.pressed.connect(lambda: self.ctl.voice_ptt(True))
+        self.vi_ptt.released.connect(lambda: self.ctl.voice_ptt(False))
+        row.addWidget(self.vi_ptt)
+        row.addStretch(1)
+        v.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(_label("Wake phrase:", wrap=False))
+        self.vi_wake = QLineEdit()
+        self.vi_wake.setAccessibleName("Wake phrase")
+        self.vi_wake.setMaxLength(60)
+        row.addWidget(self.vi_wake, 1)
+        row.addWidget(_btn("Save wake phrase", self._vi_wake_save, tip="Two or more words, for example: hey jarvis. Applies at once if hands-free is running (it restarts)."))
+        v.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(_label("Speech model folder (Vosk):", wrap=False))
+        self.vi_model = QLineEdit()
+        self.vi_model.setAccessibleName("Vosk model folder")
+        row.addWidget(self.vi_model, 1)
+        row.addWidget(_btn("Browse...", self._vi_model_browse, tip="Choose the unpacked Vosk model folder you downloaded. Jarvis never downloads one for you."))
+        row.addWidget(_btn("Save", self._vi_model_save))
+        v.addLayout(row)
+
+    def _vc_refresh(self):
+        self._vc_asked = True
+        self.ctl.voice_catalog_refresh()
+
+    def _vc_category_changed(self, _i=None):
+        self._vc_fill_voices()
+
+    def _vc_engine_changed(self, _i=None):
+        """Browsing only: shows that engine's voices. Nothing is saved until Apply."""
+        eng = self.vc_engine.currentData()
+        if eng and eng != self._vc_engine:
+            self._vc_engine = eng
+            self._vc_sig = None
+            self._refresh_voice_selection()
+
+    def _vc_use_sapi(self):
+        try:
+            self.ctl.voice_select_engine("sapi")
+            self._vc_engine, self._vc_sig = "sapi", None
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _vk_install(self):
+        r = QMessageBox.question(self, "Download the Kokoro voice model?", VVM.kokoro_confirm_text(self._vc_cat),
+                                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+        if r == QMessageBox.StandardButton.Yes:
+            self.ctl.kokoro_install_confirmed()
+
+    def _vk_cancel(self):
+        self.ctl.kokoro_cancel()
+
+    def _vk_check(self):
+        self.ctl.kokoro_check()
+
+    def _vc_voice_changed(self, _i=None):
+        self._vc_selected = self.vc_voice.currentData()
+        self.vc_details.setText(VVM.voice_details(self._vc_cat, self._vc_selected))
+        self._vc_buttons()
+
+    def _vc_fill_voices(self):
+        cat = self._vc_cat
+        key = self.vc_category.currentData()
+        items = VVM.voice_items(cat, key, self._vc_engine) if key else []
+        self.vc_voice.blockSignals(True)
+        self.vc_voice.clear()
+        for vid, label in items:
+            self.vc_voice.addItem(label, vid)
+        want = self._vc_selected
+        idx = next((i for i, (vid, _l) in enumerate(items) if vid == want), 0 if items else -1)
+        if idx >= 0:
+            self.vc_voice.setCurrentIndex(idx)
+        self.vc_voice.blockSignals(False)
+        self._vc_selected = self.vc_voice.currentData() if items else None
+        self.vc_details.setText(VVM.voice_details(cat, self._vc_selected))
+        self._vc_buttons()
+
+    def _vc_buttons(self):
+        busy = bool(self._vc_cat.get("preview", {}).get("busy"))
+        have = bool(self._vc_selected)
+        self.vc_preview_btn.setEnabled(have and not busy)
+        self.vc_stop_btn.setEnabled(busy)
+        self.vc_apply_btn.setEnabled(have)
+
+    def _vc_preview(self):
+        if self._vc_selected:
+            self.ctl.voice_preview_start(self._vc_selected)
+
+    def _vc_stop(self):
+        self.ctl.voice_preview_stop()
+
+    def _vc_apply(self):
+        if not self._vc_selected:
+            return
+        try:
+            persona = self._vc_cat.get("persona", {}).get("id") if self.vc_scope.isChecked() else None
+            self.ctl.voice_apply(self._vc_selected, persona)
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _vc_clear(self):
+        try:
+            self.ctl.voice_clear_persona(self._vc_cat.get("persona", {}).get("id"))
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _vi_check(self):
+        self.ctl.voice_input_check()
+
+    def _vi_mic_chosen(self, _i=None):
+        try:
+            self.ctl.voice_input_set(mic_device=self.vi_mic.currentData())
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _vi_mode_chosen(self, _i=None):
+        try:
+            self.ctl.voice_switch_mode(self.vi_mode.currentData())
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _vi_wake_save(self):
+        try:
+            self.ctl.voice_input_set(wake_phrase=self.vi_wake.text().strip().lower())
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _vi_model_browse(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose the unpacked Vosk model folder")
+        if folder:
+            self.vi_model.setText(folder)
+
+    def _vi_model_save(self):
+        try:
+            self.ctl.voice_set_model_folder(self.vi_model.text())
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _refresh_voice_selection(self):
+        if self.stack.currentIndex() == PAGES.index("Voice") and not self._vc_asked:
+            cat0 = self.ctl.voice_catalog()
+            if not cat0["loaded"] and not cat0["refreshing"]:
+                self._vc_asked = True
+                self.ctl.voice_catalog_refresh()          # only when the page is open: listing voices starts Windows PowerShell
+        cat = self.ctl.voice_catalog()
+        self._vc_cat = cat
+        self.vc_engines.setText(VVM.engines_text(cat))
+        self.vc_empty.setText(VVM.empty_message(cat))
+        eng_opts = VVM.engine_options(cat)
+        if tuple(eng_opts) != self._vc_eng_sig:
+            self._vc_eng_sig = tuple(eng_opts)
+            self.vc_engine.blockSignals(True)
+            self.vc_engine.clear()
+            for eid, label in eng_opts:
+                self.vc_engine.addItem(label, eid)
+            self.vc_engine.blockSignals(False)
+        if self._vc_engine not in [e for e, _l in eng_opts]:
+            self._vc_engine = cat.get("selected_engine") or (eng_opts[0][0] if eng_opts else None)
+            self._vc_sig = None
+        j = self.vc_engine.findData(self._vc_engine)
+        if j >= 0 and self.vc_engine.currentIndex() != j:
+            self.vc_engine.blockSignals(True)
+            self.vc_engine.setCurrentIndex(j)
+            self.vc_engine.blockSignals(False)
+        sig = (tuple(sorted(v["id"] for vs_ in cat["categories"].values() for v in vs_)), cat.get("selected"), self._vc_engine)
+        if sig != self._vc_sig:                            # rebuild the lists only when the voices or the saved choice changed (keeps an open drop-down open)
+            self._vc_sig = sig
+            opts = VVM.category_options(cat, self._vc_engine)
+            keep = self.vc_category.currentData()
+            want = VVM.category_of_voice(cat, self._vc_selected or cat.get("selected")) or keep
+            self.vc_category.blockSignals(True)
+            self.vc_category.clear()
+            for key, label in opts:
+                self.vc_category.addItem(label, key)
+            i = next((n for n, (k, _l) in enumerate(opts) if k == want), 0)
+            self.vc_category.setCurrentIndex(i)
+            self.vc_category.blockSignals(False)
+            if self._vc_selected is None:
+                self._vc_selected = cat.get("selected")
+            self._vc_fill_voices()
+        pv = cat["preview"]
+        self.vc_status.setText(VVM.preview_text(pv))
+        self.vc_progress.setVisible(pv["state"] in ("loading", "generating") or cat["refreshing"])
+        self._vc_buttons()
+        self.vc_scope.setText(VVM.apply_scope_label(cat))
+        self.vc_clear_btn.setEnabled(bool(cat["persona"]["has_own_voice"]))
+        self.vc_resolution.setText(VVM.resolution_text(cat))
+        self.vc_persona.setText(VVM.persona_text(cat))
+        self.vc_recovery.setText(VVM.recovery_text(cat))
+        ks = self.ctl.kokoro_state()
+        self.vk_text.setText(VVM.kokoro_text(cat))
+        self.vk_job.setText(VVM.kokoro_job_text(ks))
+        kst = ((ks.get("status") or {}).get("model") or {}).get("state")
+        self.vk_install_btn.setEnabled(bool(ks["present"]) and not ks["running"] and kst != "ready")
+        self.vk_cancel_btn.setEnabled(bool(ks["running"]) and ks.get("op") == "install")
+        self.vk_check_btn.setEnabled(bool(ks["present"]) and not ks["running"] and kst in ("ready", "damaged"))
+        self.vk_progress.setVisible(bool(ks["running"]))
+        if ks["running"]:
+            frac = ks.get("fraction")
+            self.vk_progress.setRange(0, 100 if frac is not None else 0)
+            if frac is not None:
+                self.vk_progress.setValue(int(frac * 100))
+        self.vc_to_sapi_btn.setEnabled(any(e["id"] == "sapi" and e["available"] for e in cat["engines"]))
+        rep = self.ctl.voice_input_state()
+        self._vi_rep = rep["result"]
+        self.vi_report.setText(VVM.input_report_text(rep["result"], rep["running"], rep["error"]))
+        self.vi_mic.blockSignals(True)
+        self.vi_mic.clear()
+        for val, label in VVM.mic_choices(rep["result"], rep["mic_device"]):
+            self.vi_mic.addItem(label, val)
+        j = self.vi_mic.findData(rep["mic_device"])
+        self.vi_mic.setCurrentIndex(j if j >= 0 else 0)
+        self.vi_mic.blockSignals(False)
+        k = self.vi_mode.findData(rep["input_mode"] if rep["input_mode"] != "off" else self.vi_mode.currentData() or "wake_word")
+        if k >= 0:
+            self.vi_mode.setCurrentIndex(k)
+        self.vi_ptt.setEnabled(rep["input_mode"] == "push_to_talk")
+        if not self.vi_wake.hasFocus():
+            self.vi_wake.setText(rep["wake_phrase"])
+        if not self.vi_model.hasFocus():
+            self.vi_model.setText(rep["model_folder"] or "")
+
     def _refresh_voice(self):
         st = self.ctl.voice_state()
         self.voice_state_lbl.setText("State: " + st["state"])
@@ -851,6 +1221,7 @@ class MainWindow(QMainWindow):
             sp.setValue(int(round(val * 100)))
             sp.blockSignals(False)
         self.voice_persona.setText("Current: " + self.ctl.persona_state()["indicator"])
+        self._refresh_voice_selection()
         su = self.ctl.startup_state()
         self.startup_box.blockSignals(True)
         self.startup_box.setChecked(su["enabled"])
@@ -860,7 +1231,7 @@ class MainWindow(QMainWindow):
 
     def _voice_enable(self):
         try:
-            self.ctl.voice_enable("wake_word")
+            self.ctl.voice_enable(self.vi_mode.currentData() or "wake_word")
         except Exception as e:  # noqa: BLE001
             self.error_box(e)
 
@@ -988,6 +1359,458 @@ class MainWindow(QMainWindow):
         rd = self.ctl.readiness()
         _fill(self.ready_table, [[r["label"], r["state"], r["detail"]] for r in rd["model"] + rd["voice"]])
         self.diag.setPlainText(self.ctl.diagnostics_text())
+
+    # ------------------------------------------------------------ System & Model Readiness (safe preflight; downloads nothing)
+    def _readiness_page(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.addWidget(_label(READINESS, heading=True))
+        v.addWidget(_label("A safe preflight for the model tests. It only LOOKS: no model is downloaded, no AI runtime is installed, no model is loaded, and your "
+                           "default model and settings are not changed. Checks marked 'internet' contact huggingface.co and read only the public description of "
+                           "the model files. Nothing here proves the model will run; see 'Not yet verified' below."))
+        self.pf_online = QCheckBox("Also check the model host's published information (needs internet - contacts huggingface.co, downloads no model)")
+        self.pf_online.setChecked(True)
+        self.pf_online.setAccessibleName("Include the online model information check")
+        v.addWidget(self.pf_online)
+        row = QHBoxLayout()
+        self.pf_run = _btn("Run Safe Preflight", self._pf_run, primary=True, tip="Runs the read-only checks below. You are asked before anything uses the internet.")
+        self.pf_cancel = _btn("Cancel", self._pf_cancel, tip="Stops after the current step. A request already sent to the model host finishes first (up to 20 seconds).", enabled=False)
+        row.addWidget(self.pf_run)
+        row.addWidget(self.pf_cancel)
+        row.addWidget(_btn("Open results folder", self._pf_open, tip="Opens the folder with the saved results of earlier runs."))
+        row.addWidget(_btn("Show diagnostics", self._pf_diag, tip="Opens the Status page: a diagnostic report (hardware, runtime, the app's own files) you can read, copy or save. Nothing is sent anywhere."))
+        row.addStretch(1)
+        v.addLayout(row)
+        self.pf_bar = QProgressBar()
+        self.pf_bar.setRange(0, 100)
+        self.pf_bar.setAccessibleName("Preflight progress")
+        v.addWidget(self.pf_bar)
+        self.pf_current = _label("Not run yet.")
+        self.pf_current.setTextFormat(Qt.TextFormat.PlainText)       # text that came from outside the app is never interpreted as markup
+        self.pf_current.setAccessibleName("Current preflight step")
+        v.addWidget(self.pf_current)
+        self.pf_verdict = _label("")
+        self.pf_verdict.setTextFormat(Qt.TextFormat.PlainText)
+        self.pf_verdict.setAccessibleName("Preflight result")
+        v.addWidget(self.pf_verdict)
+        self.pf_table = _table(["Check", "Needs internet", "Result", "Detail"])
+        self.pf_table.setAccessibleName("Preflight checks")
+        v.addWidget(self.pf_table, 3)
+        v.addWidget(_label("Model files (published by the host; not independently verified; nothing downloaded):"))
+        self.pf_models = _table(["Model file", "Repository", "Size in bytes (published)", "Published SHA-256", "Status"])
+        self.pf_models.setAccessibleName("Model metadata")
+        v.addWidget(self.pf_models, 2)
+        v.addWidget(_label("Not yet verified:"))
+        self.pf_blockers = QPlainTextEdit()
+        self.pf_blockers.setReadOnly(True)
+        self.pf_blockers.setAccessibleName("Remaining blockers")
+        v.addWidget(self.pf_blockers, 2)
+        v.addWidget(_label("Earlier runs:"))
+        self.pf_hist = _table(["Started (UTC)", "Result", "Online check", "App version"])
+        self.pf_hist.setAccessibleName("Earlier preflight runs")
+        v.addWidget(self.pf_hist, 1)
+        return w
+
+    def _refresh_system_model_readiness(self):
+        st = self.ctl.preflight_state()
+        running = bool(st["running"])
+        self.pf_run.setEnabled(not running)
+        self.pf_cancel.setEnabled(running)
+        self.pf_online.setEnabled(not running)
+        self.pf_bar.setValue(int(round(100 * float(st["fraction"]))))
+        res = st["result"]
+        if running:
+            self.pf_current.setText("Running: " + str(st["current"]))
+        elif st["error"]:
+            self.pf_current.setText(str(st["error"]))
+        elif st["message"]:
+            self.pf_current.setText(str(st["message"]))
+        elif res:
+            self.pf_current.setText("Finished.")
+        else:
+            self.pf_current.setText("Not run yet.")
+        if res:
+            v = res["verdict"]
+            note = "" if not res.get("history_error") else "  " + res["history_error"]
+            saved = "  (Guest session: this result is not saved.)" if res.get("guest_session_not_saved") else ""
+            self.pf_verdict.setText(f"{v['code']}: {v['text']}{note}{saved}")
+            _fill(self.pf_table, [[c["title"], "yes" if c["needs_internet"] else "no", c["label"], c["detail"]] for c in res["checks"]])
+            _fill(self.pf_models, [[m.get("file"), m.get("repo"), m.get("size_bytes") if m.get("size_bytes") is not None else "unknown", m.get("published_sha256") or "unknown",
+                                    m.get("status") + (" (" + ", ".join(m.get("problems") or []) + ")" if m.get("problems") else "")] for m in res.get("models", [])])
+            self.pf_blockers.setPlainText("\n".join("- " + b for b in res.get("blockers", [])))
+        elif not running:
+            self.pf_verdict.setText("")
+        _fill(self.pf_hist, [[h.get("started_at_utc") or h["run_id"], h.get("verdict") or "unreadable record", "yes" if h.get("include_online") else "no", h.get("app_version") or ""]
+                             for h in self.ctl.preflight_history()])
+
+    def _pf_run(self):
+        online, consent = self.pf_online.isChecked(), False
+        if online:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle("Use the internet for this check?")
+            box.setText("Jarvis will contact huggingface.co once to read the public description of the model files (names, sizes, published checksums). "
+                        "No model is downloaded and nothing about you or your PC is sent except what any web request reveals (your internet address).")
+            allow = box.addButton("Allow and run all checks", QMessageBox.ButtonRole.AcceptRole)
+            offline = box.addButton("Run offline checks only", QMessageBox.ButtonRole.ActionRole)
+            cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(cancel)
+            box.setEscapeButton(cancel)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked is cancel or clicked is None:
+                self.statusBar().showMessage("Nothing was started.", 5000)
+                return
+            online, consent = (clicked is allow), (clicked is allow)
+            if clicked is offline:
+                online = False
+        if not self.ctl.preflight_start(online, consent):
+            self.statusBar().showMessage(str(self.ctl.preflight_state()["message"] or "The preflight did not start."), 8000)
+
+    def _pf_cancel(self):
+        self.ctl.preflight_cancel()
+
+    def _pf_diag(self):
+        self.nav.setCurrentRow(PAGES.index("Status"))
+
+    def _pf_open(self):
+        folder = self.ctl.preflight_folder()
+        if not os.path.isdir(folder):
+            QMessageBox.information(self, V.APP_NAME, "No preflight has been saved yet.")
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(folder)):
+            QMessageBox.information(self, V.APP_NAME, "Could not open the folder. It is the 'preflight' folder inside your Jarvis data folder.")
+
+    # ------------------------------------------------------------ Import Brain (the logic is in jarvis.brains; this page only shows it and calls the controller)
+    def _import_brain_page(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.addWidget(_label(IMPORT_BRAIN, heading=True))
+        v.addWidget(_label("Choose, import, test and switch the local AI model ('brain') that Jarvis uses. Everything stays on this PC. Jarvis never falls back to a "
+                           "cloud model or a paid service. A model file is only read, never run."))
+        self._ib_ids, self._ib_cat_ids, self._ib_handled, self._ib_dialog_open = [], [], None, False
+        tabs = QTabWidget()
+        tabs.setAccessibleName("Import Brain sections")
+        self.ib_tabs = tabs
+        # -- Active Brain
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        self.ib_active = _label("Reading the brain library...")
+        self.ib_active.setTextFormat(Qt.TextFormat.PlainText)
+        self.ib_active.setAccessibleName("Active brain")
+        tv.addWidget(self.ib_active)
+        row = QHBoxLayout()
+        self.ib_deactivate = _btn("Deactivate", self._ib_deactivate, tip="Releases the brain from memory. Nothing is deleted; chat will say that no brain is active.")
+        self.ib_previous = _btn("Return to previous brain", self._ib_previous, tip="Switches back to the brain that was active before the last switch (tested first).")
+        row.addWidget(self.ib_deactivate)
+        row.addWidget(self.ib_previous)
+        row.addWidget(_btn("Refresh", self._ib_refresh, tip="Re-reads the library, this PC's hardware and the model list."))
+        row.addStretch(1)
+        tv.addLayout(row)
+        tv.addStretch(1)
+        tabs.addTab(t, "Active Brain")
+        # -- Import Model
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        tv.addWidget(_label("Add a .gguf model file you already have. By default it is registered where it is (not copied). Only its header is read to check it."))
+        row = QHBoxLayout()
+        self.ib_path = QLineEdit()
+        self.ib_path.setPlaceholderText("Path to a .gguf file")
+        self.ib_path.setAccessibleName("Model file path")
+        row.addWidget(self.ib_path, 1)
+        row.addWidget(_btn("Browse...", self._ib_browse))
+        tv.addLayout(row)
+        self.ib_name = QLineEdit()
+        self.ib_name.setPlaceholderText("Optional display name")
+        self.ib_name.setAccessibleName("Display name")
+        tv.addWidget(self.ib_name)
+        self.ib_copy = QCheckBox("Copy the file into Jarvis's model folder (uses disk space). Unticked: register it where it is.")
+        self.ib_copy.setAccessibleName("Copy the file")
+        tv.addWidget(self.ib_copy)
+        row = QHBoxLayout()
+        self.ib_inspect_btn = _btn("Check file", self._ib_inspect, tip="Reads the file header and says what it is and whether this PC can run it. Changes nothing.")
+        self.ib_import_btn = _btn("Import", self._ib_import, primary=True, tip="Adds the model to your library. It is NOT activated automatically.")
+        row.addWidget(self.ib_inspect_btn)
+        row.addWidget(self.ib_import_btn)
+        row.addStretch(1)
+        tv.addLayout(row)
+        self.ib_inspect_out = QPlainTextEdit()
+        self.ib_inspect_out.setReadOnly(True)
+        self.ib_inspect_out.setAccessibleName("File check result")
+        tv.addWidget(self.ib_inspect_out, 1)
+        tabs.addTab(t, "Import Model")
+        # -- Browse Models
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        tv.addWidget(_label("Models Jarvis knows how to download. A download starts only when you press Download and confirm. It is checked afterwards and is NOT activated automatically."))
+        self.ib_cat = _table(["Name", "Repository", "Architecture", "Quantization", "Size", "License", "Memory needed", "On this PC", "Installed"])
+        self.ib_cat.setAccessibleName("Models available to download")
+        self.ib_cat.itemSelectionChanged.connect(self._ib_cat_selected)
+        tv.addWidget(self.ib_cat, 2)
+        self.ib_cat_detail = QPlainTextEdit()
+        self.ib_cat_detail.setReadOnly(True)
+        self.ib_cat_detail.setAccessibleName("Model details")
+        tv.addWidget(self.ib_cat_detail, 2)
+        row = QHBoxLayout()
+        self.ib_download_btn = _btn("Download...", self._ib_download, primary=True, tip="Shows size, license, disk space and warnings first; nothing is downloaded until you confirm.")
+        row.addWidget(self.ib_download_btn)
+        row.addStretch(1)
+        tv.addLayout(row)
+        tabs.addTab(t, "Browse Models")
+        # -- Installed Brains
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        self.ib_table = _table(["Name", "Origin", "Architecture", "Quantization", "Size", "Status", "On this PC", "Last test"])
+        self.ib_table.setAccessibleName("Installed brains")
+        self.ib_table.itemSelectionChanged.connect(self._ib_selected)
+        tv.addWidget(self.ib_table, 2)
+        self.ib_detail = QPlainTextEdit()
+        self.ib_detail.setReadOnly(True)
+        self.ib_detail.setAccessibleName("Brain details")
+        tv.addWidget(self.ib_detail, 2)
+        row = QHBoxLayout()
+        self.ib_test_btn = _btn("Test", self._ib_test, tip="Loads the selected brain and makes it answer a real question.")
+        self.ib_activate_btn = _btn("Activate", self._ib_activate, primary=True,
+                                    tip="Tests the brain first; the switch happens only if it answers. Otherwise your current brain is kept.")
+        self.ib_remove_btn = _btn("Remove...", self._ib_remove_selected, danger=True, tip="Opens Remove Model for the selected brain. Asks before anything is removed.")
+        for b in (self.ib_test_btn, self.ib_activate_btn, self.ib_remove_btn):
+            row.addWidget(b)
+        row.addStretch(1)
+        tv.addLayout(row)
+        row = QHBoxLayout()
+        row.addWidget(_label("Context window (tokens):"))
+        self.ib_ctx = QSpinBox()
+        self.ib_ctx.setRange(512, 131072)
+        self.ib_ctx.setSingleStep(512)
+        self.ib_ctx.setValue(4096)
+        self.ib_ctx.setAccessibleName("Context window in tokens")
+        self.ib_ctx.setToolTip("How much conversation the brain can see at once. Larger uses more memory. Applies the next time the brain is loaded.")
+        row.addWidget(self.ib_ctx)
+        row.addWidget(_btn("Set", self._ib_set_context, tip="Saves this limit for the selected brain (never above what the model supports)."))
+        row.addStretch(1)
+        tv.addLayout(row)
+        tabs.addTab(t, "Installed Brains")
+        # -- Test Brain
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        tv.addWidget(_label("Loads the brain selected in Installed Brains and asks it a real question. The answer shown below was generated by the model, not by Jarvis."))
+        self.ib_test_target = _label("No brain selected.")
+        self.ib_test_target.setTextFormat(Qt.TextFormat.PlainText)
+        tv.addWidget(self.ib_test_target)
+        row = QHBoxLayout()
+        self.ib_test_btn2 = _btn("Run test", self._ib_test, primary=True)
+        row.addWidget(self.ib_test_btn2)
+        row.addStretch(1)
+        tv.addLayout(row)
+        self.ib_test_out = QPlainTextEdit()
+        self.ib_test_out.setReadOnly(True)
+        self.ib_test_out.setAccessibleName("Test result")
+        tv.addWidget(self.ib_test_out, 1)
+        tabs.addTab(t, "Test Brain")
+        # -- Hardware and Diagnostics
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        self.ib_hw = QPlainTextEdit()
+        self.ib_hw.setReadOnly(True)
+        self.ib_hw.setAccessibleName("Hardware and diagnostics")
+        tv.addWidget(self.ib_hw, 1)
+        tv.addWidget(_btn("Refresh", self._ib_refresh))
+        tabs.addTab(t, "Hardware and Diagnostics")
+        # -- Remove Model
+        t = QWidget()
+        tv = QVBoxLayout(t)
+        tv.addWidget(_label("Removing a model from the library and deleting a file are different. Pick a brain in Installed Brains, then press Remove there. "
+                            "You are shown exactly what will happen and must confirm."))
+        self.ib_remove_info = _label("No brain selected.")
+        self.ib_remove_info.setTextFormat(Qt.TextFormat.PlainText)
+        tv.addWidget(self.ib_remove_info)
+        self.ib_delete_file = QCheckBox("Also delete the model file from my disk (cannot be undone)")
+        self.ib_delete_file.setAccessibleName("Also delete the file")
+        tv.addWidget(self.ib_delete_file)
+        tv.addStretch(1)
+        tabs.addTab(t, "Remove Model")
+        v.addWidget(tabs, 1)
+        self.ib_bar = QProgressBar()
+        self.ib_bar.setRange(0, 100)
+        self.ib_bar.setAccessibleName("Brain operation progress")
+        v.addWidget(self.ib_bar)
+        row = QHBoxLayout()
+        self.ib_status = _label("")
+        self.ib_status.setTextFormat(Qt.TextFormat.PlainText)       # replies, paths and reasons come from outside: never interpreted as markup
+        self.ib_status.setAccessibleName("Brain operation status")
+        row.addWidget(self.ib_status, 1)
+        self.ib_cancel = _btn("Cancel", self._ib_cancel, tip="Stops the running operation. A model that is already loading finishes loading first and is then released.", enabled=False)
+        row.addWidget(self.ib_cancel)
+        v.addLayout(row)
+        return w
+
+    def _ib_selected_id(self):
+        r = self.ib_table.currentRow()
+        return self._ib_ids[r] if 0 <= r < len(self._ib_ids) else None
+
+    def _ib_refresh_buttons(self, running):
+        sid = self._ib_selected_id()
+        for b in (self.ib_test_btn, self.ib_test_btn2, self.ib_activate_btn, self.ib_remove_btn):
+            b.setEnabled(not running and sid is not None)
+        self.ib_deactivate.setEnabled(not running)
+        self.ib_previous.setEnabled(not running)
+        self.ib_import_btn.setEnabled(not running)
+        self.ib_inspect_btn.setEnabled(not running)
+        self.ib_download_btn.setEnabled(not running and 0 <= self.ib_cat.currentRow() < len(self._ib_cat_ids))
+        self.ib_cancel.setEnabled(running)
+
+    def _refresh_import_brain(self):
+        st = self.ctl.brain_state()
+        data, running = st["data"], bool(st["running"])
+        if data is None and not st["refreshing"] and self.stack.currentIndex() == PAGES.index(IMPORT_BRAIN):
+            self.ctl.brain_refresh()           # only when the page is open: the library and hardware are read when you look, not at start-up
+        if data:
+            self.ib_active.setText(BVM.active_text(data["summary"]))
+            inst = data["installed"]
+            keep = self._ib_selected_id()
+            self._ib_ids = [b["id"] for b in inst]
+            _fill(self.ib_table, BVM.installed_rows(inst))
+            if keep in self._ib_ids:
+                self.ib_table.selectRow(self._ib_ids.index(keep))
+            self._ib_cat_ids = [c["id"] for c in data["catalog"]]
+            _fill(self.ib_cat, BVM.catalog_rows(data["catalog"]))
+            self.ib_hw.setPlainText(BVM.hardware_text(data["diagnostics"]))
+        else:
+            self.ib_active.setText(BVM.active_text(None))
+        self.ib_bar.setValue(int(round(100 * st["fraction"])) if st["fraction"] is not None else 0)
+        res = st["result"]
+        if running:
+            self.ib_status.setText(f"Working ({st['op']}): {st['current']}")
+        elif st["message"]:
+            self.ib_status.setText(str(st["message"]))
+        else:
+            self.ib_status.setText(BVM.result_text(res))
+        self._ib_refresh_buttons(running)
+        self._ib_on_result(res, running)
+
+    def _ib_on_result(self, res, running):
+        """Follow-up dialogs that need the result of an earlier step (download details, warnings, removal preview). Each result is handled once."""
+        if running or not res or res is self._ib_handled or self._ib_dialog_open:
+            return
+        self._ib_handled = res
+        op, mid = res.get("op"), self.ctl.brain_state()["model_id"]
+        if op == "inspect":
+            self.ib_inspect_out.setPlainText(self._ib_inspect_text(res))
+        elif op == "import":
+            self.ib_inspect_out.setPlainText(self._ib_inspect_text(res) if res.get("gguf") else BVM.result_text(res))
+        elif op in ("test", "activate", "previous") and res.get("kind") == "needs_confirmation":
+            if self._ib_confirm("Use this brain anyway?", "\n".join(res.get("warnings") or []) + "\n\nThis model may be too heavy or uncertain on this PC. Continue?", "Continue"):
+                self.ctl.brain_run(op, model_id=mid, accept_warnings=True)
+        elif op in ("test",) and res.get("test"):
+            self.ib_test_out.setPlainText(BVM.result_text(res))
+        elif op == "preview-download" and res.get("model_id"):
+            if res.get("ok") is False and not res.get("warnings"):
+                return
+            if self._ib_confirm("Download this model?", BVM.download_text(res), "Download"):
+                self.ctl.brain_run("download", model_id=res["model_id"], consent=True)
+        elif op == "preview-remove" and res.get("ok"):
+            delete = self.ib_delete_file.isChecked() and bool(res.get("file_deletion"))
+            text = BVM.remove_text(res) + ("\n\nThe file WILL be deleted." if delete else "\n\nYour files will not be deleted.")
+            if res.get("is_active"):
+                QMessageBox.information(self, V.APP_NAME, text)
+            elif self._ib_confirm("Remove this model?", text, "Remove"):
+                self.ctl.brain_run("remove", model_id=res["id"], confirmed=True, delete_file=delete)
+
+    def _ib_inspect_text(self, res):
+        if not res.get("ok") and not res.get("gguf"):
+            return BVM.result_text(res)
+        g, c = res.get("gguf") or {}, res.get("compat")
+        head = [f"File: {res.get('file_name', '')}", f"Format: {res.get('format', 'GGUF')}", f"Architecture: {g.get('architecture') or 'unknown'}   "
+                f"Quantization: {g.get('quantization') or 'unknown'}   Size: {BVM.size_text(res.get('size_bytes'))}",
+                f"On this PC: {BVM.compat_text(c)}", BVM.reasons_text(c), res.get("verification", ""), BVM.result_text(res) if "model_id" in res or not res.get("ok") else ""]
+        return "\n".join(x for x in head if x)
+
+    def _ib_confirm(self, title, text, yes_label):
+        self._ib_dialog_open = True
+        try:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle(title)
+            box.setText(text)
+            yes = box.addButton(yes_label, QMessageBox.ButtonRole.AcceptRole)
+            no = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(no)
+            box.setEscapeButton(no)
+            box.exec()
+            return box.clickedButton() is yes
+        finally:
+            self._ib_dialog_open = False
+
+    def _ib_start(self, op, **kw):
+        if not self.ctl.brain_run(op, **kw):
+            self.statusBar().showMessage(str(self.ctl.brain_state()["message"] or "That did not start."), 8000)
+
+    def _ib_browse(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choose a GGUF model file", "", "GGUF models (*.gguf);;All files (*)")
+        if path:
+            self.ib_path.setText(path)
+
+    def _ib_inspect(self):
+        self._ib_start("inspect", path=self.ib_path.text().strip())
+
+    def _ib_import(self):
+        self._ib_start("import", path=self.ib_path.text().strip(), name=self.ib_name.text().strip() or None, copy=self.ib_copy.isChecked())
+
+    def _ib_selected(self):
+        sid = self._ib_selected_id()
+        data = self.ctl.brain_state()["data"]
+        rec = next((b for b in (data or {}).get("installed", []) if b["id"] == sid), None)
+        self.ib_detail.setPlainText(BVM.installed_detail(rec) if rec else "")
+        if rec and rec.get("context_tokens"):
+            self.ib_ctx.setValue(int(rec["context_tokens"]))
+        self.ib_test_target.setText(f"Selected brain: {rec['name']}" if rec else "No brain selected.")
+        self.ib_remove_info.setText(f"Selected brain: {rec['name']}  ({rec['id']})" if rec else "No brain selected.")
+        self._ib_refresh_buttons(bool(self.ctl.brain_state()["running"]))
+
+    def _ib_cat_selected(self):
+        r = self.ib_cat.currentRow()
+        data = self.ctl.brain_state()["data"]
+        if data and 0 <= r < len(data["catalog"]):
+            self.ib_cat_detail.setPlainText(BVM.catalog_detail(data["catalog"][r]))
+        self._ib_refresh_buttons(bool(self.ctl.brain_state()["running"]))
+
+    def _ib_download(self):
+        r = self.ib_cat.currentRow()
+        if 0 <= r < len(self._ib_cat_ids):
+            self._ib_start("preview-download", model_id=self._ib_cat_ids[r])
+
+    def _ib_test(self):
+        sid = self._ib_selected_id()
+        if sid:
+            self._ib_start("test", model_id=sid)
+
+    def _ib_activate(self):
+        sid = self._ib_selected_id()
+        if sid:
+            self._ib_start("activate", model_id=sid)
+
+    def _ib_set_context(self):
+        sid = self._ib_selected_id()
+        if sid:
+            self._ib_start("context", model_id=sid, n_ctx=int(self.ib_ctx.value()))
+
+    def _ib_deactivate(self):
+        self._ib_start("deactivate")
+
+    def _ib_previous(self):
+        self._ib_start("previous")
+
+    def _ib_remove_selected(self):
+        sid = self._ib_selected_id()
+        if sid:
+            self.ib_tabs.setCurrentIndex(6)
+            self._ib_start("preview-remove", model_id=sid)
+
+    def _ib_refresh(self):
+        self.ctl.brain_refresh()
+
+    def _ib_cancel(self):
+        self.ctl.brain_cancel()
 
     def _set_scale(self, text):
         self.settings.setValue("text_scale", text)

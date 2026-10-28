@@ -61,7 +61,7 @@ class VoiceSession:
         self.mic, self.rec, self.spk, self.responder = mic, recognizer, speaker, responder
         self._emit = on_event or (lambda k, p: None)
         self.clock, self.dt = clock, frame_seconds
-        self.vad = EnergyVAD()
+        self.vad = EnergyVAD(min_rms=float(self.s.vad_min_rms))
         self.state = OFF
         self.mic_open = False
         self._t0 = self._last_activity = self.clock()

@@ -109,7 +109,8 @@ class SetupDialog(QDialog):
             self.go.setText("Check and finish setup")
             return
         self.model_info.setText(f"{r['title']}: download about {r['download_gb']} GB from its publisher (once). Licence: {r['license']} ({r['license_url']}). "
-                                f"Estimated memory needed: {r['memory_need_gb_estimate']} GB. This is a pretrained third-party model, not made by Jarvis."
+                                f"Source: {r['repo']} ({r['quantization']}). Free disk space needed: about {r['needs_free_gb']} GB. "
+                                f"Estimated memory needed: {r['memory_need_gb_estimate']} GB. This is a pretrained third-party model, not made by Jarvis. {r['verification']}"
                                 + ("" if r["metadata_confirmed"] else " Its size and licence have not been confirmed by this build; check the publisher's page."))
         self.go.setText(f"Download {r['download_gb']} GB and set up")
         self.go.setEnabled(bool(r["fits"]) and self.preview.get("system", {}).get("can_continue", False))

@@ -9,3 +9,5 @@ dist/
 .venv/
 model_out/
 build_info.json
+*.onnx
+voices-v*.bin

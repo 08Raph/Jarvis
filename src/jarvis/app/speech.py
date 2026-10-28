@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Callable
 
 from jarvis.config import Config
+from jarvis.voice.engines import EngineRegistry, FactoryEngine, default_registry
+from jarvis.voice.manager import VoiceManager
 from jarvis.voice.settings import VoiceSettings
 from jarvis.voice.speakable import apply_pronunciations, shorten, speakable
 
@@ -19,7 +21,8 @@ class SpeechOut:
         self.cfg = cfg
         self._factory = speaker_factory
         self._platform = platform or sys.platform
-        self._spk = None
+        registry = EngineRegistry([FactoryEngine(speaker_factory)]) if speaker_factory is not None else default_registry(self._platform, cfg.data_dir)
+        self.voices = VoiceManager(cfg, registry)       # discovery, saved choice, personality-aware resolution (jarvis.voice.manager)
         self.last_error = ""
 
     def settings(self) -> VoiceSettings:
@@ -36,27 +39,15 @@ class SpeechOut:
         return vs
 
     def available(self) -> tuple[bool, str]:
-        if self._factory is not None:
-            return True, ""
-        if self._platform != "win32":
-            return False, "Speech output needs Windows (SAPI through PowerShell)."
-        from jarvis.voice.backends import POWERSHELL
-        if not Path(POWERSHELL).exists():
-            return False, "Windows PowerShell was not found."
-        return True, ""
+        return self.voices.available()
 
     def enabled(self) -> bool:
         return self.settings().speak_in_window and self.available()[0]
 
     def speaker(self):
-        """The one shared speaker (the hands-free voice service uses it too, so there is never a second audio output)."""
-        if self._spk is None:
-            if self._factory is not None:
-                self._spk = self._factory()
-            else:
-                from jarvis.voice.backends import SapiSpeaker
-                self._spk = SapiSpeaker()
-        return self._spk
+        """The one shared speaker (the hands-free voice service uses it too, so there is never a second audio output). It picks the engine and voice at the
+        moment of speaking from the saved choice and the current personality mode."""
+        return self.voices.speaker()
 
     def speak(self, text: str, rate_factor: float = 1.0) -> bool:
         """Speak `text` if (and only if) the user turned spoken replies on and the engine exists. Returns True when speech was started."""
@@ -78,23 +69,21 @@ class SpeechOut:
             f = 1.0
         rate = max(0.5, min(2.0, vs.rate * f))
         try:
-            self.speaker().speak(say, rate, vs.volume, vs.tts_voice)
+            self.speaker().speak(say, rate, vs.volume, None)
             return True
         except Exception as e:  # noqa: BLE001 - a TTS failure must be a message, never a crash
             self.last_error = f"Speech output failed: {type(e).__name__}: {str(e)[:160]}"
-            self._spk = None
+            self.voices.reset_speakers()
             return False
 
     def stop(self) -> None:
-        sp = self._spk
-        if sp is not None:
-            try:
-                sp.stop()
-            except Exception as e:  # noqa: BLE001
-                self.last_error = f"Could not stop speech cleanly: {type(e).__name__}"
+        sp = self.voices.speaker()
+        sp.stop()
+        if sp.last_stop_error:
+            self.last_error = f"Could not stop speech cleanly: {sp.last_stop_error}"
 
     def is_speaking(self) -> bool:
         try:
-            return bool(self._spk is not None and self._spk.is_speaking())
+            return bool(self.voices.speaker().is_speaking())
         except Exception:  # noqa: BLE001
             return False

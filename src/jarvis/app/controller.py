@@ -56,6 +56,36 @@ def explain_error(exc) -> str:
     return f"Unexpected problem ({name}). Details were not shown to avoid leaking personal data; see the diagnostics page."
 
 
+class _BrainHost:
+    """EngineHost for the BrainManager: the chat assistant's engine. Conversation, memory and persona are never touched, only the engine."""
+
+    def __init__(self, ctl: "AppController"):
+        self.ctl = ctl
+
+    def loaded_engine(self):
+        a = self.ctl.assistant
+        if a is not None:
+            return getattr(a, "engine", None)
+        return self.ctl._pending_engine[0] if self.ctl._pending_engine else None
+
+    def release_engine(self) -> None:
+        a = self.ctl.assistant
+        if a is not None:
+            a.release_engine()
+        elif self.ctl._pending_engine:
+            eng, self.ctl._pending_engine = self.ctl._pending_engine[0], None
+            close = getattr(eng, "close", None)
+            if callable(close):
+                close()
+
+    def install_engine(self, engine, model_id: str) -> None:
+        a = self.ctl.assistant
+        if a is not None:
+            a.swap_engine(engine, model_id)
+        else:
+            self.ctl._pending_engine = (engine, model_id)
+
+
 class AppController:
     def __init__(self, cfg: Config, *, guest: bool = False, engine_factory=None, dispatch: Callable | None = None,
                  on_update: Callable[[str], None] | None = None, ask_user: Callable | None = None, simulate: bool = False,
@@ -75,6 +105,13 @@ class AppController:
         self._startup_backend = startup_backend
         self._rec_factory = recognizer_factory
         self.voice_thread_leaked = False
+        self.speech.voices.guest = guest
+        self.speech.voices.persona_provider = lambda: self.persona.settings.style     # per-mode voice overrides; the global voice is used unless a mode has its own
+        from jarvis.voice.preview import VoicePreview
+        self.voice_preview = VoicePreview(self.speech.voices, on_change=lambda: self._notify("voice"))
+        self.voice_input: dict = {"running": False, "result": None, "error": ""}      # last microphone / recogniser readiness check (read-only; opens nothing)
+        self.kokoro: dict = {"running": False, "op": "", "fraction": None, "current": "", "message": "", "result": None}      # Kokoro model install / check (Stage 6.5)
+        self._kokoro_task = None
         self.voice = None                           # hands-free VoiceService, created on first use
         self.busy = False                           # a chat reply is being produced
         self.loading = False
@@ -85,6 +122,75 @@ class AppController:
         self._plock = threading.Lock()
         self.mission_progress: dict[str, list[str]] = {}
         self.running_missions: set[str] = set()
+        self.preflight: dict = {"running": False, "fraction": 0.0, "current": "", "result": None, "error": "", "message": ""}     # System & Model Readiness page
+        self._preflight_task = None
+        self.brains: dict = {"running": False, "op": "", "model_id": "", "fraction": None, "current": "", "result": None, "data": None, "message": "", "refreshing": False}
+        self._brain_task = None
+        self._brain_mgr = None
+        self._pending_engine: tuple | None = None       # a tested engine installed before the chat session exists
+
+    # ------------------------------------------------------------------ System & Model Readiness (Stage 5 preflight; read-only, downloads nothing)
+    def preflight_start(self, include_online: bool = False, online_consent: bool = False) -> bool:
+        """Start the safe preflight on a worker. The online model-host check runs ONLY if include_online and the person confirmed (online_consent);
+        otherwise nothing touches the network. Returns False (with a message in self.preflight) if it did not start."""
+        st = self.preflight
+        if st["running"]:
+            st["message"] = "A preflight is already running."
+            return False
+        if include_online and not online_consent:
+            st["message"] = "The online check needs your confirmation; nothing was started."
+            self._notify("preflight")
+            return False
+        from jarvis.preflight import runner
+
+        def work(token: CancelToken):
+            def prog(done: int, total: int, text: str) -> None:
+                self._ui(lambda: self._preflight_progress(done, total, text))
+            return runner.run_preflight(self.cfg, include_online=include_online, online_consent=online_consent, should_stop=lambda: token.cancelled,
+                                        progress=prog, guest=self.guest)
+
+        def done(result, err: str) -> None:
+            st["running"] = False
+            st["fraction"] = 1.0 if result else st["fraction"]
+            st["result"] = result
+            st["error"] = ("The preflight stopped unexpectedly: " + explain_error(err)) if err else ""
+            st["message"] = ""
+            self.on_update("preflight")
+        st.update(running=True, fraction=0.0, current="Starting...", result=None, error="", message="")
+        task = self.tasks.submit("preflight", work, done)
+        if task is None:
+            st.update(running=False, message="The application is closing; nothing was started.")
+            return False
+        self._preflight_task = task
+        self._notify("preflight")
+        return True
+
+    def _preflight_progress(self, done: int, total: int, text: str) -> None:
+        self.preflight["fraction"] = (done / total) if total else 0.0
+        self.preflight["current"] = text
+        self.on_update("preflight")
+
+    def preflight_state(self) -> dict:
+        """What the page shows: running, fraction (0..1), current step text, result record (or None), error text, message."""
+        return self.preflight
+
+    def preflight_cancel(self) -> None:
+        """Ask the running preflight to stop. It stops before the next check or the next host request (a request already sent finishes, up to 20 s)."""
+        if self.preflight["running"] and self._preflight_task is not None:
+            self._preflight_task.token.cancel()
+            self.preflight["current"] = "Cancelling after the current step..."
+            self._notify("preflight")
+
+    def preflight_history(self) -> list[dict]:
+        from jarvis.preflight import history
+        try:
+            return history.list_runs(self.cfg)
+        except OSError:
+            return []
+
+    def preflight_folder(self) -> str:
+        from jarvis.preflight import history
+        return str(history.root(self.cfg))
 
     # ------------------------------------------------------------------ plumbing
     def _ui(self, fn: Callable[[], None]) -> None:
@@ -190,6 +296,126 @@ class AppController:
     def export_diagnostic_report(self, dest) -> str:
         return str(diagnostics.export_report(self.cfg, dest))
 
+    # ------------------------------------------------------------------ Import Brain (brains/service.py does the work; this only runs it off the interface thread)
+    def brain_manager(self):
+        if self._brain_mgr is None:
+            from jarvis.brains.service import BrainManager
+            from jarvis.models.manager import ModelStore
+            from jarvis.net.policy import NetworkPolicy
+            policy = NetworkPolicy.load(self.cfg.settings_path)
+            self._brain_mgr = BrainManager(self.cfg, ModelStore(self.cfg.models_dir, policy), policy, host=_BrainHost(self), engine_factory=self.engine_factory)
+        return self._brain_mgr
+
+    def brain_state(self) -> dict:
+        """What the Import Brain page shows: running flag, operation, progress, last result, last refreshed data (or None before the first refresh)."""
+        return self.brains
+
+    def brain_refresh(self) -> bool:
+        """Re-read the library, hardware and catalog on a worker (hardware detection may start a helper program, so never on the interface thread)."""
+        st = self.brains
+        if st["refreshing"] or self.closed:
+            return False
+        st["refreshing"] = True
+
+        def work(token: CancelToken):
+            m = self.brain_manager()
+            return {"summary": m.summary(), "installed": m.installed_brains(), "catalog": m.catalog(), "diagnostics": m.diagnostics()}
+
+        def done(res, err):
+            st["refreshing"] = False
+            if err:
+                st["message"] = "Could not read the brain library: " + explain_error(err)
+            else:
+                st["data"], st["message"] = res, ""
+            self.on_update("brains")
+        return self.tasks.submit("brain-refresh", work, done) is not None
+
+    def brain_run(self, op: str, **kw) -> bool:
+        """Start ONE brain operation on a worker: inspect | import | download | test | activate | deactivate | previous | remove | context | preview-download | preview-remove.
+        Returns False (with st['message']) if it did not start. Switching is refused while a reply is being produced."""
+        st = self.brains
+        if self.closed:
+            return False
+        if st["running"]:
+            st["message"] = "Another brain operation is still running. Wait for it or press Cancel."
+            self._notify("brains")
+            return False
+        if op in ("activate", "deactivate", "previous", "test") and self.busy:
+            st["message"] = "Jarvis is answering a message. Wait for it to finish (or press Stop) before changing or testing the brain."
+            self._notify("brains")
+            return False
+        names = {"inspect", "import", "download", "test", "activate", "deactivate", "previous", "remove", "context", "preview-download", "preview-remove"}
+        if op not in names:
+            st["message"] = f"Unknown brain operation '{op}'."
+            return False
+
+        class _Cancel:
+            def __init__(self, token):
+                self.t = token
+
+            def is_set(self):
+                return self.t.cancelled
+
+        def work(token: CancelToken):
+            m, c = self.brain_manager(), _Cancel(token)
+
+            def prog(done_b: int, total_b: int) -> None:
+                self._ui(lambda: self._brain_progress(done_b, total_b))
+            if op == "inspect":
+                return m.inspect_file(kw["path"])
+            if op == "import":
+                return m.import_file(kw["path"], name=kw.get("name"), copy=bool(kw.get("copy")), cancel=c, progress=prog, license_note=kw.get("license_note", ""))
+            if op == "download":
+                return m.download(kw["model_id"], consent=bool(kw.get("consent")), cancel=c, progress=prog)
+            if op == "test":
+                return m.test_brain(kw["model_id"], accept_warnings=bool(kw.get("accept_warnings")), cancel=c)
+            if op == "activate":
+                return m.activate(kw["model_id"], accept_warnings=bool(kw.get("accept_warnings")), cancel=c)
+            if op == "deactivate":
+                return m.deactivate()
+            if op == "previous":
+                return m.return_to_previous(accept_warnings=bool(kw.get("accept_warnings")), cancel=c)
+            if op == "remove":
+                return m.remove(kw["model_id"], confirmed=bool(kw.get("confirmed")), delete_file=bool(kw.get("delete_file")))
+            if op == "context":
+                return m.set_context(kw["model_id"], kw["n_ctx"])
+            if op == "preview-download":
+                return m.download_preflight(kw["model_id"])
+            return m.remove_preview(kw["model_id"])
+
+        def done(res, err):
+            st["running"], st["fraction"], st["current"] = False, None, ""
+            if err:
+                res = {"ok": False, "kind": "unexpected", "message": "The operation stopped unexpectedly: " + explain_error(err)}
+            st["result"] = dict(res or {}, op=op)
+            if op in ("activate", "deactivate", "previous") and (res or {}).get("ok"):
+                self.on_update("model")
+            self.on_update("brains")
+            if op not in ("inspect", "preview-download", "preview-remove"):
+                self.brain_refresh()
+        st.update(running=True, op=op, model_id=kw.get("model_id", ""), fraction=None, current="Working...", message="")
+        task = self.tasks.submit("brain-" + op, work, done)
+        if task is None:
+            st.update(running=False, message="The application is closing; nothing was started.")
+            return False
+        self._brain_task = task
+        self._notify("brains")
+        return True
+
+    def _brain_progress(self, done_b: int, total_b: int) -> None:
+        self.brains["fraction"] = (done_b / total_b) if total_b else None
+        self.brains["current"] = f"{done_b / 1e6:,.0f} / {total_b / 1e6:,.0f} MB" if total_b else ""
+        self.on_update("brains")
+
+    def brain_cancel(self) -> bool:
+        """Ask the running brain operation to stop. A model already being loaded finishes loading first (it is then released)."""
+        if self.brains["running"] and self._brain_task is not None:
+            self._brain_task.token.cancel()
+            self.brains["current"] = "Cancelling..."
+            self._notify("brains")
+            return True
+        return False
+
     # ------------------------------------------------------------------ chat
     def _ensure_assistant(self):
         if self.assistant is None:
@@ -200,7 +426,12 @@ class AppController:
                 self.cfg.profile_dir.mkdir(parents=True, exist_ok=True)
                 mem = PersonalMemory.open(self.cfg.memory_db, any_thread=True)      # created on a worker, closed on the interface thread
             try:
-                self.assistant = LocalAssistant(self.cfg, engine_factory=self.engine_factory, guest=self.guest, memory=mem)
+                pend, self._pending_engine = self._pending_engine, None
+                if pend is not None:         # a brain was activated before the first message: its tested engine is used, not loaded a second time
+                    self.assistant = LocalAssistant(self.cfg, guest=self.guest, memory=mem, engine=pend[0], model_id=pend[1])
+                    self.assistant._owns_engine = True
+                else:
+                    self.assistant = LocalAssistant(self.cfg, engine_factory=self.engine_factory, guest=self.guest, memory=mem)
             except BaseException:
                 mem.close()                                  # model missing/corrupt: do not leave the database open
                 raise
@@ -219,6 +450,10 @@ class AppController:
             return False
         if len(text) > 8000:
             self.transcript.add("error", "That message is too long (8000 characters at most).")
+            self.on_update("transcript")
+            return False
+        if self.brains["running"] and self.brains["op"] in ("activate", "deactivate", "previous", "test"):
+            self.transcript.add("system", "Jarvis is switching or testing a brain right now. Try again in a moment.")
             self.on_update("transcript")
             return False
         ms = self.model_status() if self.assistant is None else None
@@ -654,6 +889,219 @@ class AppController:
         svc = self._voice_service()
         svc.ptt_press() if down else svc.ptt_release()
 
+    # ------------------------------------------------------------------ voice selection, preview and input checks (Stage 6)
+    def voice_catalog(self) -> dict:
+        """Voices grouped feminine / masculine / not specified, engines with requirements, the saved choice, the voice that would speak now, and the preview state.
+        Cached: never starts discovery (call voice_catalog_refresh for that) and never blocks the interface."""
+        from jarvis.personality.styles import STYLES
+        cat = self.speech.voices.catalog()
+        vs = self.speech.settings()
+        cat["resolution"] = self.speech.voices.state()
+        cat["preview"] = self.voice_preview.state()
+        cat["persona"] = {"id": self.persona.settings.style, "label": STYLES[self.persona.settings.style].label, "has_own_voice": self.persona.settings.style in vs.voice_by_persona}
+        cat["speaker_muted"], cat["speak_in_window"] = vs.speaker_muted, vs.speak_in_window
+        return cat
+
+    def voice_catalog_refresh(self) -> bool:
+        """Ask the engines which voices are installed, on a worker thread. False if a refresh is already running."""
+        started = self.speech.voices.refresh_async(lambda: self._notify("voice"))
+        self._notify("voice")
+        return started
+
+    def voice_apply(self, voice_id: str, persona: str | None = None) -> dict:
+        """Save the voice (global default, or the OPTIONAL override of one personality mode). Changes only voice.json; the personality, conversation and memory are untouched."""
+        if self.guest:
+            raise ValueError("Voice settings are not changed in a guest session.")
+        out = self.speech.voices.apply(voice_id, persona)
+        self._notify("voice")
+        return out
+
+    def voice_clear_persona(self, persona: str) -> dict:
+        if self.guest:
+            raise ValueError("Voice settings are not changed in a guest session.")
+        out = self.speech.voices.clear_persona_voice(persona)
+        self._notify("voice")
+        return out
+
+    def voice_preview_start(self, voice_id: str) -> dict:
+        return self.voice_preview.start(voice_id)
+
+    def voice_preview_stop(self) -> dict:
+        return self.voice_preview.stop()
+
+    def voice_input_check(self) -> bool:
+        """Read-only readiness check of the microphone list and the local recogniser, on a worker. It never opens the microphone."""
+        if self.voice_input["running"]:
+            return False
+        from jarvis.voice.inputcheck import check_input
+
+        def work(token):
+            return check_input(self.speech.settings(), self._mic_factory)
+
+        def done(result, err):
+            self.voice_input.update(running=False, result=result, error=("The check failed: " + explain_error(err)) if err else "")
+            self.on_update("voice")
+        self.voice_input.update(running=True, error="")
+        if self.tasks.submit("voice-input-check", work, done) is None:
+            self.voice_input.update(running=False, error="The application is closing; nothing was checked.")
+            return False
+        self._notify("voice")
+        return True
+
+    def voice_input_state(self) -> dict:
+        """Last check result plus the saved input choices (for the window to show)."""
+        vs = self.speech.settings()
+        return {**self.voice_input, "mic_device": vs.mic_device, "input_mode": vs.input_mode, "wake_phrase": vs.wake_phrase, "model_folder": vs.vosk_model}
+
+    def voice_input_set(self, **kw) -> dict:
+        """Microphone choice, wake phrase, Vosk model folder and speech-detection floor. Validated before anything is saved. If hands-free is running it is
+        restarted so the change takes effect. It can NOT turn listening on: that is only voice_enable()."""
+        if self.guest:
+            raise ValueError("Voice settings are not changed in a guest session.")
+        self.speech.voices.set_input(**kw)
+        svc = self.voice
+        if svc is not None and svc.alive():
+            self.tasks.submit("voice-restart", lambda token: (None if self.closed else svc.retry()), lambda r, e: self._notify("voice"))
+        self._notify("voice")
+        return {"ok": True, "restarting": bool(svc is not None and svc.alive())}
+
+    def voice_set_model_folder(self, folder: str | None) -> dict:
+        """Folder of the unpacked recogniser model the person downloaded (empty = none)."""
+        return self.voice_input_set(vosk_model=(folder or "").strip() or None)
+
+    def voice_switch_mode(self, mode: str) -> dict:
+        """Switch a RUNNING hands-free session between wake word and push-to-talk. Does nothing (and says so) while hands-free is off: it never starts listening."""
+        if mode not in ("wake_word", "push_to_talk"):
+            raise ValueError("mode must be wake_word or push_to_talk")
+        svc = self._voice_service()
+        if not svc.enabled():
+            return {"ok": False, "message": "Hands-free voice is off. Turn it on first; nothing was changed."}
+        if svc.settings().input_mode == mode:
+            return {"ok": True, "message": "Already in that mode."}
+        svc.enable(mode)
+        if svc.alive():
+            self.tasks.submit("voice-restart", lambda token: (None if self.closed else svc.retry()), lambda r, e: self._notify("voice"))
+        self._notify("voice")
+        return {"ok": True, "message": "Mode changed."}
+
+    # ------------------------------------------------------------------ Kokoro local neural voice (Stage 6.5): engine choice and model install
+    def kokoro_engine(self):
+        return self.speech.voices.registry.get("kokoro")
+
+    def voice_select_engine(self, engine_id: str) -> dict:
+        """Make an engine the engine of the default voice (its first listed voice is saved). Refuses, with the engine's own reason, when it is not ready.
+        Changes only voice.json; microphone options, personality and conversations are untouched."""
+        if self.guest:
+            raise ValueError("Voice settings are not changed in a guest session.")
+        out = self.speech.voices.select_engine(engine_id)
+        self._notify("voice")
+        return out
+
+    def kokoro_state(self) -> dict:
+        """Install / check progress plus the engine's cheap status (file sizes and package presence only; no model is loaded, nothing is downloaded)."""
+        eng = self.kokoro_engine()
+        return {**self.kokoro, "present": eng is not None, "status": eng.status() if eng is not None else None}
+
+    def kokoro_install(self, consent: bool = False) -> bool:
+        """Download the Kokoro model files (only those missing or damaged) on a worker. `consent` must be True: the window asks first and shows the size.
+        The Stage 5 network policy allows the download for this one action only. Returns False (with a message) if it did not start."""
+        st, eng = self.kokoro, self.kokoro_engine()
+        if self.closed or eng is None:
+            return False
+        if self.guest:
+            st["message"] = "Nothing is downloaded in a guest session."
+        elif not consent:
+            st["message"] = "Downloading needs your confirmation first. Nothing was downloaded."
+        elif st["running"]:
+            st["message"] = "Another Kokoro operation is still running."
+        else:
+            from jarvis.net.policy import NetworkPolicy
+            policy = NetworkPolicy.load(self.cfg.settings_path)
+
+            def work(token: CancelToken):
+                from jarvis.models.kokoro_files import Cancelled, KokoroModelError
+
+                def prog(done_b: int, total_b: int) -> None:
+                    self._ui(lambda: self._kokoro_progress(done_b, total_b))
+                try:
+                    res = eng.store.download(policy, consent=True, cancel=lambda: token.cancelled, progress=prog)
+                    return {"ok": True, "cancelled": False, "installed": res["installed"]}
+                except Cancelled as e:
+                    return {"ok": False, "cancelled": True, "message": str(e)}
+                except KokoroModelError as e:                       # these messages are written to be shown: plain text, no paths, no traceback
+                    return {"ok": False, "cancelled": False, "message": str(e)}
+
+            def done(res, err):
+                st.update(running=False, fraction=None, current="")
+                if err:
+                    st["result"] = {"ok": False, "cancelled": False, "message": "The download stopped unexpectedly: " + explain_error(err)}
+                elif res["ok"]:
+                    eng.runtime.unload()                                    # a repaired file is read afresh the next time Kokoro speaks
+                    st["result"] = {"ok": True, "cancelled": False, "message": ("Downloaded: " + ", ".join(res["installed"]) + ". ") if res["installed"]
+                                    else "The model files were already installed. "}
+                    self.speech.voices.refresh_async(lambda: self._notify("voice"))
+                else:
+                    st["result"] = {"ok": False, "cancelled": res["cancelled"], "message": res["message"]}
+                st["message"] = ""
+                self.on_update("voice")
+            st.update(running=True, op="install", fraction=None, current="Starting...", message="", result=None)
+            task = self.tasks.submit("kokoro-install", work, done)
+            if task is not None:
+                self._kokoro_task = task
+                self._notify("voice")
+                return True
+            st.update(running=False, message="The application is closing; nothing was started.")
+        self._notify("voice")
+        return False
+
+    def kokoro_install_confirmed(self) -> bool:
+        """For the window: call ONLY after the person said Yes in the download dialog (it showed the size, source and licences)."""
+        return self.kokoro_install(consent=True)
+
+    def _kokoro_progress(self, done_b: int, total_b: int) -> None:
+        self.kokoro["fraction"] = (done_b / total_b) if total_b else None
+        self.kokoro["current"] = f"{done_b / 1e6:,.0f} of about {total_b / 1e6:,.0f} MB"
+        self.on_update("voice")
+
+    def kokoro_cancel(self) -> bool:
+        """Stop a running download; its partial files are removed."""
+        if self.kokoro["running"] and self._kokoro_task is not None:
+            self._kokoro_task.token.cancel()
+            self.kokoro["current"] = "Cancelling..."
+            self._notify("voice")
+            return True
+        return False
+
+    def kokoro_check(self) -> bool:
+        """Re-read the model files and compare them with what was recorded at install (reads both files, so on a worker), then refresh the voice list."""
+        st, eng = self.kokoro, self.kokoro_engine()
+        if self.closed or eng is None or st["running"]:
+            return False
+
+        def work(token: CancelToken):
+            return {"state": eng.store.status()["state"], "hashes": eng.store.verify_hashes(lambda: token.cancelled)}
+
+        def done(res, err):
+            st.update(running=False, fraction=None, current="")
+            if err:
+                st["result"] = {"ok": False, "cancelled": False, "message": "The check failed: " + explain_error(err)}
+            else:
+                changed = [n for n, v in res["hashes"].items() if v in ("changed", "problem")]
+                st["result"] = {"ok": res["state"] == "ready" and not changed, "cancelled": False,
+                                "message": ("The files are present and match what was recorded when they were installed. " if res["state"] == "ready" and not changed
+                                            else "Problem found: " + (", ".join(changed) if changed else res["state"]) + ". Press Install / repair. ")
+                                + "This does not prove the files are the publisher's originals: no publisher checksum was available."}
+                self.speech.voices.refresh_async(lambda: self._notify("voice"))
+            self.on_update("voice")
+        st.update(running=True, op="check", fraction=None, current="Checking...", message="", result=None)
+        task = self.tasks.submit("kokoro-check", work, done)
+        if task is None:
+            st.update(running=False)
+            return False
+        self._kokoro_task = task
+        self._notify("voice")
+        return True
+
     def speech_state(self) -> dict:
         vs = self.speech.settings()
         ok, why = self.speech.available()
@@ -765,8 +1213,14 @@ class AppController:
         stopped in time so the window can say so honestly (a mission step in progress cannot be interrupted)."""
         self.closed = True
         self.stop_speaking()
+        try:
+            self.voice_preview.close()
+            self.speech.voices.close()
+        except Exception:  # noqa: BLE001
+            pass
         leaked_voice = False
         if self.voice is not None:
+            self.voice.retire()                      # a restart queued earlier (microphone / wake-phrase change) must not start a new worker after this point
             leaked_voice = bool(self.voice.shutdown(timeout).get("leaked_thread"))      # closes the microphone and the recognizer
         with self._plock:
             for ev, box in self._pending:
@@ -778,6 +1232,12 @@ class AppController:
                 self.assistant.close()
         except Exception:  # noqa: BLE001
             pass
+        pend, self._pending_engine = self._pending_engine, None
+        if pend is not None and not still:
+            try:
+                pend[0].close()
+            except Exception:  # noqa: BLE001
+                pass
         self.lock.release()
         self.voice_thread_leaked = leaked_voice
         return {"still_running": still}

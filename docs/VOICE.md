@@ -12,7 +12,8 @@
 | `SoundDeviceMic`, `VoskRecognizer`, `SapiSpeaker` | Written; argument handling **tested with fakes only**. **Never run against a real microphone, Vosk, or Windows speech** |
 | Wake-word accuracy, false-accept/false-reject rates, latency, VAD quality in real rooms, barge-in/echo behaviour | **Not measured** |
 | Console keys in `voice run` (m mute, p push-to-talk, s sleep, w wake, c cancel, q quit) and a plain-text microphone indicator (`[MIC OPEN]` / `[MIC CLOSED]`) | Implemented; logic **tested with fakes**. The Windows key reader (`msvcrt`) has **never run** |
-| Desktop UI for the mic indicator, settings screen, global hotkey for push-to-talk | Not built (console only; the state events a UI needs exist) |
+| Desktop Voice page (voice choice by type, Preview/Stop/Apply, microphone check, wake phrase, hold-to-talk, mute) | Built (Stage 6); **never run with PySide6 or on Windows**. A global hotkey for push-to-talk is not built |
+| Kokoro local neural voice (second speech engine, Stage 6.5): engine selector, four voice ids, consented model install, preview phases | Built; **tested with fakes only**; the real model, real audio, PySide6 and Windows were **never** used. See `docs/STAGE6_5_KOKORO.md` |
 | A trained language model behind the replies | Does not exist; `voice run` answers honestly that no model is installed |
 
 ## How it works
@@ -139,3 +140,19 @@ The voice session accepts an optional `rate_factor` hint (clamped to 0.5-2.0 aft
 ## Prompt 16: window speech, saved Vosk folder, `n` key
 `speak_in_window` (default false) lets the window read replies aloud through the same SAPI speaker; `vosk_model` stores your Vosk folder so `jarvis voice run` needs no flag. Console key `n` silences speech and returns to the Normal style. Still never run on real audio hardware.
 
+
+## Choosing a voice (Stage 6)
+
+Open **Voice**. Voices are listed by what Windows reports, grouped **Feminine / Masculine / Not specified** (the engine's own gender field; a voice that does not say is
+never guessed). Each shows name, language/accent (from its locale code) and engine. **Preview Voice** plays a short fixed sentence (it says "finished" only when the
+engine reports it ran to the end; it cannot hear your speakers), **Stop** silences it, **Apply** saves it. The choice survives restarts and is independent of the
+personality; tick "only for the current personality mode" to give one mode its own voice, and use the button beside it to go back to your default. If a saved voice is no longer installed Jarvis uses
+the engine's default voice and tells you. Voices come from Windows' classic speech list; add voices in Windows Settings > Time & language > Speech.
+The same page checks your microphone and speech recogniser **without opening the microphone**, lets you pick the microphone, switch wake phrase / push-to-talk, change the wake phrase and choose the Vosk model folder.
+Details, sizes, licences and what is unverified: `docs/STAGE6_VOICE_SYSTEM.md` (development repository).
+
+## Kokoro neural voice (Stage 6.5, optional)
+A second speech engine next to Windows speech. It needs `pip install kokoro-onnx sounddevice` and a model download of about 338 MB that starts only after you confirm on
+the Voice page; afterwards it works offline with no account, key or fee. It only speaks: the microphone, wake phrase and Vosk are not touched. If Kokoro cannot be
+used, Jarvis stays silent and offers Install / repair or Use Windows speech; it never quietly speaks with another engine. Details, licences (espeak-ng is GPL, so nothing is
+bundled), install steps and what is NOT verified: `docs/STAGE6_5_KOKORO.md`.

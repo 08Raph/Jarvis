@@ -67,6 +67,7 @@ class VoiceService:
         self._mic_lock = InstanceLock(Path(cfg.profile_dir) / "mic.lock")
         self.last_error = ""
         self.degraded_text_only = ""
+        self._dead = False                     # set when the application is closing: a queued restart must never reopen the microphone after that
 
     # ---------------- settings (persisted here, not in the controller) ----------------
     @property
@@ -144,6 +145,8 @@ class VoiceService:
     def start(self) -> dict:
         """Idempotent: a second call while running (or starting) does nothing. Returns the current state at once; slow work happens on the worker."""
         with self._lock:
+            if self._dead:
+                return self.state()
             if self.guest:
                 self._failure = "Voice is not available in a guest session."
                 return self.state()
@@ -168,6 +171,10 @@ class VoiceService:
             self._thread.start()
         self._changed()
         return self.state()
+
+    def retire(self) -> None:
+        """The application is closing: from now on start() does nothing (so a restart queued earlier cannot reopen the microphone)."""
+        self._dead = True
 
     def enable(self, mode: str = "wake_word") -> dict:
         if mode not in ("wake_word", "push_to_talk"):

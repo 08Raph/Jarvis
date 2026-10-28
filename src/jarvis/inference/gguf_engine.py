@@ -83,9 +83,11 @@ class GGUFEngine:
                  llama_factory: Callable | None = None, no_think_suffix: bool | None = None,
                  n_gpu_layers: int | None = None, sampling_profile: str | None = None):
         d = Path(model_dir)
-        self.path = d / "model.gguf"
+        from jarvis.models.gguf import model_file
+        self.path = model_file(d)          # <folder>/model.gguf, or the user's own file for a registered (linked) model
         if not self.path.is_file():
-            raise RuntimeUnavailable(f"no model.gguf in {d}")
+            raise RuntimeUnavailable(f"no model.gguf in {d}" if self.path.parent == d else
+                                     f"The registered model file is missing or was moved: {self.path.name}. Register it again or remove it from the list.")
         meta = {}
         if (d / "meta.json").is_file():
             try:
@@ -180,7 +182,23 @@ class GGUFEngine:
             msgs[-1]["content"] = msgs[-1]["content"] + " /no_think"
         return fit_messages(msgs, max(256, self.n_ctx - max_tokens - 64), self._count)
 
+    def close(self) -> None:
+        """Free the model's memory NOW (llama-cpp-python's own Llama.close()) instead of waiting for garbage collection: an 8B model is over 5 GB, and two
+        copies alive at once (a model switch, a restart, a verification run) can exhaust a 16 GB PC. Safe to call twice; the engine cannot generate afterwards."""
+        llm, self.llm = getattr(self, "llm", None), None
+        closer = getattr(llm, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:      # noqa: BLE001 - shutting down must never raise; the reference is dropped either way
+                pass
+
+    def _require_loaded(self) -> None:
+        if getattr(self, "llm", None) is None:
+            raise InferenceError("The local model has been shut down. Start it again to continue.")
+
     def chat(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> str:
+        self._require_loaded()
         try:
             r = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
                                                 temperature=temperature, **self._gen_kwargs(temperature))
@@ -191,6 +209,7 @@ class GGUFEngine:
         return out
 
     def stream(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> Iterator[str]:
+        self._require_loaded()
         buf, in_think = "", False
         try:
             chunks = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
