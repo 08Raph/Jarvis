@@ -1002,6 +1002,7 @@ def _persona_suite(args, cfg: Config) -> int:
                             seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True), checkpoint=keep,
                             include_restricted=args.include_restricted_modes)
         rep["model_identity"] = _audit.model_identity(a)
+        rep["evidence_status"] = evalsuite.evidence_status(rep)          # recomputed now that the runtime identity is known
     except ValueError as exc:
         print(f"error: {exc}\nNo report was written.", file=sys.stderr)
         return 2

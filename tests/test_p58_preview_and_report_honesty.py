@@ -93,9 +93,14 @@ class ReportHonesty(AppCase):
         self.assertIn("INCOMPLETE", rep["evidence_status"])
         self.assertNotIn("REAL MODEL, COMPLETE", rep["evidence_status"])
         self.assertIn("not a pass", rep["evidence_status"])
+        with mock.patch("jarvis.inference.gguf_engine.runtime_info", return_value={"available": True}):
+            with mock.patch.object(a, "reply", side_effect=RuntimeError("model died")), mock.patch.object(a, "reply_stream", side_effect=RuntimeError("x"), create=True):
+                rep2 = audit.run(a, styles=["normal"], categories=["ordinary"], simulated=False, with_controls=False)
+        self.assertTrue(rep2["evidence_status"].startswith("REAL MODEL, INCOMPLETE"))
 
     def test_a_complete_real_flagged_report_still_says_automated_and_not_human_reviewed(self):
-        rep = audit.run(self.make(), styles=["normal"], categories=["ordinary"], simulated=False, with_controls=False)
+        with mock.patch("jarvis.inference.gguf_engine.runtime_info", return_value={"available": True, "version": "test"}):       # stands in for a real runtime
+            rep = audit.run(self.make(), styles=["normal"], categories=["ordinary"], simulated=False, with_controls=False)
         self.assertTrue(rep["complete"])
         self.assertIn("REAL MODEL, COMPLETE", rep["evidence_status"])
         self.assertIn("NOT human-reviewed", rep["evidence_status"])

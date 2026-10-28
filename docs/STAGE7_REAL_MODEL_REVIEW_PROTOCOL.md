@@ -42,6 +42,8 @@ Open the `.json` and check, in this order:
 5. `config.restricted_modes_included` says whether the four restricted modes were part of the run; `restricted_not_evaluated` lists any that were left out.
 Two reports are comparable only if all of these (and the commit hash of this repository) match except the model.
 
+6. `evidence_status` (first line of the `.md`, also printed by the command) must start with **`REAL MODEL, COMPLETE`** before you treat the file as a real-model run. `SIMULATED` = scripted fake. **`UNVERIFIED`** = the file is flagged real but the llama.cpp runtime is not recorded as available inside it (a fake model or a missing runtime looks like this): do not use it as evidence. `human_reviewed` is always `false` until you fill your own copy.
+
 ## 4. Failed or incomplete runs
 | Sign | Meaning |
 |---|---|
@@ -88,7 +90,7 @@ The remaining `audit.RUBRIC.dimensions` (vocabulary, adaptation, honest uncertai
 
 ## 8. Preserving evidence without exposing personal data
 1. Run in a fresh `--data-dir` with no memory and no real profile; the commands use synthetic prompts only.
-2. Before sharing, search the `.json` and `.md` for: your user name, `C:\Users\`, drive letters, the machine name, e-mail addresses, API keys/tokens, and any name that is not a synthetic one. Error text is already scrubbed of file paths (`<path>`), but check anyway.
+2. Reports are generated with file-system paths replaced by `<path>` (Windows drive paths with either slash, spaces in folder names, UNC, `%VAR%`, `~/`, absolute POSIX paths), but a scrubber cannot know every format: before sharing, search the `.json` and `.md` for: your user name, `C:\Users\`, drive letters, the machine name, e-mail addresses, API keys/tokens, and any name that is not a synthetic one. Error text is already scrubbed of file paths (`<path>`), but check anyway.
 3. Share a **copy**; keep the original untouched. Redact by replacing the value with `[REDACTED]` and note what kind of value it was; never edit replies or scores.
 4. `model.file_name` and `file_bytes` are fine to share; do not share the model file path. Do not attach the model weights.
 5. Keep, together: the `.json`, the `.md`, any `*_PARTIAL.json`, the console output with the exit code, `models verify` output, the commit hash, and your rater sheet. Record the date and who ran it.

@@ -146,3 +146,6 @@ Review-only unlock replaced: `Persona.review_scope()` (thread-bound, nestable, e
 
 ## Post-fix review
 Persona.preview() no longer publishes the prompt of a restricted style (described + reason only). Audit/suite reports gain evidence_status and human_reviewed=false; model identity scrubbed of paths. test_p58 (11). Restriction constant, detector and frozen datasets untouched. Real model, PySide6, Windows, audio NOT run.
+
+## Final Stage 7 readiness review
+Path scrubber rewritten (spaces in folder names, forward-slash drive paths, ~, %VAR%, more POSIX roots); evidence_status is UNVERIFIED unless the report records an available llama.cpp runtime. test_p59 (8), p58 adjusted. Restriction constant, detector and frozen datasets untouched. Real model, PySide6, Windows, audio NOT run.

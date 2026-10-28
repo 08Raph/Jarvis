@@ -52,7 +52,16 @@ class _Probe:
         self.a._messages = self._orig
 
 
-_PATHLIKE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|/(?:home|Users|root|tmp|var|mnt|opt|etc)/[^\s'\"]*|\\\\[^\s'\"]*)")
+# File-system paths can hold a user name. Windows drive paths (either slash, directory names may contain spaces, extended-length prefix), UNC paths,
+# %ENV%/$HOME-style prefixes, ~/..., and any absolute POSIX path with at least two segments (not part of a URL such as https://host/x).
+_PATHLIKE = re.compile(
+    r"(?<![A-Za-z0-9])(?:\\\\\?\\)?[A-Za-z]:[\\/](?:[^\\/'\"\r\n<>|?*]+[\\/])*[^\\/\s'\"<>|?*]*"
+    r"|\\\\[^\s'\"]+"
+    r"|%[A-Za-z_]+%[^\s'\"]*"
+    r"|\$(?:HOME|USER|USERPROFILE)[^\s'\"]*"
+    r"|(?<![\w:/.\-])~[\\/][^\s'\"]*"
+    r"|(?<![\w:/.\-])/(?:[\w.\-@+]+/)+[\w.\-@+]*"
+    r"|(?<![\w:/.\-])/(?:home|Users|root|tmp|var|mnt|opt|etc|srv|media|run|proc|data|Volumes)(?:/[^\s'\"]*)?")
 
 
 def safe_error(exc: BaseException, limit: int = 200) -> str:
@@ -73,14 +82,21 @@ def scrub(obj):
 
 
 def evidence_status(report: dict) -> str:
-    """One plain sentence saying what a report is. Never says more than the report proves: automated, not human-reviewed, and only for the identified model."""
-    if report.get("simulated_model"):
-        return "SIMULATED: scripted fake model. This is program-behaviour testing only and is NOT evidence about any real model or personality quality."
-    base = "REAL MODEL, " + ("COMPLETE" if report.get("complete") else "INCOMPLETE (failed, missing, aborted or interrupted cases: not a pass)")
+    """One plain statement of what a report is. Never says more than the report proves: automated, not human-reviewed, only for the identified model, and
+    'real' only when the llama.cpp runtime is recorded as available in the report's own model identity (a scripted fake or a missing runtime cannot earn it)."""
+    ident = report.get("model") if isinstance(report.get("model"), dict) else (report.get("model_identity") or {})
+    rt = ident.get("runtime") if isinstance(ident, dict) else None
     skipped = report.get("not_run") or []
-    if skipped:
-        base += f" - {len(skipped)} case(s) NOT RUN (no harness for them), so those behaviours are untested"
-    return base + ": automated measurements only; NOT human-reviewed; says nothing about personality quality until a person has read the transcripts, and applies only to the model identified in this report."
+    skip_note = f" {len(skipped)} case(s) were NOT RUN (no harness for them), so those behaviours are untested." if skipped else ""
+    if report.get("simulated_model"):
+        return "SIMULATED: scripted fake model. This is program-behaviour testing only and is NOT evidence about any real model or personality quality." + skip_note
+    inc = "" if report.get("complete") else " The run is INCOMPLETE (failed, missing, aborted or interrupted cases: not a pass)."
+    if not (isinstance(rt, dict) and rt.get("available") is True):
+        return ("UNVERIFIED: this report is flagged as a real-model run, but the inference runtime (llama.cpp) is not recorded as available in it, so it cannot be treated as "
+                "real-model evidence. A scripted fake model or a missing runtime looks exactly like this. NOT human-reviewed." + inc + skip_note)
+    head = "REAL MODEL, COMPLETE" if report.get("complete") else "REAL MODEL, INCOMPLETE (failed, missing, aborted or interrupted cases: not a pass)"
+    return (head + ": automated measurements only; NOT human-reviewed; says nothing about personality quality until a person has read the transcripts, and applies only to the "
+            "model identified in this report." + skip_note)
 
 
 def write_new(directory: Path, stem: str, suffix: str, text: str) -> Path:
