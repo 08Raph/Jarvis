@@ -37,12 +37,13 @@ boolean (`age_confirmed`), a separate opt-in for using conversations as training
 What it does **not** have: roles, an admin interface, email (so no email verification or reset), bans or sanctions, appeals, evidence handling, an
 admin audit trail, a date of birth or age band, entitlements for restricted features, retention jobs for messages, or backups. There is no AI model behind it
 (`503 no model connected`). According to `docs/ONLINE.md` it was exercised only on loopback HTTP; TLS, real exposure, load and Windows operation are untested
-(I have not re-run any of it for this plan).
+(Verified on 2026-10-28: `tests.test_online`, 33 tests, passes in the authoring sandbox; that is a localhost unit-test result, not a deployment test. **Deployment state is unknown:** no server database exists in this repository or its history, but a real one could exist on whatever machine ran the server with `--db`; see `docs/ONLINE.md` and the read-only check in section 1.5.)
 
 **Findings that conflict with the new requirements** (to resolve before building anything):
-1. `messages.content` stores conversation text on the server for as long as the account exists. The new requirement is *no unnecessary private conversation content in the online database*. See section 3.
+1. **Verified in code (`server/jarvis_server/app.py`, `chat`):** every `/v1/chat` request carries up to 40 messages (8,000 characters each, 32,000 in total), but only the **last user message and the model reply** are written to `messages.content`, and only when a model replied (with no model the route answers `503` and saves nothing). Those rows stay for as long as the account exists. The new requirement is *no unnecessary private conversation content in the online database*; the server also handles the full request text in memory on every call. See section 3. Whether any such rows exist in a real deployment is **unknown**.
 2. `age_confirmed` is a self-declaration of 16+. The new requirement is age *groups* and verification status, enforced by trusted backend logic.
 3. The telemetry table (`install_id`, pseudonymous, 180-day retention) is intentionally unlinked from accounts and must stay that way.
+4. **Verified in code:** `terms_en.md` says backups, "if any", are encrypted at rest, but no server code creates or encrypts backups, and the database is a plain SQLite file with no secure-delete setting. The `events` table keeps `user_id` on rows such as `messages_deleted` after the account is deleted (only `account_deleted` itself is logged with a null id). Both are risks for the deletion and retention design in section 5.4.
 
 ### 1.3 Other relevant facts `[EXISTS]`
 - `src/jarvis/online/` is the client (`client.py`, `flows.py`, `tokenstore.py`). It talks only to a server URL the user typed and confirmed; local chat never touches the network. Token encryption with Windows DPAPI is written but has never run on Windows.
@@ -54,6 +55,18 @@ admin audit trail, a date of birth or age band, entitlements for restricted feat
 ### 1.4 What remains to be built (all `[PLANNED]`)
 Everything in sections 2 to 9: a hosted Postgres project, account sign-up through a managed auth provider, role-based staff access, the moderation and appeal
 data model, evidence handling, an audit log, retention and deletion jobs, backups, and a separate admin panel.
+
+### 1.5 Checking a real deployment, read-only `[PLANNED procedure; not run]`
+No database file was found in this environment, which says nothing about the operator's machine. On the machine that ran `python -m jarvis_server --db <file>`, stop the server or work on a copy, then run counts only (never `SELECT *`):
+```
+sqlite3 -readonly <db file> "select count(*) from users; select count(*) from sessions where expires_at > cast(strftime('%s','now') as integer); select count(*) from messages; select kind, count(*) from events group by kind;"
+```
+Do not open the `users`, `sessions` or `messages` columns, and do not paste the file anywhere.
+Without the `sqlite3` command line tool (typical on Windows), the same counts with Python, opened read-only:
+```
+python -c "import sqlite3,sys; c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True); print([c.execute(q).fetchall() for q in ('select count(*) from users','select count(*) from messages','select kind,count(*) from events group by kind')])" "<db file>"
+```
+Counts above zero mean real data exists and sections 4 to 5.4 of this plan apply to it; a zero count only describes that one file.
 
 ---
 
@@ -249,6 +262,7 @@ Recommended default: collect the least that the legal review allows, keep any DO
 | Sanctions, cases | kept for a limited period after deletion only if a legal basis exists | minimised; reason text reviewed |
 | Evidence | per lifecycle above; deleted when no appeal is open and no hold | pending appeals never lose evidence |
 | Audit log | long (for example 2 years) with user identifiers reduced to an opaque id after deletion | `[DECISION]` |
+| Legacy `events` rows (old server) | keep user ids today after account deletion `[EXISTS]`; the new design should de-identify them | |
 | Deletion tombstone | short, hashed | exists so a restored backup does not resurrect deleted people |
 | Telemetry | 180 days as today; separate delete by install id | unlinked |
 | Backups | deleted data remains until the backup ages out; restore procedure re-applies tombstones | state the lag in the privacy notice |
