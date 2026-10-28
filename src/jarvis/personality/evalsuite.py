@@ -17,7 +17,8 @@ from pathlib import Path
 from jarvis.personality import safety
 from jarvis.personality.persona import SAFETY_BLOCK, PersonaSettings
 from jarvis.personality.spec import CONTROLS, LEVEL_TEXT, SPECS
-from jarvis.personality.styles import STYLES
+from jarvis.personality import styles as _styles
+from jarvis.personality.styles import RESTRICTION_REASON, STYLES
 
 SCENARIOS = (
     "simple_factual", "complex_technical", "ambiguous_request", "previous_mistake", "frustrated_user", "humor_opportunity", "disagreement",
@@ -89,8 +90,22 @@ def _spec_in_prompt(style, prompt, settings, *, parts=()):
     return out
 
 
+def resolve_styles(styles, include_restricted: bool):
+    """Which styles a review tool may run. While the adult modes are restricted, they are left out unless the caller explicitly passes include_restricted=True
+    (the CLI flag --include-restricted-modes). Naming a restricted style without the flag is an error, never a silent skip. Returns (ids, restricted_not_evaluated)."""
+    locked = [s for s, st in STYLES.items() if st.adult_only and _styles.adult_modes_restricted()]
+    if include_restricted or not locked:
+        return list(styles or STYLES), []
+    if styles:
+        bad = [s for s in styles if s in locked]
+        if bad:
+            raise ValueError(f"{', '.join(bad)} restricted: {RESTRICTION_REASON} A review run must pass include_restricted=True (--include-restricted-modes) to test them.")
+        return list(styles), []
+    return [s for s in STYLES if s not in locked], locked
+
+
 def _fresh(a, style, offsets=None):
-    a.persona.settings = PersonaSettings(style=style, adult_optin=STYLES[style].adult_only, **(offsets or {})).validate()      # in memory only
+    a.persona.settings = PersonaSettings(style=style, adult_optin=STYLES[style].adult_only, **(offsets or {})).validate(restricted=a.persona.restricted())      # in memory only
     a.reset()
 
 
@@ -199,13 +214,16 @@ def run_scenario(a, probe: _Probe, style: str, scenario: str, *, voice=None, see
 
 
 def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, seed_memory=None, max_tokens=96, temperature=0.2, say=lambda s: None,
-        checkpoint=None, max_consecutive_errors=3) -> dict:
-    """`simulated=True` means the model is a scripted fake: only program behaviour is evaluated, nothing about generation quality.
+        checkpoint=None, max_consecutive_errors=3, include_restricted: bool = False) -> dict:
+    """`include_restricted` lifts the temporary adult-mode restriction for THIS run only, in memory (never saved); without it the four adult styles are not run
+    and are listed under `restricted_not_evaluated`. `simulated=True` means the model is a scripted fake: only program behaviour is evaluated, nothing about generation quality.
     A scenario that raises is recorded as status "error" (never as passed); after `max_consecutive_errors` in a row the run stops (`aborted`); Ctrl-C stops
     cleanly (`interrupted`). `complete` is True only if every requested case ran or was explicitly "not_run" for a missing harness, with no error."""
     probe = _Probe(assistant)
     results, streak, aborted, interrupted, ckerrors = [], 0, None, False, []
-    ids, scs = list(styles or STYLES), list(scenarios or SCENARIOS)
+    ids, locked = resolve_styles(styles, include_restricted)
+    scs = list(scenarios or SCENARIOS)
+    assistant.persona.review_unlock = bool(include_restricted)
     try:
         for sid in ids:
             for sc in scs:
@@ -234,12 +252,13 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
         interrupted = True
     finally:
         probe.close()
+        assistant.persona.review_unlock = False
     run_ = [r for r in results if r["status"] == "run"]
     done = {(r["style"], r["scenario"]) for r in results}
     missing = [f"{s}/{c}" for s in ids for c in scs if (s, c) not in done]
     errors = [f"{r['style']}/{r['scenario']}: {r['error']}" for r in results if r["status"] == "error"]
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": getattr(assistant, "model_id", None),
-            "scenarios": scs, "styles": ids, "total": len(results), "run": len(run_),
+            "scenarios": scs, "styles": ids, "restricted_not_evaluated": locked, "total": len(results), "run": len(run_),
             "passed": sum(1 for r in run_ if r["passed"]), "failed": [f"{r['style']}/{r['scenario']}" for r in run_ if not r["passed"]],
             "errors": errors, "checkpoint_errors": ckerrors, "missing_cases": missing, "aborted": aborted, "interrupted": interrupted,
             "complete": not errors and not missing and not aborted and not interrupted,

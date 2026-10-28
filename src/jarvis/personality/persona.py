@@ -15,7 +15,8 @@ from pathlib import Path
 from jarvis.personality import safety
 from jarvis.personality.engine import DEFAULT_MODE, INVARIANTS, MODES, PersonalityProfile
 from jarvis.personality.spec import CONTROLS, OFFSET_RANGE, SPEC_VERSION, SPECS, spec_guidance
-from jarvis.personality.styles import LEVEL_TEXT, NORMAL, SLIDERS, STYLES, Style, style_guidance
+from jarvis.personality import styles as _styles
+from jarvis.personality.styles import LEVEL_TEXT, NORMAL, RESTRICTION_REASON, SLIDERS, STYLES, Style, style_guidance
 
 PERSONA_FILE = "persona.json"
 LEVELS_OK = ("beginner", "intermediate", "advanced")
@@ -61,8 +62,9 @@ class PersonaSettings:
     formality: int = 0
     verbosity: int = 0
     schema_version: int = SPEC_VERSION
+    saved_adult_style: str = ""        # an adult mode the user had chosen; kept (never deleted) while the temporary restriction keeps it unselectable
 
-    def validate(self) -> "PersonaSettings":
+    def validate(self, restricted: bool | None = None) -> "PersonaSettings":
         def need(c, m):
             if not c:
                 raise ValueError(m)
@@ -79,6 +81,10 @@ class PersonaSettings:
             v = getattr(self, c)
             need(isinstance(v, int) and not isinstance(v, bool) and OFFSET_RANGE[0] <= v <= OFFSET_RANGE[1], f"{c} must be a whole number {OFFSET_RANGE[0]}..{OFFSET_RANGE[1]}")
         need(isinstance(self.schema_version, int) and not isinstance(self.schema_version, bool) and 1 <= self.schema_version <= SPEC_VERSION, "unsupported settings version")
+        need(self.saved_adult_style == "" or (self.saved_adult_style in STYLES and STYLES[self.saved_adult_style].adult_only), "saved_adult_style must be empty or an adult style")
+        if restricted is None:
+            restricted = _styles.adult_modes_restricted()
+        need(not (STYLES[self.style].adult_only and restricted), RESTRICTION_REASON)
         need(not (STYLES[self.style].adult_only and not self.adult_optin), f"{STYLES[self.style].label} needs the adult opt-in first")
         return self
 
@@ -105,7 +111,24 @@ class Persona:
         self.path = (Path(profile_dir) / PERSONA_FILE) if (profile_dir is not None and persist) else None
         self.settings = PersonaSettings()
         self.load_note = ""
+        self.review_unlock = False      # set ONLY by the review tools (persona audit/suite) in a guest session; no setting, file or message can set it
         self._load()
+
+    # ---- temporary restriction of the adult-only styles
+    def restricted(self) -> bool:
+        """True while the four adult-only styles cannot be selected. Only the module constant (and the review-tool unlock, which is never persisted) decides."""
+        return _styles.adult_modes_restricted() and not self.review_unlock
+
+    def _gate(self, s: PersonaSettings) -> PersonaSettings:
+        """Applied to settings read from disk. An adult style is not selectable while restricted: the live style becomes Normal and the original is remembered in
+        saved_adult_style (opt-in and intensities are kept untouched). When the restriction is lifted, a remembered style whose opt-in is still on is restored."""
+        if s.saved_adult_style and s.adult_optin is not True:
+            s = PersonaSettings(**{**asdict(s), "saved_adult_style": ""})        # nothing to restore without a valid opt-in
+        if STYLES[s.style].adult_only and self.restricted():
+            return PersonaSettings(**{**asdict(s), "style": NORMAL, "saved_adult_style": s.style})
+        if (not self.restricted()) and s.saved_adult_style and s.style == NORMAL and s.adult_optin is True:
+            return PersonaSettings(**{**asdict(s), "style": s.saved_adult_style, "saved_adult_style": ""})
+        return s
 
     # ---- persistence
     def _load(self) -> None:
@@ -116,7 +139,11 @@ class Persona:
             if not isinstance(raw, dict):
                 raise ValueError("not an object")
             names = {f.name for f in fields(PersonaSettings)}
-            self.settings = PersonaSettings(**{k: v for k, v in raw.items() if k in names}).validate()
+            self.settings = self._gate(PersonaSettings(**{k: v for k, v in raw.items() if k in names}).validate(restricted=False))
+            if STYLES[self.settings.style].adult_only and not self.settings.adult_optin:
+                raise ValueError("adult style without opt-in")
+            if self.settings.saved_adult_style and not self.settings.adult_optin:
+                raise ValueError("remembered adult style without opt-in")
         except (ValueError, TypeError, OSError):
             self.settings = PersonaSettings()          # safe default: Normal, gentle intensities, adult opt-in off
             self.load_note = "Saved personality settings were invalid and were ignored; using Normal mode."
@@ -142,7 +169,7 @@ class Persona:
                 trial = PersonaSettings(**{**asdict(cur), k: raw[k]})
                 if k == "adult_optin" and raw[k] is not True:
                     continue
-                cur = trial.validate()
+                cur = trial.validate(restricted=False)
             except (ValueError, TypeError):
                 reset.append(k)
         if "schema_version" in raw and raw["schema_version"] not in range(1, SPEC_VERSION + 1):
@@ -151,7 +178,7 @@ class Persona:
         if "style" in reset or "adult_optin" in reset:
             # Fail closed: a damaged adult gate must not leave intense saved intensities waiting for the next opt-in.
             cur = PersonaSettings(**{**asdict(cur), **{k: DEFAULTS[k] for k in SLIDERS}})
-        self.settings = cur
+        self.settings = self._gate(cur)
         if reset:
             self.load_note = ("Some saved personality settings were invalid and were reset to their defaults (" + ", ".join(sorted(reset)) + "); your other valid settings were kept.")
         else:
@@ -172,7 +199,12 @@ class Persona:
 
     # ---- user actions (all explicit; the model has no path to these)
     def _apply(self, **kw) -> PersonaSettings:
-        new = PersonaSettings(**{**asdict(self.settings), **kw}).validate()
+        merged = {**asdict(self.settings), **kw}
+        if "style" in kw and "saved_adult_style" not in kw:
+            merged["saved_adult_style"] = ""            # an explicit choice replaces the remembered adult style
+        if merged["adult_optin"] is not True:
+            merged["saved_adult_style"] = ""            # no opt-in, nothing to restore
+        new = PersonaSettings(**merged).validate(restricted=self.restricted())
         self.settings = new
         self._save()
         return new
@@ -231,7 +263,8 @@ class Persona:
         out = []
         for st in STYLES.values():
             out.append({"id": st.id, "label": st.label, "summary": st.summary, "roleplay": st.roleplay, "adult_only": st.adult_only,
-                        "available": (not st.adult_only) or self.settings.adult_optin, "sliders": list(st.sliders), "controls": SPECS[st.id].effective(self.settings.offsets()),
+                        "available": (not st.adult_only) or (self.settings.adult_optin and not self.restricted()),
+                        "restricted": st.adult_only and self.restricted(), "lock_reason": RESTRICTION_REASON if (st.adult_only and self.restricted()) else "", "sliders": list(st.sliders), "controls": SPECS[st.id].effective(self.settings.offsets()),
                         "current": st.id == self.settings.style})
         return out
 
@@ -242,7 +275,7 @@ class Persona:
         st = STYLES[style]
         trial = PersonaSettings(**{**asdict(self.settings), "style": style, "adult_optin": True})
         return {"id": st.id, "label": st.label, "summary": st.summary, "roleplay": st.roleplay, "adult_only": st.adult_only,
-                "needs_opt_in": st.adult_only and not self.settings.adult_optin,
+                "needs_opt_in": st.adult_only and not self.settings.adult_optin, "restricted": st.adult_only and self.restricted(),
                 "sliders": {k: {"value": getattr(self.settings, k), "meaning": LEVEL_TEXT[k][getattr(self.settings, k)]} for k in st.sliders},
                 "behavior_spec_version": SPEC_VERSION, "effective_controls": SPECS[st.id].effective(self.settings.offsets()),
                 "memory": "Saved personal notes are NOT given to the model in this style." if st.memory == "none" else "Saved notes are used as usual.",
@@ -277,10 +310,14 @@ class Persona:
         sig = safety.classify(user_text)
         notices: list[str] = []
         s = self.settings
+        if STYLES[s.style].adult_only and self.restricted():
+            # Defence in depth: no path should leave an adult style selected while restricted, but if one ever did, this turn is answered in Normal.
+            s = PersonaSettings(**{**asdict(s), "style": NORMAL})
+            notices.append(RESTRICTION_REASON)
         if (sig.minor or sig.uncertain_age) and (s.adult_optin or STYLES[s.style].adult_only):
             # Fail closed: a statement that you are under 18, or a cue that makes your age uncertain, switches the adult opt-in off. Turning it back on
             # is a deliberate act (checkbox / --confirm-adult); the message text is never stored.
-            self._apply(adult_optin=False, style=NORMAL if STYLES[s.style].adult_only else s.style)
+            self._apply(adult_optin=False, style=NORMAL if STYLES[self.settings.style].adult_only else self.settings.style)
             notices.append("Adult-only styles were switched off." + ("" if sig.minor else " Your age seemed uncertain; if you are an adult you can turn them on again."))
             s = self.settings
         if sig.stop and s.style != NORMAL:

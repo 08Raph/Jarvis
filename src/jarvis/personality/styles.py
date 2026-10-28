@@ -9,6 +9,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 NORMAL = "normal"
+
+# Temporary, explicit restriction (post-gate safety review). The four adult-only modes keep their definitions, specs and saved settings, but cannot be SELECTED
+# until their behaviour with a real language model has been reviewed (docs/STAGE7_VALIDATION_RUNBOOK.md, review protocol). Lifting it is a deliberate code change:
+# set this to False in a reviewed commit. It is read at call time, and nothing a user, a chat message or a settings file contains can change it.
+ADULT_MODES_RESTRICTED = True
+RESTRICTION_REASON = ("Savage, Flirty, Sexy and Romantic are temporarily unavailable: how they behave with a real language model has not been safety-reviewed yet. "
+                      "Your saved choices for them are kept. All other styles work as usual.")
+
+
+def adult_modes_restricted() -> bool:
+    return bool(ADULT_MODES_RESTRICTED)
 SLIDERS = ("roast", "profanity", "flirt", "argument", "motivation")
 LEVELS = (1, 2, 3)          # intensity 1 gentle .. 3 strong. 0 is only used for profanity ("none")
 

@@ -119,7 +119,7 @@ def model_identity(assistant) -> dict:
 
 
 def _fresh(a, style):
-    a.persona.settings = PersonaSettings(style=style, adult_optin=STYLES[style].adult_only).validate()      # in memory only (guest session)
+    a.persona.settings = PersonaSettings(style=style, adult_optin=STYLES[style].adult_only).validate(restricted=a.persona.restricted())      # in memory only (guest session)
     a.reset()
 
 
@@ -138,17 +138,18 @@ def _failed_row(turns, exc) -> list[dict]:
 
 
 def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=200, temperature=0.4, with_controls=True, say=lambda s: None,
-        checkpoint=None, max_consecutive_failures=3) -> dict:
+        checkpoint=None, max_consecutive_failures=3, include_restricted: bool = False) -> dict:
     """Never reports a partial run as complete. A case that raises is recorded as failed (with the error type), the run continues, and `complete` is False.
     After `max_consecutive_failures` failures in a row the run stops (`aborted`). Ctrl-C stops cleanly (`interrupted`). `checkpoint(report)` is called after
     every personality so the evidence so far is never lost."""
     cfg = {"max_tokens": max_tokens, "temperature": temperature, "sampling_seed": "not set by the audit (engine default)", "guest_session": True,
-           "adult_modes_evaluated_with_opt_in": True, "audit_version": AUDIT_VERSION, "spec_version": next(iter(SPECS.values())).version}
+           "adult_modes_evaluated_with_opt_in": bool(include_restricted), "restricted_modes_included": bool(include_restricted), "audit_version": AUDIT_VERSION, "spec_version": next(iter(SPECS.values())).version}
     probe = evalsuite._Probe(assistant)
-    ids = styles or list(STYLES)
+    ids, locked = evalsuite.resolve_styles(styles, include_restricted)
+    assistant.persona.review_unlock = bool(include_restricted)
     cats = categories or list(PROMPTS)
     report: dict = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": model_identity(assistant), "config": cfg,
-                    "prompts": PROMPTS, "defining_prompts": DEFINING, "control_prompt": CONTROL_PROMPT, "styles": ids, "categories": cats, "transcripts": {}, "controls": {},
+                    "prompts": PROMPTS, "defining_prompts": DEFINING, "control_prompt": CONTROL_PROMPT, "styles": ids, "restricted_not_evaluated": locked, "categories": cats, "transcripts": {}, "controls": {},
                     "incomplete": [], "aborted": None, "interrupted": False, "complete": False}
     streak = 0
 
@@ -191,7 +192,7 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
 
                     def sweep():
                         for tag, off in (("min", -2), ("default", 0), ("max", 2)):
-                            assistant.persona.settings = PersonaSettings(style=sid, adult_optin=STYLES[sid].adult_only, **{c: off}).validate()
+                            assistant.persona.settings = PersonaSettings(style=sid, adult_optin=STYLES[sid].adult_only, **{c: off}).validate(restricted=assistant.persona.restricted())
                             assistant.reset()
                             r = assistant.reply(CONTROL_PROMPT, max_tokens=max_tokens, temperature=temperature)
                             entry["replies"][tag] = {"reply": r, "measures": measure(r)}
@@ -214,6 +215,7 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
         report["interrupted"] = True
     finally:
         probe.close()
+        assistant.persona.review_unlock = False
     expected = [(s, c) for s in ids for c in cats + ["defining"]]
     done = [(s, c) for s, c in expected if c in report["transcripts"].get(s, {}) and all(r["reply"] is not None for r in report["transcripts"][s][c])]
     missing = [f"{s}/{c}" for s, c in expected if (s, c) not in done]
@@ -225,6 +227,7 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
     report["limitations"] = ["Automated measures do not judge tone, wit, warmth or naturalness.", "One sample per prompt at the configured temperature: not a statistical result.",
                              "Word overlap flags similar wording, not similar personality.", "Results apply only to the model identified above and say nothing about other models."] + \
                             (["SIMULATED: the model was a scripted fake; nothing here describes real generation."] if simulated else []) + \
+                            ([f"RESTRICTED MODES NOT EVALUATED: {', '.join(locked)} are temporarily unavailable in the product and were not run; this is not an evaluation of all 17 personalities."] if locked else []) + \
                             ([] if report["complete"] else ["INCOMPLETE RUN: see `incomplete`, `missing_cases`, `aborted` and `interrupted`; missing cases were NOT tested."])
     return report
 

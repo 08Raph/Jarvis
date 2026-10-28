@@ -703,7 +703,10 @@ class MainWindow(QMainWindow):
         v = QVBoxLayout(w)
         v.addWidget(_label("Personality", heading=True))
         v.addWidget(_label("A style changes how Jarvis words things. It never changes permissions, approvals or what Jarvis is able to do. "
-                           "Normal is the default. Adult-only styles stay locked until you opt in below.", muted=True))
+                           "Normal is the default. Savage, Flirty, Sexy and Romantic are temporarily unavailable (see the note below).", muted=True))
+        self.persona_restriction = _label("", muted=True)
+        self.persona_restriction.setAccessibleName("Why some styles are unavailable")
+        v.addWidget(self.persona_restriction)
         self.persona_now = _label("", wrap=False)
         self.persona_now.setAccessibleName("Current mode")
         v.addWidget(self.persona_now)
@@ -744,7 +747,7 @@ class MainWindow(QMainWindow):
         v.addLayout(cform)
         self.persona_limit = _label("", muted=True)
         v.addWidget(self.persona_limit)
-        self.persona_adult = QCheckBox("I am 18 or older and want adult-only styles (Savage, Flirty, Sexy, Romantic) available")
+        self.persona_adult = QCheckBox("I am 18 or older and want adult-only styles (Savage, Flirty, Sexy, Romantic) available once they are released")
         self.persona_adult.setAccessibleName("Adult opt-in")
         self.persona_adult.clicked.connect(self._persona_adult)
         v.addWidget(self.persona_adult)
@@ -774,7 +777,7 @@ class MainWindow(QMainWindow):
         self.persona_combo.blockSignals(True)
         self.persona_combo.clear()
         for d in st["styles"]:
-            lock = "" if d["available"] else "  (locked: needs adult opt-in)"
+            lock = "" if d["available"] else ("  (temporarily unavailable: safety review pending)" if d.get("restricted") else "  (locked: needs adult opt-in)")
             self.persona_combo.addItem(d["label"] + (" [roleplay]" if d["roleplay"] else "") + lock, d["id"])
             if d["current"]:
                 self.persona_combo.setCurrentIndex(self.persona_combo.count() - 1)
@@ -787,6 +790,9 @@ class MainWindow(QMainWindow):
             sp.blockSignals(True)
             sp.setValue(st["settings"][k])
             sp.blockSignals(False)
+        rs = st["restriction"]
+        self.persona_restriction.setText(rs["reason"] + ((" Your saved choice (" + rs["saved_choice_kept"] + ") is kept.") if rs["saved_choice_kept"] else "")
+                                         + " Turning on the adult opt-in does not make them available while this applies." if rs["active"] else "")
         self.persona_limit.setText(st["limitation"])
         self.persona_adult.blockSignals(True)
         self.persona_adult.setChecked(st["settings"]["adult_optin"])
@@ -1304,6 +1310,9 @@ class MainWindow(QMainWindow):
     def _persona_apply(self):
         try:
             self.statusBar().showMessage(self.ctl.persona_set(self.persona_combo.currentData()), 8000)
+        except ValueError as e:                 # includes the restricted-style reason: shown plainly, nothing changed
+            self.statusBar().showMessage(str(e), 12000)
+            self._refresh_personality()
         except Exception as e:  # noqa: BLE001
             self.error_box(e)
 

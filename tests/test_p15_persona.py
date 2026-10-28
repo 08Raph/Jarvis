@@ -31,6 +31,7 @@ from jarvis.personality.engine import MODES, INVARIANTS, PersonalityProfile  # n
 from jarvis.personality.persona import (CRISIS_GUIDANCE, DEFAULTS, EMERGENCY_GUIDANCE, NORMAL_GUIDANCE, PERSONA_FILE, SAFETY_BLOCK, Persona,  # noqa: E402
                                         PersonaSettings)
 from jarvis.personality.styles import STYLES, SLIDERS, style_guidance  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 SRC = ROOT / "src" / "jarvis"
 ADULT = {"savage", "flirty", "sexy", "romantic"}

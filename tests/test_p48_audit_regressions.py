@@ -15,6 +15,7 @@ from jarvis.personality.engine import MODES, PersonalityProfile  # noqa: E402
 from jarvis.personality.persona import PERSONA_FILE, SAFETY_BLOCK, Persona  # noqa: E402
 from jarvis.personality.spec import CONTROLS, LEVEL_TEXT, SPECS  # noqa: E402
 from jarvis.personality.styles import STYLES  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 ALL = list(STYLES)
 

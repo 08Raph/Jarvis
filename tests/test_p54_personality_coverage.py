@@ -16,6 +16,7 @@ from jarvis.assistant import LocalAssistant  # noqa: E402
 from jarvis.personality.persona import Persona  # noqa: E402
 from jarvis.personality.spec import SPECS  # noqa: E402
 from jarvis.personality.styles import STYLES  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 ALL = list(STYLES)
 ADULT = {"savage", "flirty", "sexy", "romantic"}

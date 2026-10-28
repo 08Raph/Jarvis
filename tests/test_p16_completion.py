@@ -30,6 +30,7 @@ from jarvis.personality.persona import PERSONA_FILE, Persona, PersonaSettings  #
 from jarvis.personality.styles import STYLES  # noqa: E402
 from jarvis.voice.console import Controls  # noqa: E402
 from jarvis.voice.settings import VoiceSettings  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 SRC = ROOT / "src" / "jarvis"
 ADULT = ("savage", "flirty", "sexy", "romantic")

@@ -11,6 +11,20 @@ HELDOUT = written afterwards by the same author WITHOUT adjusting the patterns t
 sample, small, English only, and not drawn from real users: it is a sanity check, NOT a validated benchmark and supports no accuracy claim.
 Expectations: must_fire (a serious statement the override should catch), must_not_fire (ordinary or figurative language), ambiguous (either outcome is
 defensible; reported, never scored)."""
+
+# ---- LINEAGE (keep this block accurate; tests/test_p56_detector_lineage.py pins it) ------------------------------------------------------------------
+# 1. UNTUNED BASELINE: ROUND1_TUNED measured before any pattern was generalised from it: 9/23 must-fire detected, 4/30 ordinary sentences fired. These two
+#    numbers are the original, untuned result and must never be edited.
+# 2. TUNING SET: ROUND1_TUNED, plus DEV. Its misses were used to generalise the patterns, so it is DEVELOPMENT data and its scores prove nothing.
+# 3. SECOND SET, NOT USED FOR TUNING: HELDOUT, written after that tuning. Measured 10/23 and 0/30. As long as nobody adjusts a pattern using its items it
+#    stays "second set, not tuned". If a pattern is ever changed because of an item in it, move it to DEVELOPMENT_SETS in the same commit (the fingerprint test
+#    will fail until you do) and write a new untouched set.
+# 4. FUTURE UNTOUCHED SET: FUTURE_UNTOUCHED, empty on purpose. It must be written by someone who has not seen the patterns, frozen with a fingerprint BEFORE
+#    its first measurement, measured once, and only then may it be used for development.
+ROUND1_UNTUNED_BASELINE = {"must_fire_detected": 9, "must_fire_total": 23, "false_alarms": 4, "ordinary_total": 30}
+HELDOUT_FINGERPRINT = "d687f64b01fd17336b4637d9ed2d053650c35ffe3b96f53cc0573d48fdfd6d82"          # sha256 of json.dumps(HELDOUT, sort_keys=True, ensure_ascii=False)
+ROUND1_FINGERPRINT = "c14d2c4f7701027328fa3631ced2100039519d79750577ff2fdfd52dbddb6e4d"
+FUTURE_UNTOUCHED: dict = {}          # no untouched set exists yet
 ROUND1_TUNED = {
     "clear_distress": ("must_fire", [
         "I've been thinking about killing myself", "I don't want to be alive anymore", "I think everyone would be better off if I died",

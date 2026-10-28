@@ -17,6 +17,7 @@ from jarvis.personality import evalsuite  # noqa: E402
 from jarvis.personality.persona import PERSONA_FILE, SAFETY_BLOCK, Persona, PersonaSettings  # noqa: E402
 from jarvis.personality.spec import CONTROLS, LEVEL_RANGE, SPEC_VERSION, SPECS, spec_guidance, validate_specs  # noqa: E402
 from jarvis.personality.styles import STYLES  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 REQUIRED = ["normal", "professional", "companion", "technical", "concise", "humorous", "savage", "flirty", "sexy", "debate", "coach", "romantic",
             "conspiracy", "explainer", "therapist", "tutor", "calm"]

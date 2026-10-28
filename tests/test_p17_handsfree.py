@@ -22,6 +22,7 @@ from p10_common import ROOT  # noqa: E402
 from jarvis.app.controller import AppController  # noqa: E402
 from jarvis.voice import session as S  # noqa: E402
 from jarvis.voice.settings import VoiceSettings  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 SRC = ROOT / "src" / "jarvis"
 

@@ -10,6 +10,7 @@ from p10_common import AppCase, FakeLlama, fake_engine_factory  # noqa: E402
 from jarvis.assistant import LocalAssistant  # noqa: E402
 from jarvis.personality import audit  # noqa: E402
 from jarvis.personality.styles import STYLES  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 
 class Workflow(AppCase):

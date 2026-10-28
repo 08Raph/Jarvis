@@ -211,6 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
     pps.add_parser("preview").add_argument("style")
     ppsc = pps.add_parser("selfcheck", help="REAL-MODEL check of every style (needs a working model; read the saved outputs yourself)")
     ppsc.add_argument("--styles", nargs="*", help="only these style ids")
+    ppsc.add_argument("--include-restricted-modes", action="store_true", help=_RESTRICTED_HELP)
     ppl = pps.add_parser("level", help="roast|profanity|flirt|argument|motivation")
     ppl.add_argument("name")
     ppl.add_argument("value", type=int)
@@ -219,9 +220,11 @@ def build_parser() -> argparse.ArgumentParser:
     ppc.add_argument("value", type=int)
     ppsu = pps.add_parser("suite", help="REAL-MODEL 15-scenario evaluation across personalities (needs a working model; read the saved transcripts yourself)")
     ppsu.add_argument("--styles", nargs="*", help="only these style ids")
+    ppsu.add_argument("--include-restricted-modes", action="store_true", help=_RESTRICTED_HELP)
     ppsu.add_argument("--scenarios", nargs="*", help="only these scenario ids")
     ppau = pps.add_parser("audit", help="REAL-MODEL audit: identical prompts for every personality + control sweeps; saves JSON and a transcript for human rating")
     ppau.add_argument("--styles", nargs="*", help="only these style ids")
+    ppau.add_argument("--include-restricted-modes", action="store_true", help=_RESTRICTED_HELP)
     ppau.add_argument("--categories", nargs="*", help="only these prompt categories")
     ppau.add_argument("--max-tokens", type=int, default=200)
     ppau.add_argument("--temperature", type=float, default=0.4)
@@ -853,6 +856,10 @@ def _personality_cmd(args, cfg: Config) -> int:
     return 0
 
 
+_RESTRICTED_HELP = ("review only: also run the four adult-only styles, which are temporarily unavailable in the product. Applies to this run, in memory; nothing is saved. "
+                    "Without it they are skipped and listed as not evaluated.")
+
+
 def _persona_cmd(args, cfg: Config) -> int:
     from jarvis.personality.persona import Persona
     pe = Persona(cfg.profile_dir)
@@ -873,6 +880,10 @@ def _persona_cmd(args, cfg: Config) -> int:
         elif c == "audit":
             return _persona_audit(args, cfg)
         elif c == "adult":
+            if args.setting == "on":
+                from jarvis.personality import styles as _st
+                if _st.adult_modes_restricted():
+                    print(f"note: {_st.RESTRICTION_REASON} The opt-in is still recorded when you confirm it, but it does not make them available.", file=sys.stderr)
             if args.setting == "on" and not args.confirm_adult:
                 print("error: adult-only styles need an explicit opt-in: add --confirm-adult to confirm you are 18 or older.", file=sys.stderr)
                 return 2
@@ -910,7 +921,10 @@ def _persona_selfcheck(args, cfg: Config) -> int:
         print(f"Cannot run the self-check: {exc}", file=sys.stderr)
         return 2
     try:
-        rep = selfcheck.run(a, styles=args.styles or None, say=lambda s: print(" ", s, flush=True))
+        rep = selfcheck.run(a, styles=args.styles or None, say=lambda s: print(" ", s, flush=True), include_restricted=args.include_restricted_modes)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     finally:
         a.close()
     path = selfcheck.save(rep, cfg.data_dir)
@@ -944,7 +958,11 @@ def _persona_audit(args, cfg: Config) -> int:
     keep, partial = _checkpoint_writer(outdir, "personality_audit_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     try:
         rep = audit.run(a, styles=args.styles or None, categories=args.categories or None, simulated=False, max_tokens=args.max_tokens,
-                        temperature=args.temperature, with_controls=not args.no_controls, say=lambda s: print(" ", s, flush=True), checkpoint=keep)
+                        temperature=args.temperature, with_controls=not args.no_controls, say=lambda s: print(" ", s, flush=True), checkpoint=keep,
+                        include_restricted=args.include_restricted_modes)
+    except ValueError as exc:                  # a restricted style was named without --include-restricted-modes
+        print(f"error: {exc}\nNo report was written.", file=sys.stderr)
+        return 2
     finally:
         a.close()
     try:
@@ -981,8 +999,12 @@ def _persona_suite(args, cfg: Config) -> int:
     keep, partial = _checkpoint_writer(cfg.data_dir / "eval", "personality_suite_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     try:
         rep = evalsuite.run(a, styles=args.styles or None, scenarios=args.scenarios or None, simulated=False,
-                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True), checkpoint=keep)
+                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True), checkpoint=keep,
+                            include_restricted=args.include_restricted_modes)
         rep["model_identity"] = _audit.model_identity(a)
+    except ValueError as exc:
+        print(f"error: {exc}\nNo report was written.", file=sys.stderr)
+        return 2
     finally:
         a.close()
     try:

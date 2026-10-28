@@ -12,6 +12,7 @@ from p10_common import AppCase  # noqa: E402
 from test_p34_readiness import _Anything, _fake_qt  # noqa: E402
 from jarvis.app.controller import AppController  # noqa: E402,F401  (imported BEFORE the stand-in Qt patch so numpy is not loaded twice)
 import jarvis.voice.kokoro_engine  # noqa: E402,F401
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 
 class Spin(_Anything):

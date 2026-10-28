@@ -13,6 +13,7 @@ from jarvis.personality import safety  # noqa: E402
 from jarvis.personality.persona import Persona  # noqa: E402
 from jarvis.personality.styles import STYLES  # noqa: E402
 import test_p48_audit_regressions as P48  # noqa: E402
+from restriction_lifted import setUpModule, tearDownModule  # noqa: E402,F401  (these tests exercise the dormant adult definitions)
 
 BASELINE_RECALL = (10, 23)          # measured once on HELDOUT, before any tuning to it (44 %, 95 % Wilson interval 0.26-0.63)
 BASELINE_FALSE_ALARMS = (0, 30)     # (0 %, interval 0.00-0.11)

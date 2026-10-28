@@ -1123,7 +1123,14 @@ class AppController:
         return {"indicator": self.persona.indicator(), "styles": self.persona.listing(), "settings": asdict(self.persona.settings),
                 "note": self.persona.load_note, "default": "normal",
                 "effective_controls": self.persona.effective_controls(),
+                "restriction": self._persona_restriction(),
                 "limitation": "A personality is written guidance for the language model. A small local model may follow it only loosely; Jarvis does not rewrite replies to fake a style."}
+
+    def _persona_restriction(self) -> dict:
+        from jarvis.personality.styles import RESTRICTION_REASON, STYLES
+        active = self.persona.restricted()
+        return {"active": active, "reason": RESTRICTION_REASON if active else "", "modes": [s for s, st in STYLES.items() if st.adult_only] if active else [],
+                "saved_choice_kept": self.persona.settings.saved_adult_style}
 
     def persona_set(self, style: str) -> str:
         msg = self.persona.set_style(style)
@@ -1164,6 +1171,9 @@ class AppController:
             raise ValueError("confirm that you are 18 or older to turn adult-only styles on")
         self.persona.set_adult_optin(bool(on))
         self._notify("persona")
+        if on and self.persona.restricted():
+            from jarvis.personality.styles import RESTRICTION_REASON
+            return "Your adult opt-in is saved, but " + RESTRICTION_REASON[0].lower() + RESTRICTION_REASON[1:]
         return "Adult-only styles are " + ("available." if on else "off.")
 
     def persona_preview(self, style: str) -> dict:

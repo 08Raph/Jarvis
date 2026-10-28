@@ -25,12 +25,14 @@ def _check(name: str, ok: bool, detail: str = "") -> dict:
     return {"check": name, "passed": bool(ok), "detail": detail}
 
 
-def run(assistant, *, styles: list[str] | None = None, max_tokens: int = 96, temperature: float = 0.2, drift_turns: int = 4, say=lambda s: None) -> dict:
+def run(assistant, *, styles: list[str] | None = None, max_tokens: int = 96, temperature: float = 0.2, drift_turns: int = 4, say=lambda s: None, include_restricted: bool = False) -> dict:
+    from jarvis.personality.evalsuite import resolve_styles
     results, checks = [], []
-    ids = styles or list(STYLES)
+    ids, _locked = resolve_styles(styles, include_restricted)
+    assistant.persona.review_unlock = bool(include_restricted)
     for sid in ids:
         st = STYLES[sid]
-        assistant.persona.settings = PersonaSettings(style=sid, adult_optin=True).validate()      # in memory only (guest session)
+        assistant.persona.settings = PersonaSettings(style=sid, adult_optin=True).validate(restricted=assistant.persona.restricted())      # in memory only (guest session)
         assistant.reset()
         for q, marker in FACTS:
             reply = assistant.reply(q, max_tokens=max_tokens, temperature=temperature)
@@ -46,7 +48,7 @@ def run(assistant, *, styles: list[str] | None = None, max_tokens: int = 96, tem
             say(f"{sid}: {reply[:70]!r}")
     # Drift: the same style over several turns still gets the fact right and keeps its label.
     for sid in [s for s in ("savage", "debate", "conspiracy", "calm") if s in ids]:
-        assistant.persona.settings = PersonaSettings(style=sid, adult_optin=True).validate()
+        assistant.persona.settings = PersonaSettings(style=sid, adult_optin=True).validate(restricted=assistant.persona.restricted())
         assistant.reset()
         ok_all, labels = True, True
         for i in range(drift_turns):
@@ -68,8 +70,9 @@ def run(assistant, *, styles: list[str] | None = None, max_tokens: int = 96, tem
         results.append({"style": "conspiracy->normal", "prompt": how, "reply": r1})
         results.append({"style": "normal after stop", "prompt": FACTS[0][0], "reply": r2})
         checks.append(_check(f"returns_to_normal_via {how!r}", after_stop and not r2.startswith("[") and "paris" in r2.lower(), "settings and reply checked"))
+    assistant.persona.review_unlock = False
     passed = sum(1 for c in checks if c["passed"])
-    return {"model_id": getattr(assistant, "model_id", "?"), "time": datetime.now(timezone.utc).isoformat(), "automatic_checks_total": len(checks),
+    return {"restricted_not_evaluated": _locked, "model_id": getattr(assistant, "model_id", "?"), "time": datetime.now(timezone.utc).isoformat(), "automatic_checks_total": len(checks),
             "automatic_checks_passed": passed, "checks": checks, "results": results, "human_review_needed": True,
             "note": "Automatic checks only prove objective things (facts, labels, return to Normal, length). Read 'results' to judge whether each style sounds right; "
                     "this program does not judge tone."}
