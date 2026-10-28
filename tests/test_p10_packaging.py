@@ -150,9 +150,10 @@ class ManifestAndChecker(unittest.TestCase):
 
     def test_ci_workflow_builds_with_the_script_and_uploads_checksums(self):
         w = (ROOT / ".github" / "workflows" / "build-windows.yml").read_text(encoding="utf-8")
-        self.assertIn("build_windows.ps1", w)
-        self.assertIn("SHA256SUMS.txt", w)
-        self.assertIn("NOT YET RUN", w)
+        self.assertIn("scripts/build_windows.ps1", w.replace("\\", "/"))
+        # The installer upload set is now vetted by scripts/ci_stage_upload.ps1, which allows exactly the installer and its checksum file.
+        s = (ROOT / "scripts" / "ci_stage_upload.ps1").read_text(encoding="utf-8")
+        self.assertIn("SHA256SUMS.txt", s)
 
     def test_build_script_runs_every_gate_in_order(self):
         ps = (ROOT / "scripts" / "build_windows.ps1").read_text(encoding="utf-8")

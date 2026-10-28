@@ -80,8 +80,15 @@ jobs:
           foreach ($f in (Get-ChildItem ci-logs\intel -Filter "intel_*.json")) { $j = Get-Content $f.FullName -Raw | ConvertFrom-Json
             $rows = foreach ($c in $j.cases) { "{0}:{1}" -f $c.id, (($c.runs | ForEach-Object { if ($_.passed) { "1" } else { "0" } }) -join "") }
             Write-Host "::notice title=per-case pass flags (greedy then sampled) $($f.Name)::$($rows -join ' ')" }
-      - uses: actions/upload-artifact@v4
+      - name: Stage vetted benchmark results for upload (guard)
+        id: stage_bench
         if: always()
+        shell: powershell
+        run: .\scripts\ci_stage_upload.ps1 -Kind bench -Out upload-staging\bench
+      - uses: actions/upload-artifact@v4
+        if: always()   # the staging folder holds only files that passed the guard
         with:
           name: intel-${{ inputs.label }}${{ inputs.model_id }}
-          path: ci-logs/intel/**
+          path: upload-staging/bench
+          retention-days: 7
+          if-no-files-found: warn
