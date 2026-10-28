@@ -132,7 +132,8 @@ GENERATED_AT_BUILD = ("build_info.json",)          # written by the build; a sou
 REQUIRED_MODULES = ("jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop",
                     "jarvis.preflight.runner", "jarvis.preflight.metadata", "jarvis.preflight.hf_fetch", "jarvis.preflight.history",
                     "jarvis.brains.service", "jarvis.brains.viewmodel", "jarvis.brains.compat", "jarvis.brains.archs", "jarvis.models.gguf_vocab",
-                    "jarvis.voice.engines", "jarvis.voice.manager", "jarvis.voice.preview", "jarvis.voice.inputcheck", "jarvis.voice.viewmodel", "jarvis.voice.kokoro_engine", "jarvis.models.kokoro_files")
+                    "jarvis.voice.engines", "jarvis.voice.manager", "jarvis.voice.preview", "jarvis.voice.inputcheck", "jarvis.voice.viewmodel", "jarvis.voice.kokoro_engine", "jarvis.models.kokoro_files",
+                    "jarvis.selftest_core")
 
 
 def _resource_roots() -> tuple[str, Path, Path]:

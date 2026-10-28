@@ -29,7 +29,8 @@ FORBIDDEN_TOP_LEVEL = ["tests", "server", ".github", "scripts", "src", ".venv", 
 HIDDEN_REQUIRED = ["jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop",
                    "jarvis.preflight.runner", "jarvis.preflight.metadata", "jarvis.preflight.hf_fetch", "jarvis.preflight.history",
                    "jarvis.brains.service", "jarvis.brains.viewmodel", "jarvis.brains.compat", "jarvis.brains.archs", "jarvis.models.gguf_vocab",
-                   "jarvis.voice.engines", "jarvis.voice.manager", "jarvis.voice.preview", "jarvis.voice.inputcheck", "jarvis.voice.viewmodel", "jarvis.voice.kokoro_engine", "jarvis.models.kokoro_files"]      # System & Model Readiness page (imported lazily)
+                   "jarvis.voice.engines", "jarvis.voice.manager", "jarvis.voice.preview", "jarvis.voice.inputcheck", "jarvis.voice.viewmodel", "jarvis.voice.kokoro_engine", "jarvis.models.kokoro_files",
+                   "jarvis.selftest_core"]      # selftest supervisor + worker (the worker is this same program started again); System & Model Readiness page (imported lazily)
 OPTIONAL_PACKAGES = ["llama_cpp", "sounddevice", "_sounddevice_data", "vosk", "comtypes", "psutil", "pypdf"]
 MANDATORY_PACKAGES_FOR_RELEASE = ["PySide6", "numpy", "cryptography"]    # the build FAILS if these are missing
 
