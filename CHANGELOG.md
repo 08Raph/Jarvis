@@ -128,3 +128,6 @@ Kokoro (`kokoro-onnx`, ONNX Runtime, CPU) added as a second engine through the S
 - 17 personalities (new: Friendly Companion, Humorous Assistant, Sexy; Hype Coach renamed), each with a versioned behaviour spec.
 - Five persistent customization controls (offsets with per-mode identity limits), Personality page controls, `persona control` CLI.
 - 15-scenario x 17-mode evaluation suite (`jarvis persona suite`); docs/STAGE7_PERSONALITY.md.
+
+## Stage 7 audit
+Verified e63ee22 and the ZIP. Fixes: contradictory legacy trait text vs spec/controls (D1), one bad control value discarding all settings (D2), missed distress/emergency phrasings (D3). Added `persona audit` real-model workflow, regression tests (test_p48, p49, p50). Real model, Qt and Windows still NOT run. See docs/STAGE7_AUDIT.md.

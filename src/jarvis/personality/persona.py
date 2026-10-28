@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from jarvis.personality import safety
-from jarvis.personality.engine import INVARIANTS, PersonalityProfile
+from jarvis.personality.engine import DEFAULT_MODE, INVARIANTS, MODES, PersonalityProfile
 from jarvis.personality.spec import CONTROLS, OFFSET_RANGE, SPEC_VERSION, SPECS, spec_guidance
 from jarvis.personality.styles import LEVEL_TEXT, NORMAL, SLIDERS, STYLES, Style, style_guidance
 
@@ -120,6 +120,22 @@ class Persona:
         except (ValueError, TypeError, OSError):
             self.settings = PersonaSettings()          # safe default: Normal, gentle intensities, adult opt-in off
             self.load_note = "Saved personality settings were invalid and were ignored; using Normal mode."
+            self._recover_controls_only()
+
+    def _recover_controls_only(self) -> None:
+        """Audit finding: ONE bad customisation value used to discard the whole file (style, intensities, language). If the file is a readable object whose
+        only problem is the five customisation offsets, keep everything else and reset just those. The adult opt-in is never taken from a damaged file
+        unless the rest validates, and an invalid combination still ends in the plain Normal default."""
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8-sig"))
+            if not isinstance(raw, dict):
+                return
+            names = {f.name for f in fields(PersonaSettings)}
+            kept = {k: v for k, v in raw.items() if k in names and k not in CONTROLS}
+            self.settings = PersonaSettings(**kept).validate()
+            self.load_note = "Some saved customization values were invalid and were reset to the style's defaults; your other personality settings were kept."
+        except (ValueError, TypeError, OSError):
+            pass
 
     def _save(self) -> None:
         if self.path is None:
@@ -213,14 +229,24 @@ class Persona:
                 "model_instructions": self._compose(trial, PersonalityProfile())}
 
     # ---- per turn
+    def _control_offsets(self, s: PersonaSettings, st: Style, stored: PersonalityProfile) -> dict[str, int]:
+        """Offsets handed to the behaviour spec. Normally the user's own. Exception (kept from the older `personality` commands): in Normal, a profile the user
+        customised and approved is the starting point, so its trait values are converted to levels and the controls move them from there."""
+        off = s.offsets()
+        if st.id == NORMAL and (stored.mode != DEFAULT_MODE or stored.traits != MODES[DEFAULT_MODE]):
+            base = SPECS[NORMAL].base
+            return {c: round(stored.traits[c] * 4) + 1 + off[c] - base[c] for c in CONTROLS}
+        return off
+
     def _compose(self, s: PersonaSettings, profile: PersonalityProfile) -> str:
+        """Audit finding: the older fixed trait text ('Register: formal', 'Humour: minimal') contradicted the behaviour spec and the user's controls. The five
+        controls are now stated once, by the spec; the older profile only contributes initiative and technical depth (and the invariants)."""
         st = STYLES[s.style]
-        spec = spec_guidance(st.id, s.offsets()) + "\nThe levels in the behaviour spec take precedence over any older style profile above."
+        spec = spec_guidance(st.id, self._control_offsets(s, st, profile))
         if st.trait_mode:
-            base = PersonalityProfile.from_mode(st.trait_mode).behavior_instructions()
-            return base + "\n" + spec + "\n" + SAFETY_BLOCK
+            return PersonalityProfile.from_mode(st.trait_mode).behavior_instructions(controls=False) + "\n" + spec + "\n" + SAFETY_BLOCK
         if st.id == NORMAL:
-            return NORMAL_GUIDANCE + "\n" + profile.behavior_instructions() + "\n" + spec + "\n" + SAFETY_BLOCK
+            return NORMAL_GUIDANCE + "\n" + profile.behavior_instructions(controls=False) + "\n" + spec + "\n" + SAFETY_BLOCK
         extra = {"language": s.language, "level": s.level, "minutes": s.minutes}
         busy = " The user is busy with their hands or eyes: keep it very short." if s.hands_busy else ""
         return style_guidance(st.id, s.sliders(), extra) + busy + "\n" + spec + "\n" + "\n".join(INVARIANTS) + "\n" + SAFETY_BLOCK

@@ -220,6 +220,12 @@ def build_parser() -> argparse.ArgumentParser:
     ppsu = pps.add_parser("suite", help="REAL-MODEL 15-scenario evaluation across personalities (needs a working model; read the saved transcripts yourself)")
     ppsu.add_argument("--styles", nargs="*", help="only these style ids")
     ppsu.add_argument("--scenarios", nargs="*", help="only these scenario ids")
+    ppau = pps.add_parser("audit", help="REAL-MODEL audit: identical prompts for every personality + control sweeps; saves JSON and a transcript for human rating")
+    ppau.add_argument("--styles", nargs="*", help="only these style ids")
+    ppau.add_argument("--categories", nargs="*", help="only these prompt categories")
+    ppau.add_argument("--max-tokens", type=int, default=200)
+    ppau.add_argument("--temperature", type=float, default=0.4)
+    ppau.add_argument("--no-controls", action="store_true", help="skip the control min/default/max sweep")
     ppa = pps.add_parser("adult", help="explicit opt-in for adult-only styles (Savage, Flirty, Sexy, Romantic)")
     ppa.add_argument("setting", choices=["on", "off"])
     ppa.add_argument("--confirm-adult", action="store_true", help="required with 'on': you confirm you are 18+ and want adult-only styles")
@@ -864,6 +870,8 @@ def _persona_cmd(args, cfg: Config) -> int:
             pe.set_control(args.name, args.value)
         elif c == "suite":
             return _persona_suite(args, cfg)
+        elif c == "audit":
+            return _persona_audit(args, cfg)
         elif c == "adult":
             if args.setting == "on" and not args.confirm_adult:
                 print("error: adult-only styles need an explicit opt-in: add --confirm-adult to confirm you are 18 or older.", file=sys.stderr)
@@ -909,6 +917,27 @@ def _persona_selfcheck(args, cfg: Config) -> int:
     print(f"{rep['automatic_checks_passed']}/{rep['automatic_checks_total']} automatic checks passed. Saved: {path}\n"
           "These checks do not judge tone: open the file and read each reply to decide whether the style sounds right.")
     return 0 if rep["automatic_checks_passed"] == rep["automatic_checks_total"] else 1
+
+
+def _persona_audit(args, cfg: Config) -> int:
+    from jarvis.assistant import LocalAssistant, NoActiveModel
+    from jarvis.inference.gguf_engine import RuntimeUnavailable
+    from jarvis.personality import audit
+    try:
+        a = LocalAssistant(cfg, guest=True)           # guest: no saved memory or settings are read or changed
+    except (NoActiveModel, RuntimeUnavailable, IntegrityError) as exc:
+        print(f"Cannot run the audit: {exc}", file=sys.stderr)
+        return 2
+    try:
+        rep = audit.run(a, styles=args.styles or None, categories=args.categories or None, simulated=False, max_tokens=args.max_tokens,
+                        temperature=args.temperature, with_controls=not args.no_controls, say=lambda s: print(" ", s, flush=True))
+    finally:
+        a.close()
+    j, m = audit.save(rep, cfg.data_dir)
+    an = rep["automated_analysis"]
+    print(f"Saved: {j}\nTranscript for human rating: {m}\nAutomated flags: {len(an['pairs_with_overlap_0.7_or_more'])} very similar reply pairs, "
+          f"{len(an['repeated_openers_3plus_times'])} personalities with repeated openers. These do not judge quality; read the transcript.")
+    return 0
 
 
 def _persona_suite(args, cfg: Config) -> int:

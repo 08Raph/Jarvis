@@ -63,11 +63,15 @@ class PersonalityProfile:
                 raise ValueError(f"trait {k} must be a number in 0..1")
         return self
 
-    def behavior_instructions(self) -> str:
+    def behavior_instructions(self, controls: bool = True) -> str:
         """Text describing the style, followed by the fixed invariants. The invariants come LAST and are not
         derived from traits, so no trait setting can remove them."""
         t = self.traits
         lines = [f"Style profile: {self.mode}."]
+        if not controls:      # Stage 7 audit: the five customisable controls are stated once, by the behaviour spec, so the two texts cannot disagree
+            lines.append("Offer next steps." if t["initiative"] >= 0.55 else "Do only what was asked.")
+            lines.append("Technical depth: " + ("high, include precise terms" if t["technical_depth"] >= 0.7 else "plain language") + ".")
+            return "\n".join(lines + list(INVARIANTS))
         lines.append("Register: " + ("formal and polished" if t["formality"] >= 0.6 else "relaxed and conversational") + ".")
         lines.append("Humour: " + ("light, occasional" if t["humor"] >= 0.6 else "minimal") + ".")
         lines.append("Tone: " + ("warm and encouraging" if t["warmth"] >= 0.6 else "neutral and businesslike") + ".")
