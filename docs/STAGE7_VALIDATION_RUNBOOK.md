@@ -17,7 +17,7 @@ run has happened.** Jarvis is not claimed to be release-ready, Windows-compatibl
 ## 2. Prerequisites (Windows 11 PC)
 - 64-bit Windows 11, Python 3.11-3.13, the repo at the commit under test (`git rev-parse HEAD`; record it). Do not use your daily profile: use a throw-away data folder.
 - RAM: at least 8 GB for Qwen3-1.7B or 4B Q4_K_M; more for larger models (see `docs/STAGE5_VALIDATION_RUNBOOK.md` section 2). 25 GB free disk. CPU with AVX2 (`python -m jarvis runtime` reports it).
-- Packages: `pip install -e ".[local]"` (pinned `llama-cpp-python==0.3.36`, CPU wheel); for voice: `pip install -e ".[voice]"`, optional `".[kokoro]"` (pulls in GPL espeak-ng; not bundled).
+- Packages: `pip install -e ".[local]"` (pinned `llama-cpp-python==0.3.36`; this does NOT guarantee a prebuilt wheel: PyPI has only a source archive, so on Windows pip may try to compile it. Install the runtime with the wheel-only command in the first-run checklist, section A, whose availability for your Python is UNVERIFIED); for voice: `pip install -e ".[voice]"`, optional `".[kokoro]"` (pulls in GPL espeak-ng; not bundled).
 - Network: needed **once** to download a model with your consent (`models fetch --yes`). The audit itself uses the already-installed active model and never downloads, switches model or calls a cloud API.
 
 ## 3. Setup (PowerShell)
