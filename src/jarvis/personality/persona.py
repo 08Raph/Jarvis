@@ -5,10 +5,12 @@ import it. Style text is guidance for the model only. Invalid or corrupt saved s
 intensities, never to a more aggressive style."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
 import tempfile
+import threading
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -111,12 +113,38 @@ class Persona:
         self.path = (Path(profile_dir) / PERSONA_FILE) if (profile_dir is not None and persist) else None
         self.settings = PersonaSettings()
         self.load_note = ""
-        self.review_unlock = False      # set ONLY by the review tools (persona audit/suite) in a guest session; no setting, file or message can set it
+        self._review_depth: dict[int, int] = {}      # thread id -> nesting depth of an active review_scope(); empty in every normal session
+        self._review_lock = threading.Lock()
         self._load()
 
     # ---- temporary restriction of the adult-only styles
+    @property
+    def review_unlock(self) -> bool:
+        """Read-only. True only inside a review_scope() entered by THIS thread; other threads sharing the object, and later code, never see it."""
+        return self._review_depth.get(threading.get_ident(), 0) > 0
+
+    @contextlib.contextmanager
+    def review_scope(self, enabled: bool = True):
+        """Exception-safe, nestable, thread-bound lift of the restriction for the review tools (persona audit/suite/selfcheck) only. In memory: while it is
+        active nothing is written to disk (see _save). It ends when the block ends, however it ends. The ordinary UI, controller, chat and config never call it."""
+        if not enabled:
+            yield
+            return
+        tid = threading.get_ident()
+        with self._review_lock:
+            self._review_depth[tid] = self._review_depth.get(tid, 0) + 1
+        try:
+            yield
+        finally:
+            with self._review_lock:
+                n = self._review_depth.get(tid, 1) - 1
+                if n <= 0:
+                    self._review_depth.pop(tid, None)
+                else:
+                    self._review_depth[tid] = n
+
     def restricted(self) -> bool:
-        """True while the four adult-only styles cannot be selected. Only the module constant (and the review-tool unlock, which is never persisted) decides."""
+        """True while the four adult-only styles cannot be selected. Only the module constant (and a review_scope on this thread) decides."""
         return _styles.adult_modes_restricted() and not self.review_unlock
 
     def _gate(self, s: PersonaSettings) -> PersonaSettings:
@@ -185,7 +213,7 @@ class Persona:
             self.load_note = ""
 
     def _save(self) -> None:
-        if self.path is None:
+        if self.path is None or self.review_unlock:      # a review run is in memory only: a lifted restriction must never reach persona.json
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=str(self.path.parent), suffix=".tmp")

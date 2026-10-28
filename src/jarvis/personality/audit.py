@@ -12,6 +12,7 @@ direction. HUMAN: voice, naturalness, appropriateness, warmth, wit, honesty of u
 no score is invented. A model used as a grader would be a second unverified model; this module does not use one."""
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from datetime import datetime, timezone
@@ -146,7 +147,8 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
            "adult_modes_evaluated_with_opt_in": bool(include_restricted), "restricted_modes_included": bool(include_restricted), "audit_version": AUDIT_VERSION, "spec_version": next(iter(SPECS.values())).version}
     probe = evalsuite._Probe(assistant)
     ids, locked = evalsuite.resolve_styles(styles, include_restricted)
-    assistant.persona.review_unlock = bool(include_restricted)
+    stack = contextlib.ExitStack()
+    stack.enter_context(assistant.persona.review_scope(bool(include_restricted)))
     cats = categories or list(PROMPTS)
     report: dict = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": model_identity(assistant), "config": cfg,
                     "prompts": PROMPTS, "defining_prompts": DEFINING, "control_prompt": CONTROL_PROMPT, "styles": ids, "restricted_not_evaluated": locked, "categories": cats, "transcripts": {}, "controls": {},
@@ -215,7 +217,7 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
         report["interrupted"] = True
     finally:
         probe.close()
-        assistant.persona.review_unlock = False
+        stack.close()
     expected = [(s, c) for s in ids for c in cats + ["defining"]]
     done = [(s, c) for s, c in expected if c in report["transcripts"].get(s, {}) and all(r["reply"] is not None for r in report["transcripts"][s][c])]
     missing = [f"{s}/{c}" for s, c in expected if (s, c) not in done]

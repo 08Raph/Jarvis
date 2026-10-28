@@ -140,3 +140,6 @@ Audit/suite: error text scrubbed of file paths, reports and partial files are ne
 
 ## Post-gate safety review
 The four adult-only modes (Savage, Flirty, Sexy, Romantic) are temporarily restricted (`styles.ADULT_MODES_RESTRICTED`): unselectable through UI, CLI, chat, saved file or opt-in; definitions and saved choices kept (`saved_adult_style`); the UI/CLI/status say why; review tools skip them unless `--include-restricted-modes`. Detector evidence lineage pinned (untuned baseline, tuning set, second set not tuned, empty future set; test_p56). New: docs/STAGE7_REAL_MODEL_REVIEW_PROTOCOL.md, tests test_p55/test_p56. Detector patterns unchanged. Real model, PySide6, Windows, audio NOT run.
+
+## Adult-mode restriction security audit
+Review-only unlock replaced: `Persona.review_scope()` (thread-bound, nestable, exception-safe, read-only `review_unlock`, no disk writes during a review) instead of a mutable attribute that selfcheck did not re-lock on error. New tests test_p57 (29): load-path type attacks, controller/CLI/flag acceptance, threads, Ctrl-C, nested scopes, helper isolation. docs/STAGE7_RESTRICTION_AUDIT.md lists every selection path. Detector and frozen sets untouched. Real model, PySide6, Windows, audio NOT run.

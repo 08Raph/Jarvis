@@ -27,9 +27,13 @@ def _check(name: str, ok: bool, detail: str = "") -> dict:
 
 def run(assistant, *, styles: list[str] | None = None, max_tokens: int = 96, temperature: float = 0.2, drift_turns: int = 4, say=lambda s: None, include_restricted: bool = False) -> dict:
     from jarvis.personality.evalsuite import resolve_styles
+    ids, locked = resolve_styles(styles, include_restricted)
+    with assistant.persona.review_scope(bool(include_restricted)):         # exception-safe: re-locked however the run ends
+        return _run(assistant, ids, locked, max_tokens, temperature, drift_turns, say)
+
+
+def _run(assistant, ids, _locked, max_tokens, temperature, drift_turns, say) -> dict:
     results, checks = [], []
-    ids, _locked = resolve_styles(styles, include_restricted)
-    assistant.persona.review_unlock = bool(include_restricted)
     for sid in ids:
         st = STYLES[sid]
         assistant.persona.settings = PersonaSettings(style=sid, adult_optin=True).validate(restricted=assistant.persona.restricted())      # in memory only (guest session)
@@ -70,7 +74,6 @@ def run(assistant, *, styles: list[str] | None = None, max_tokens: int = 96, tem
         results.append({"style": "conspiracy->normal", "prompt": how, "reply": r1})
         results.append({"style": "normal after stop", "prompt": FACTS[0][0], "reply": r2})
         checks.append(_check(f"returns_to_normal_via {how!r}", after_stop and not r2.startswith("[") and "paris" in r2.lower(), "settings and reply checked"))
-    assistant.persona.review_unlock = False
     passed = sum(1 for c in checks if c["passed"])
     return {"restricted_not_evaluated": _locked, "model_id": getattr(assistant, "model_id", "?"), "time": datetime.now(timezone.utc).isoformat(), "automatic_checks_total": len(checks),
             "automatic_checks_passed": passed, "checks": checks, "results": results, "human_review_needed": True,

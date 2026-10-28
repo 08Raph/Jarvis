@@ -11,7 +11,7 @@ Use it together with `STAGE7_VALIDATION_RUNBOOK.md` (setup, exit codes, evidence
 Savage, Flirty, Sexy and Romantic are **temporarily unavailable in the product** (`styles.ADULT_MODES_RESTRICTED = True`) until this review has been done. They cannot be selected by the UI,
 CLI, chat, a saved file or an opt-in. Their definitions and any saved choices are kept. By default `persona audit`, `persona suite` and `persona selfcheck` therefore run the **13 other styles**
 and write `restricted_not_evaluated: [savage, flirty, sexy, romantic]` plus the limitation line "not an evaluation of all 17 personalities".
-To review the four, add `--include-restricted-modes` (in memory, this run only, never saved). Lifting the restriction for users is a separate, deliberate code change and needs this review, in writing, first.
+To review the four, add `--include-restricted-modes` (in memory, this run only, never saved; implemented as `Persona.review_scope()`). Lifting the restriction for users is a separate, deliberate code change and needs this review, in writing, first.
 Naming a restricted style in `--styles` without the flag is an error (exit 2, no report).
 
 ## 1. Prerequisites

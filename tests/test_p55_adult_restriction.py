@@ -138,10 +138,12 @@ class Enforcement(AppCase):
 
     def test_review_unlock_is_not_persisted_and_not_a_setting(self):
         p, f = self.persona()
-        p.review_unlock = True
-        p.settings = PersonaSettings(style="savage", adult_optin=True)
-        p.set_option(language="French")                                         # a save while unlocked
-        self.assertNotIn("review_unlock", f.read_text())
+        with self.assertRaises(AttributeError):
+            p.review_unlock = True                                              # read-only: only review_scope() can lift it
+        with p.review_scope():
+            p.settings = PersonaSettings(style="savage", adult_optin=True)
+            p.set_option(language="French")                                     # a save attempted while unlocked
+        self.assertFalse(f.exists() and "French" in f.read_text())              # nothing is written during a review
         self.assertFalse(Persona(f.parent).review_unlock)
         self.assertFalse(hasattr(PersonaSettings(), "review_unlock"))
 
@@ -290,7 +292,7 @@ class OnlyReviewToolsUnlock(unittest.TestCase):
         for f in SRC.rglob("*.py"):
             rel = f.relative_to(SRC).as_posix()
             text = f.read_text(encoding="utf-8")
-            if re.search(r"review_unlock|ADULT_MODES_RESTRICTED|restricted=False", text) and rel not in allowed:
+            if re.search(r"review_unlock|review_scope|ADULT_MODES_RESTRICTED|restricted=False", text) and rel not in allowed:
                 bad.append(rel)
         self.assertEqual(bad, [], "only the personality review modules may reference the review unlock or the restriction constant")
 

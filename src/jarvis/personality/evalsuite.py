@@ -9,6 +9,7 @@ the unit tests) the replies are canned and no claim about generation quality is 
 It never edits the user's real settings: use a guest assistant or a temporary profile."""
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from datetime import datetime, timezone
@@ -223,7 +224,8 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
     results, streak, aborted, interrupted, ckerrors = [], 0, None, False, []
     ids, locked = resolve_styles(styles, include_restricted)
     scs = list(scenarios or SCENARIOS)
-    assistant.persona.review_unlock = bool(include_restricted)
+    stack = contextlib.ExitStack()
+    stack.enter_context(assistant.persona.review_scope(bool(include_restricted)))
     try:
         for sid in ids:
             for sc in scs:
@@ -252,7 +254,7 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
         interrupted = True
     finally:
         probe.close()
-        assistant.persona.review_unlock = False
+        stack.close()
     run_ = [r for r in results if r["status"] == "run"]
     done = {(r["style"], r["scenario"]) for r in results}
     missing = [f"{s}/{c}" for s in ids for c in scs if (s, c) not in done]
