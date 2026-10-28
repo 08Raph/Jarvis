@@ -60,6 +60,7 @@ Binary files are not scanned for build paths (PyInstaller can embed some); that 
 | `check_vc_runtime.py` ERROR | A Visual C++ DLL missing or 32-bit | Install the x64 Visual C++ Redistributable on the build PC and rebuild |
 | `jarvis-gui.exe --selftest` fails | Qt plugins not frozen | Read `%TEMP%\jarvis-gui-selftest.txt` |
 | `jarvis.exe runtime --require` fails | The AI runtime is missing from the frozen app | The build is unusable; see the spec's WARNING lines |
+| `scripts\verify_frozen_worker.py` fails | The packaged selftest worker (`jarvis.exe selftest-worker`, this same exe started again) is not dispatched or `jarvis.selftest_core` is missing | Read the FAIL lines it printed; rerun it alone with `--keep` to inspect its temporary data folder. It loads **no model**: a pass proves dispatch only, not that a real model loads, answers, or that `jarvis selftest` works end to end on this PC (that needs a model: docs\STAGE7_FIRST_REAL_RUN_CHECKLIST.md). Not yet run on Windows. |
 | `BUILD BLOCKED ... contains the build machine's folder` | A text file picked up your path | Find the named file; do not ship it |
 | `WARNING: model weights are inside the build` | A large model file was in the folder | Remove it; weights are installed by the user |
 | The window does not open on another PC | Qt cannot load (Visual C++ runtime), or a blocked folder | A message box names it; `%LOCALAPPDATA%\ProjectJarvis\crash.log` has details |

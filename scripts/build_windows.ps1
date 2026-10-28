@@ -161,6 +161,11 @@ if ($g.ExitCode -ne 0 -or -not (Test-Path "$env:TEMP\jarvis-gui-selftest.txt") -
     throw "jarvis-gui.exe --selftest failed: exit code $($g.ExitCode) (0 = pass, 1 = a check failed, 3 = Qt could not load); full report in $env:TEMP\jarvis-gui-selftest.txt and .json"
 }
 if (-not $SkipLocalRuntime) { Run ".\dist\ProjectJarvis\jarvis.exe runtime --require" }   # the frozen exe must contain the runtime
+# The packaged selftest worker is this same exe started again. This starts it with NO model (readiness lists jarvis.selftest_core, `selftest` without a model
+# exits 2, `selftest-worker` is dispatched, writes its result and stops at the missing model file). It proves dispatch only, not inference.
+$workerArgs = ""
+if ($SkipLocalRuntime) { $workerArgs = " --allow-no-runtime" }
+Run "$py scripts\verify_frozen_worker.py --exe .\dist\ProjectJarvis\jarvis.exe$workerArgs"
 Run ".\dist\ProjectJarvis\jarvis.exe --data-dir `"$smoke`" privacy"
 Run ".\dist\ProjectJarvis\jarvis.exe --data-dir `"$smoke`" hardware"
 Run "'' | .\dist\ProjectJarvis\jarvis.exe --data-dir `"$smoke`" setup"        # the guided setup, with empty answers
