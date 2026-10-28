@@ -149,3 +149,6 @@ Persona.preview() no longer publishes the prompt of a restricted style (describe
 
 ## Final Stage 7 readiness review
 Path scrubber rewritten (spaces in folder names, forward-slash drive paths, ~, %VAR%, more POSIX roots); evidence_status is UNVERIFIED unless the report records an available llama.cpp runtime. test_p59 (8), p58 adjusted. Restriction constant, detector and frozen datasets untouched. Real model, PySide6, Windows, audio NOT run.
+
+## Validation-readiness audit
+Empty/blank/label-only model replies are now failed cases (previously a report could be REAL MODEL, COMPLETE with no answers). Reports state the probe is a single limited sample. test_p60 (11). Restriction constant, detector and frozen datasets untouched. Real model, PySide6, Windows, audio NOT run.

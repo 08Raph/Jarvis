@@ -15,6 +15,7 @@ To review the four, add `--include-restricted-modes` (in memory, this run only, 
 Naming a restricted style in `--styles` without the flag is an error (exit 2, no report).
 
 ## 1. Prerequisites
+Four separate steps, never mixed: (a) **install a runtime** (`llama-cpp-python`; nothing in Jarvis installs it for you), (b) **select a model** you already installed (`models select`; the audit does not download), (c) **execute** the commands in section 2, (d) **manually review** the transcripts (sections 5-7). A run that finished is step (c) only.
 - Windows 11 PC (any OS that runs the project works for the audit itself), Python 3.11+, `pip install -e .[runtime]` or the project's documented equivalent, so `import llama_cpp` works.
 - One installed GGUF model that you chose on purpose (`models list`, `models select <id>`). The audit uses **only the ACTIVE model**; it does not download, switch or call a cloud service.
 - Enough free disk space for `<data-dir>\eval` (a few MB per run) and enough RAM for the model.
@@ -91,6 +92,7 @@ The remaining `audit.RUBRIC.dimensions` (vocabulary, adaptation, honest uncertai
 ## 8. Preserving evidence without exposing personal data
 1. Run in a fresh `--data-dir` with no memory and no real profile; the commands use synthetic prompts only.
 2. Reports are generated with file-system paths replaced by `<path>` (Windows drive paths with either slash, spaces in folder names, UNC, `%VAR%`, `~/`, absolute POSIX paths), but a scrubber cannot know every format: before sharing, search the `.json` and `.md` for: your user name, `C:\Users\`, drive letters, the machine name, e-mail addresses, API keys/tokens, and any name that is not a synthetic one. Error text is already scrubbed of file paths (`<path>`), but check anyway.
+2b. The commands print the full path of each saved file on the console; those are your local paths (and may contain your user name). Replace them before pasting console output anywhere.
 3. Share a **copy**; keep the original untouched. Redact by replacing the value with `[REDACTED]` and note what kind of value it was; never edit replies or scores.
 4. `model.file_name` and `file_bytes` are fine to share; do not share the model file path. Do not attach the model weights.
 5. Keep, together: the `.json`, the `.md`, any `*_PARTIAL.json`, the console output with the exit code, `models verify` output, the commit hash, and your rater sheet. Record the date and who ran it.

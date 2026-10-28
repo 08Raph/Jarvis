@@ -70,6 +70,15 @@ def safe_error(exc: BaseException, limit: int = 200) -> str:
     return f"{type(exc).__name__}: {msg[:limit]}".rstrip(": ")
 
 
+def require_reply(reply, persona=None):
+    """A reply that is not text, or is empty/whitespace, is a FAILED case (a runtime that returns nothing must never produce a 'complete' report). The
+    program-added style label is removed first, so a bare "[Label]" does not count as an answer."""
+    body = persona.strip_label(reply) if (persona is not None and isinstance(reply, str)) else reply
+    if not isinstance(body, str) or not body.strip():
+        raise ValueError("the model returned an empty reply")
+    return reply
+
+
 def scrub(obj):
     """Recursively removes file-system paths (which can hold a user name) from every string in a report fragment."""
     if isinstance(obj, str):
@@ -156,7 +165,7 @@ def run_scenario(a, probe: _Probe, style: str, scenario: str, *, voice=None, see
     s = a.persona.settings
 
     def ask(text):
-        r = a.reply(text, max_tokens=max_tokens, temperature=temperature)
+        r = require_reply(a.reply(text, max_tokens=max_tokens, temperature=temperature), a.persona)
         replies.append({"user": text, "reply": r, "turn_style": getattr(a.last_turn, "style", None)})
         return r
 

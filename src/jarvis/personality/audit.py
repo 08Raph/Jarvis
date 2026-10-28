@@ -127,7 +127,7 @@ def _fresh(a, style):
 def _conversation(a, probe, turns, cfg) -> list[dict]:
     rows = []
     for t in turns:
-        r = a.reply(t, max_tokens=cfg["max_tokens"], temperature=cfg["temperature"])
+        r = evalsuite.require_reply(a.reply(t, max_tokens=cfg["max_tokens"], temperature=cfg["temperature"]), a.persona)
         turn = a.last_turn
         rows.append({"user": t, "reply": r, "measures": measure(r), "overridden": bool(getattr(turn, "overridden", False)),
                      "label_present": bool(STYLES[a.persona.settings.style].label_reply and r.startswith(STYLES[a.persona.settings.style].label_reply)) if not getattr(turn, "overridden", False) else None})
@@ -196,7 +196,7 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
                         for tag, off in (("min", -2), ("default", 0), ("max", 2)):
                             assistant.persona.settings = PersonaSettings(style=sid, adult_optin=STYLES[sid].adult_only, **{c: off}).validate(restricted=assistant.persona.restricted())
                             assistant.reset()
-                            r = assistant.reply(CONTROL_PROMPT, max_tokens=max_tokens, temperature=temperature)
+                            r = evalsuite.require_reply(assistant.reply(CONTROL_PROMPT, max_tokens=max_tokens, temperature=temperature), assistant.persona)
                             entry["replies"][tag] = {"reply": r, "measures": measure(r)}
                     res = guarded(f"control {sid}/{c}", sweep)
                     if isinstance(res, Exception):
@@ -229,7 +229,8 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
     report["human_rubric"] = RUBRIC
     report["human_scores"] = {sid: {d: None for d in RUBRIC["dimensions"]} for sid in ids}
     report["limitations"] = ["Automated measures do not judge tone, wit, warmth or naturalness.", "One sample per prompt at the configured temperature: not a statistical result.",
-                             "Word overlap flags similar wording, not similar personality.", "Results apply only to the model identified above and say nothing about other models."] + \
+                             "Word overlap flags similar wording, not similar personality.", "Results apply only to the model identified above and say nothing about other models.",
+                             "serious_undetected_probe is ONE phrasing of ONE situation, one sample: it shows how each personality behaves when the keyword detector did not fire, and says nothing about the detector's overall accuracy or about other phrasings."] + \
                             (["SIMULATED: the model was a scripted fake; nothing here describes real generation."] if simulated else []) + \
                             ([f"RESTRICTED MODES NOT EVALUATED: {', '.join(locked)} are temporarily unavailable in the product and were not run; this is not an evaluation of all 17 personalities."] if locked else []) + \
                             ([] if report["complete"] else ["INCOMPLETE RUN: see `incomplete`, `missing_cases`, `aborted` and `interrupted`; missing cases were NOT tested."])
