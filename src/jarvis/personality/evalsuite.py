@@ -173,23 +173,49 @@ def run_scenario(a, probe: _Probe, style: str, scenario: str, *, voice=None, see
     return {"style": style, "scenario": scenario, "status": "run", "passed": ok, "checks": checks, "replies": replies}
 
 
-def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, seed_memory=None, max_tokens=96, temperature=0.2, say=lambda s: None) -> dict:
-    """`simulated=True` means the model is a scripted fake: only program behaviour is evaluated, nothing about generation quality."""
+def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, seed_memory=None, max_tokens=96, temperature=0.2, say=lambda s: None,
+        checkpoint=None, max_consecutive_errors=3) -> dict:
+    """`simulated=True` means the model is a scripted fake: only program behaviour is evaluated, nothing about generation quality.
+    A scenario that raises is recorded as status "error" (never as passed); after `max_consecutive_errors` in a row the run stops (`aborted`); Ctrl-C stops
+    cleanly (`interrupted`). `complete` is True only if every requested case ran or was explicitly "not_run" for a missing harness, with no error."""
     probe = _Probe(assistant)
-    results = []
+    results, streak, aborted, interrupted = [], 0, None, False
+    ids, scs = list(styles or STYLES), list(scenarios or SCENARIOS)
     try:
-        for sid in (styles or list(STYLES)):
-            for sc in (scenarios or SCENARIOS):
-                res = run_scenario(assistant, probe, sid, sc, voice=voice, seed_memory=seed_memory, max_tokens=max_tokens, temperature=temperature)
+        for sid in ids:
+            for sc in scs:
+                try:
+                    res = run_scenario(assistant, probe, sid, sc, voice=voice, seed_memory=seed_memory, max_tokens=max_tokens, temperature=temperature)
+                    streak = 0
+                except KeyboardInterrupt:
+                    raise
+                except Exception as e:  # noqa: BLE001 - recorded, never swallowed
+                    streak += 1
+                    res = {"style": sid, "scenario": sc, "status": "error", "passed": None, "checks": [], "replies": [], "error": f"{type(e).__name__}: {str(e)[:200]}"}
+                    if streak >= max_consecutive_errors:
+                        aborted = f"{streak} consecutive errors; stopped (last: {sid}/{sc})"
                 results.append(res)
                 say(f"{sid} / {sc}: {res['status']}" + ("" if res["passed"] is None else (" PASS" if res["passed"] else " FAIL")))
+                if aborted:
+                    break
+            if checkpoint:
+                checkpoint({"results": results})
+            if aborted:
+                break
+    except KeyboardInterrupt:
+        interrupted = True
     finally:
         probe.close()
     run_ = [r for r in results if r["status"] == "run"]
+    done = {(r["style"], r["scenario"]) for r in results}
+    missing = [f"{s}/{c}" for s in ids for c in scs if (s, c) not in done]
+    errors = [f"{r['style']}/{r['scenario']}: {r['error']}" for r in results if r["status"] == "error"]
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": getattr(assistant, "model_id", None),
-            "scenarios": list(scenarios or SCENARIOS), "styles": list(styles or STYLES), "total": len(results), "run": len(run_),
+            "scenarios": scs, "styles": ids, "total": len(results), "run": len(run_),
             "passed": sum(1 for r in run_ if r["passed"]), "failed": [f"{r['style']}/{r['scenario']}" for r in run_ if not r["passed"]],
-            "not_run": [f"{r['style']}/{r['scenario']}" for r in results if r["status"] != "run"], "results": results,
+            "errors": errors, "missing_cases": missing, "aborted": aborted, "interrupted": interrupted,
+            "complete": not errors and not missing and not aborted and not interrupted,
+            "not_run": [f"{r['style']}/{r['scenario']}" for r in results if r["status"] == "not_run"], "results": results,
             "needs_human_review": ["Whether each reply actually sounds like the personality (tone, wit, warmth, rhythm).",
                                    "Whether a small model follows the behaviour spec rather than ignoring it.",
                                    "Charm and human-likeness: not measured by any automatic check."]}

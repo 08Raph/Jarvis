@@ -924,19 +924,29 @@ def _persona_audit(args, cfg: Config) -> int:
     from jarvis.inference.gguf_engine import RuntimeUnavailable
     from jarvis.personality import audit
     try:
-        a = LocalAssistant(cfg, guest=True)           # guest: no saved memory or settings are read or changed
-    except (NoActiveModel, RuntimeUnavailable, IntegrityError) as exc:
-        print(f"Cannot run the audit: {exc}", file=sys.stderr)
+        a = LocalAssistant(cfg, guest=True)           # the ACTIVE installed model only; nothing is downloaded or switched; guest: no memory or settings touched
+    except (NoActiveModel, RuntimeUnavailable, IntegrityError, OSError, ValueError) as exc:
+        print(f"Cannot run the audit: {exc}\nNo report was written and nothing was simulated.", file=sys.stderr)
         return 2
+    outdir = cfg.data_dir / "eval"
+    outdir.mkdir(parents=True, exist_ok=True)
+    partial = outdir / "personality_audit_PARTIAL.json"
+
+    def keep(rep):
+        partial.write_text(json.dumps(rep, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
     try:
         rep = audit.run(a, styles=args.styles or None, categories=args.categories or None, simulated=False, max_tokens=args.max_tokens,
-                        temperature=args.temperature, with_controls=not args.no_controls, say=lambda s: print(" ", s, flush=True))
+                        temperature=args.temperature, with_controls=not args.no_controls, say=lambda s: print(" ", s, flush=True), checkpoint=keep)
     finally:
         a.close()
     j, m = audit.save(rep, cfg.data_dir)
     an = rep["automated_analysis"]
     print(f"Saved: {j}\nTranscript for human rating: {m}\nAutomated flags: {len(an['pairs_with_overlap_0.7_or_more'])} very similar reply pairs, "
           f"{len(an['repeated_openers_3plus_times'])} personalities with repeated openers. These do not judge quality; read the transcript.")
+    if not rep["complete"]:
+        print(f"INCOMPLETE: {len(rep['missing_cases'])} case(s) not tested, {len(rep['incomplete'])} failure(s), aborted={rep['aborted']}, interrupted={rep['interrupted']}. "
+              "Keep these files as evidence.", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -946,18 +956,25 @@ def _persona_suite(args, cfg: Config) -> int:
     from jarvis.personality import evalsuite
     try:
         a = LocalAssistant(cfg, guest=True)           # guest: no saved memory or settings are read or changed
-    except (NoActiveModel, RuntimeUnavailable, IntegrityError) as exc:
-        print(f"Cannot run the suite: {exc}", file=sys.stderr)
+    except (NoActiveModel, RuntimeUnavailable, IntegrityError, OSError, ValueError) as exc:
+        print(f"Cannot run the suite: {exc}\nNo report was written and nothing was simulated.", file=sys.stderr)
         return 2
+    from jarvis.personality import audit as _audit
+    outdir = cfg.data_dir / "eval"
+    outdir.mkdir(parents=True, exist_ok=True)
     try:
         rep = evalsuite.run(a, styles=args.styles or None, scenarios=args.scenarios or None, simulated=False,
-                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True))
+                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True),
+                            checkpoint=lambda r: (outdir / "personality_suite_PARTIAL.json").write_text(json.dumps(r, indent=2, default=str), encoding="utf-8"))
+        rep["model_identity"] = _audit.model_identity(a)
     finally:
         a.close()
     path = evalsuite.save(rep, cfg.data_dir)
     print(f"{rep['passed']}/{rep['run']} scenario checks passed ({len(rep['not_run'])} not run: no voice harness on the command line). Saved: {path}\n"
           "These checks verify program behaviour only. Open the file and read the replies to judge tone, wit and warmth.")
-    return 0 if not rep["failed"] else 1
+    if not rep["complete"]:
+        print(f"INCOMPLETE: {len(rep['errors'])} error(s), {len(rep['missing_cases'])} case(s) not run, aborted={rep['aborted']}, interrupted={rep['interrupted']}. Keep the file as evidence.", file=sys.stderr)
+    return 0 if (not rep["failed"] and rep["complete"]) else 1
 
 
 _LAST: dict = {}

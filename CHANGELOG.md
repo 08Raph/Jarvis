@@ -131,3 +131,6 @@ Kokoro (`kokoro-onnx`, ONNX Runtime, CPU) added as a second engine through the S
 
 ## Stage 7 audit
 Verified e63ee22 and the ZIP. Fixes: contradictory legacy trait text vs spec/controls (D1), one bad control value discarding all settings (D2), missed distress/emergency phrasings (D3). Added `persona audit` real-model workflow, regression tests (test_p48, p49, p50). Real model, Qt and Windows still NOT run. See docs/STAGE7_AUDIT.md.
+
+## Pre-Stage-8 validation package
+`persona audit` / `persona suite` now record failed cases, checkpoint partial files, stop after repeated failures, return non-zero when incomplete and never present a partial run as complete; more model identity fields; extended distress/emergency patterns (labelled corpus in tests); new `serious_undetected_probe` category. Runbook: docs/STAGE7_VALIDATION_RUNBOOK.md. Nothing was run on a real model, PySide6, Windows or audio hardware.

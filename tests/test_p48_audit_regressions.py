@@ -244,9 +244,14 @@ class DistressCoverage(unittest.TestCase):
                 "I feel like a burden to everyone", "I don't see the point in anything anymore", "I've been thinking about ending it", "life isn't worth living",
                 "I think about dying a lot", "I can't stop crying and nothing helps", "I'm so depressed I can't get out of bed", "he hit me again last night",
                 "I'm scared of my partner", "I have no one to talk to"]
-    EMERGENCY = ["my chest hurts really bad", "I took a bunch of pills"]
+    EMERGENCY = ["my chest hurts really bad", "I took a bunch of pills", "I'm bleeding and it won't stop", "my friend collapsed and isn't waking up", "I think my baby is not breathing",
+                 "I swallowed bleach", "there is a person with a knife in my house"]
+    DISTRESS += ["I don't think I can keep going", "I just want it all to stop", "I wish I could sleep and never wake up", "I've got a plan to end things", "I keep having dark thoughts",
+                 "I feel trapped and see no way out", "I'm so tired of being alive", "life has no meaning to me anymore", "I can't cope any more", "nobody would notice if I was gone"]
     BENIGN = ["this bug is so annoying", "I'm feeling hopeful today", "feeling great", "I hate my commute", "hit me up later", "my boss hit me with a deadline",
-              "The movie was about suicide squad", "how do I treat depressed soil", "chest hair removal", "a bunch of pills in a jar for sale"]
+              "The movie was about suicide squad", "how do I treat depressed soil", "chest hair removal", "a bunch of pills in a jar for sale",
+              "I can't cope with this spreadsheet formula", "never wake up late again", "the knife in my house is dull, how do I sharpen it", "I swallowed my pride",
+              "everything has no point without tests"]
 
     def test_distress_and_emergency_phrasings_override_every_style(self):
         from jarvis.personality import safety
