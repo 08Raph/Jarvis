@@ -17,8 +17,8 @@ to `git archive` of that commit. (GitHub reports the repository moved to `08Raph
   next to the Stage 7 spec and contradicted it and the user's controls (Normal's default even carried Professional JARVIS wording). The five
   controls are now stated once, by the spec; the older profile contributes only initiative, technical depth and the invariants. A profile the user
   customised with the older `personality` commands still reaches the model (converted to levels).
-- **D2 one bad value wiped everything.** A single out-of-range customization value discarded the whole `persona.json` (style, intensities, language).
-  Now only the five offsets are reset (with a visible note); any other invalid field still falls back to plain Normal with the adult opt-in off.
+- **D2 one bad value wiped everything (generalised at the gate: per-field recovery, see the runbook section 9).** A single out-of-range customization value discarded the whole `persona.json` (style, intensities, language).
+  At the pre-Stage-8 gate this became per-field recovery: each invalid field is reset on its own with a visible note, and the adult gate fails closed.
 - **D3 distress phrasing missed.** "I've been feeling hopeless", "I feel like a burden", "I can't stop crying", "my chest hurts", "he hit me",
   "I took a bunch of pills" and similar did not trigger the safety override, so a roleplay style would have carried on. Patterns extended; benign
   look-alikes are tested not to fire. This is still a keyword heuristic and **will miss other phrasings**; it is not a clinical classifier.

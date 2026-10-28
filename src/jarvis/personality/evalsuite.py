@@ -10,6 +10,7 @@ It never edits the user's real settings: use a guest assistant or a temporary pr
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +48,30 @@ class _Probe:
 
     def close(self):
         self.a._messages = self._orig
+
+
+_PATHLIKE = re.compile(r"(?:[A-Za-z]:\\[^\s'\"]*|/(?:home|Users|root|tmp|var|mnt|opt|etc)/[^\s'\"]*|\\\\[^\s'\"]*)")
+
+
+def safe_error(exc: BaseException, limit: int = 200) -> str:
+    """Error text for a report: exception type plus a shortened message with file-system paths (which can hold a user name) removed."""
+    msg = _PATHLIKE.sub("<path>", str(exc)).replace("\n", " ")
+    return f"{type(exc).__name__}: {msg[:limit]}".rstrip(": ")
+
+
+def write_new(directory: Path, stem: str, suffix: str, text: str) -> Path:
+    """Create a NEW file; never overwrite an existing one (exclusive create, numbered if the name is taken)."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    for n in range(0, 1000):
+        p = directory / f"{stem}{'' if n == 0 else '_' + str(n)}{suffix}"
+        try:
+            with open(p, "x", encoding="utf-8") as f:
+                f.write(text)
+            return p
+        except FileExistsError:
+            continue
+    raise OSError(f"could not find a free file name for {stem}{suffix}")
 
 
 def _c(name, ok, detail=""):
@@ -179,7 +204,7 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
     A scenario that raises is recorded as status "error" (never as passed); after `max_consecutive_errors` in a row the run stops (`aborted`); Ctrl-C stops
     cleanly (`interrupted`). `complete` is True only if every requested case ran or was explicitly "not_run" for a missing harness, with no error."""
     probe = _Probe(assistant)
-    results, streak, aborted, interrupted = [], 0, None, False
+    results, streak, aborted, interrupted, ckerrors = [], 0, None, False, []
     ids, scs = list(styles or STYLES), list(scenarios or SCENARIOS)
     try:
         for sid in ids:
@@ -191,7 +216,7 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
                     raise
                 except Exception as e:  # noqa: BLE001 - recorded, never swallowed
                     streak += 1
-                    res = {"style": sid, "scenario": sc, "status": "error", "passed": None, "checks": [], "replies": [], "error": f"{type(e).__name__}: {str(e)[:200]}"}
+                    res = {"style": sid, "scenario": sc, "status": "error", "passed": None, "checks": [], "replies": [], "error": safe_error(e)}
                     if streak >= max_consecutive_errors:
                         aborted = f"{streak} consecutive errors; stopped (last: {sid}/{sc})"
                 results.append(res)
@@ -199,7 +224,10 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
                 if aborted:
                     break
             if checkpoint:
-                checkpoint({"results": results})
+                try:
+                    checkpoint({"results": results})
+                except Exception as ce:  # noqa: BLE001 - losing a checkpoint must not lose the run; it is recorded
+                    ckerrors.append(safe_error(ce))
             if aborted:
                 break
     except KeyboardInterrupt:
@@ -213,7 +241,7 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
     return {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": getattr(assistant, "model_id", None),
             "scenarios": scs, "styles": ids, "total": len(results), "run": len(run_),
             "passed": sum(1 for r in run_ if r["passed"]), "failed": [f"{r['style']}/{r['scenario']}" for r in run_ if not r["passed"]],
-            "errors": errors, "missing_cases": missing, "aborted": aborted, "interrupted": interrupted,
+            "errors": errors, "checkpoint_errors": ckerrors, "missing_cases": missing, "aborted": aborted, "interrupted": interrupted,
             "complete": not errors and not missing and not aborted and not interrupted,
             "not_run": [f"{r['style']}/{r['scenario']}" for r in results if r["status"] == "not_run"], "results": results,
             "needs_human_review": ["Whether each reply actually sounds like the personality (tone, wit, warmth, rhythm).",
@@ -222,8 +250,6 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
 
 
 def save(report: dict, data_dir: Path) -> Path:
-    out = Path(data_dir) / "eval"
-    out.mkdir(parents=True, exist_ok=True)
-    p = out / f"personality_suite_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
-    p.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    return p
+    """Writes a NEW file under <data_dir>/eval; an earlier report is never overwritten. Raises OSError if it cannot write (the caller reports it)."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return write_new(Path(data_dir) / "eval", f"personality_suite_{stamp}", ".json", json.dumps(report, indent=2, ensure_ascii=False, default=str))

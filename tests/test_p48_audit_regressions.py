@@ -80,18 +80,32 @@ class SettingsRecovery(AppCase):
         self.pdir().mkdir(parents=True, exist_ok=True)
         (self.pdir() / PERSONA_FILE).write_text(json.dumps(obj))
 
-    def test_bad_control_value_resets_only_the_controls(self):
+    def test_bad_control_value_resets_only_that_control(self):
         self.write({"style": "debate", "argument": 3, "language": "French", "humor": 9, "warmth": 1})
         p = Persona(self.pdir())
         self.assertEqual((p.settings.style, p.settings.argument, p.settings.language), ("debate", 3, "French"))
-        self.assertEqual((p.settings.humor, p.settings.warmth), (0, 0))
-        self.assertIn("customization values were invalid", p.load_note)
+        self.assertEqual((p.settings.humor, p.settings.warmth), (0, 1), "only the invalid control is reset; a valid one is kept")
+        self.assertIn("reset to their defaults (humor)", p.load_note)
 
-    def test_bad_non_control_value_still_falls_back_to_plain_normal(self):
-        self.write({"style": "debate", "argument": 99, "humor": 9})
+    def test_any_single_bad_field_resets_only_that_field(self):
+        self.write({"style": "debate", "argument": 99, "language": "French", "humor": 2, "level": "expert"})
         p = Persona(self.pdir())
-        self.assertEqual((p.settings.style, p.settings.argument, p.settings.humor), ("normal", 2, 0))
-        self.assertIn("invalid", p.load_note)
+        self.assertEqual((p.settings.style, p.settings.argument, p.settings.language, p.settings.humor, p.settings.level), ("debate", 2, "French", 2, "beginner"))
+        self.assertIn("argument, level", p.load_note)
+
+    def test_file_that_is_not_an_object_or_is_future_versioned_gives_plain_normal(self):
+        for raw in ("[]", "{broken", json.dumps({"style": "debate", "schema_version": 99})):
+            self.pdir().mkdir(parents=True, exist_ok=True)
+            (self.pdir() / PERSONA_FILE).write_text(raw)
+            p = Persona(self.pdir())
+            self.assertEqual((p.settings.style, p.settings.adult_optin), ("normal", False), raw)
+            self.assertIn("ignored", p.load_note)
+
+    def test_non_boolean_adult_opt_in_is_never_accepted(self):
+        for v in ("true", 1, "yes", None):
+            self.write({"style": "savage", "adult_optin": v, "language": "German"})
+            p = Persona(self.pdir())
+            self.assertEqual((p.settings.style, p.settings.adult_optin, p.settings.language), ("normal", False, "German"), v)
 
     def test_adult_style_without_opt_in_in_a_damaged_file_stays_locked(self):
         self.write({"style": "sexy", "adult_optin": False, "humor": 9})

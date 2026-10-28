@@ -120,22 +120,42 @@ class Persona:
         except (ValueError, TypeError, OSError):
             self.settings = PersonaSettings()          # safe default: Normal, gentle intensities, adult opt-in off
             self.load_note = "Saved personality settings were invalid and were ignored; using Normal mode."
-            self._recover_controls_only()
+            self._recover_fields()
 
-    def _recover_controls_only(self) -> None:
-        """Audit finding: ONE bad customisation value used to discard the whole file (style, intensities, language). If the file is a readable object whose
-        only problem is the five customisation offsets, keep everything else and reset just those. The adult opt-in is never taken from a damaged file
-        unless the rest validates, and an invalid combination still ends in the plain Normal default."""
+    def _recover_fields(self) -> None:
+        """Audit finding (generalised): an invalid value used to discard the whole file. Each saved field is now checked on its own; an invalid one is reset to its
+        default and everything else valid is kept. Order matters for safety: the adult opt-in is applied before the style, a non-boolean opt-in is never accepted,
+        and an adult style without a valid opt-in stays Normal. A file that is not a JSON object, or cannot be read, leaves the plain Normal default."""
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8-sig"))
-            if not isinstance(raw, dict):
-                return
-            names = {f.name for f in fields(PersonaSettings)}
-            kept = {k: v for k, v in raw.items() if k in names and k not in CONTROLS}
-            self.settings = PersonaSettings(**kept).validate()
-            self.load_note = "Some saved customization values were invalid and were reset to the style's defaults; your other personality settings were kept."
-        except (ValueError, TypeError, OSError):
-            pass
+        except (ValueError, OSError):
+            return
+        if not isinstance(raw, dict):
+            return
+        names = {f.name for f in fields(PersonaSettings)}
+        order = ["adult_optin"] + [k for k in raw if k in names and k not in ("adult_optin", "style", "schema_version")] + ["style"]
+        cur, reset = PersonaSettings(), []
+        for k in order:
+            if k not in raw:
+                continue
+            try:
+                trial = PersonaSettings(**{**asdict(cur), k: raw[k]})
+                if k == "adult_optin" and raw[k] is not True:
+                    continue
+                cur = trial.validate()
+            except (ValueError, TypeError):
+                reset.append(k)
+        if "schema_version" in raw and raw["schema_version"] not in range(1, SPEC_VERSION + 1):
+            self.settings = PersonaSettings()       # written by a NEWER program: do not guess its meaning
+            return
+        if "style" in reset or "adult_optin" in reset:
+            # Fail closed: a damaged adult gate must not leave intense saved intensities waiting for the next opt-in.
+            cur = PersonaSettings(**{**asdict(cur), **{k: DEFAULTS[k] for k in SLIDERS}})
+        self.settings = cur
+        if reset:
+            self.load_note = ("Some saved personality settings were invalid and were reset to their defaults (" + ", ".join(sorted(reset)) + "); your other valid settings were kept.")
+        else:
+            self.load_note = ""
 
     def _save(self) -> None:
         if self.path is None:

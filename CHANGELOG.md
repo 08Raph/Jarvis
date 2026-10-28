@@ -134,3 +134,6 @@ Verified e63ee22 and the ZIP. Fixes: contradictory legacy trait text vs spec/con
 
 ## Pre-Stage-8 validation package
 `persona audit` / `persona suite` now record failed cases, checkpoint partial files, stop after repeated failures, return non-zero when incomplete and never present a partial run as complete; more model identity fields; extended distress/emergency patterns (labelled corpus in tests); new `serious_undetected_probe` category. Runbook: docs/STAGE7_VALIDATION_RUNBOOK.md. Nothing was run on a real model, PySide6, Windows or audio hardware.
+
+## Pre-Stage-8 final validation gate
+Audit/suite: error text scrubbed of file paths, reports and partial files are never overwritten (exclusive create, run-specific partial names), report-write failure exits 3 with a clear message, checkpoint failures recorded; 23 failure-path tests (test_p52). Settings now recover per field (adult gate fails closed). Distress detector: held-out measurement (test_p53, tests/safety_corpus.py): round 1 recall 9/23 and 4/30 false alarms before tuning; round 2 (untuned) 10/23 and 0/30. Too small for an accuracy claim. Reachability/permission integration tests (test_p54). Runbook expanded (exit codes, 10-row evidence matrix). Real model, PySide6, Windows, audio NOT run.

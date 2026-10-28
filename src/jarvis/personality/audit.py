@@ -134,7 +134,7 @@ def _conversation(a, probe, turns, cfg) -> list[dict]:
 
 
 def _failed_row(turns, exc) -> list[dict]:
-    return [{"user": t, "reply": None, "status": "failed", "error": f"{type(exc).__name__}: {str(exc)[:200]}", "measures": None, "overridden": False, "label_present": None} for t in turns]
+    return [{"user": t, "reply": None, "status": "failed", "error": f"{evalsuite.safe_error(exc)}", "measures": None, "overridden": False, "label_present": None} for t in turns]
 
 
 def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=200, temperature=0.4, with_controls=True, say=lambda s: None,
@@ -162,7 +162,7 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
             raise
         except Exception as e:  # noqa: BLE001 - recorded, never swallowed silently
             streak += 1
-            report["incomplete"].append(f"{label}: {type(e).__name__}: {str(e)[:160]}")
+            report["incomplete"].append(f"{label}: {evalsuite.safe_error(e, 160)}")
             say(f"FAILED {label}: {type(e).__name__}")
             if streak >= max_consecutive_failures:
                 report["aborted"] = f"{streak} consecutive failures; stopped (last: {label})"
@@ -204,7 +204,10 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
                                                          "measured_max_words": rp["max"]["measures"]["words"], "passed": rp["max"]["measures"]["words"] > rp["min"]["measures"]["words"]}
                     say(f"control {sid}/{c}")
             if checkpoint:
-                checkpoint(report)
+                try:
+                    checkpoint(report)
+                except Exception as ce:  # noqa: BLE001 - losing a checkpoint must not lose the run; it is recorded
+                    report.setdefault("checkpoint_errors", []).append(evalsuite.safe_error(ce))
             if report["aborted"]:
                 break
     except KeyboardInterrupt:
@@ -279,10 +282,12 @@ def to_markdown(report: dict) -> str:
 
 
 def save(report: dict, data_dir: Path) -> tuple[Path, Path]:
+    """Writes NEW files under <data_dir>/eval; earlier evidence is never overwritten. Raises OSError if it cannot write (the caller reports it)."""
     d = Path(data_dir) / "eval"
-    d.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    j, m = d / f"personality_audit_{stamp}.json", d / f"personality_audit_{stamp}.md"
-    j.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    m.write_text(to_markdown(report), encoding="utf-8")
+    j = evalsuite.write_new(d, f"personality_audit_{stamp}", ".json", json.dumps(report, indent=2, ensure_ascii=False, default=str))
+    try:
+        m = evalsuite.write_new(d, j.stem, ".md", to_markdown(report))
+    except OSError:
+        raise OSError(f"the JSON report was written to {j.name} but the transcript (.md) could not be written")
     return j, m

@@ -919,7 +919,19 @@ def _persona_selfcheck(args, cfg: Config) -> int:
     return 0 if rep["automatic_checks_passed"] == rep["automatic_checks_total"] else 1
 
 
+def _checkpoint_writer(outdir, stem):
+    """Writes the run's own PARTIAL file (a new, run-specific name: it can never overwrite another run's evidence). Returns (callback, path)."""
+    from jarvis.personality.evalsuite import safe_error
+    path = outdir / f"{stem}_PARTIAL.json"
+
+    def keep(rep):
+        outdir.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(rep, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    return keep, path
+
+
 def _persona_audit(args, cfg: Config) -> int:
+    from datetime import datetime, timezone
     from jarvis.assistant import LocalAssistant, NoActiveModel
     from jarvis.inference.gguf_engine import RuntimeUnavailable
     from jarvis.personality import audit
@@ -929,17 +941,23 @@ def _persona_audit(args, cfg: Config) -> int:
         print(f"Cannot run the audit: {exc}\nNo report was written and nothing was simulated.", file=sys.stderr)
         return 2
     outdir = cfg.data_dir / "eval"
-    outdir.mkdir(parents=True, exist_ok=True)
-    partial = outdir / "personality_audit_PARTIAL.json"
-
-    def keep(rep):
-        partial.write_text(json.dumps(rep, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+    keep, partial = _checkpoint_writer(outdir, "personality_audit_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     try:
         rep = audit.run(a, styles=args.styles or None, categories=args.categories or None, simulated=False, max_tokens=args.max_tokens,
                         temperature=args.temperature, with_controls=not args.no_controls, say=lambda s: print(" ", s, flush=True), checkpoint=keep)
     finally:
         a.close()
-    j, m = audit.save(rep, cfg.data_dir)
+    try:
+        j, m = audit.save(rep, cfg.data_dir)
+    except OSError as exc:
+        kept = f" The partial file is at {partial}." if partial.exists() else ""
+        print(f"ERROR: the audit finished but its report could not be saved ({type(exc).__name__}: {exc}).{kept} Free disk space or fix permissions and run it again; "
+              "no earlier report was changed.", file=sys.stderr)
+        return 3
+    try:
+        partial.unlink()           # only this run's own checkpoint, now superseded by the full report
+    except OSError:
+        pass
     an = rep["automated_analysis"]
     print(f"Saved: {j}\nTranscript for human rating: {m}\nAutomated flags: {len(an['pairs_with_overlap_0.7_or_more'])} very similar reply pairs, "
           f"{len(an['repeated_openers_3plus_times'])} personalities with repeated openers. These do not judge quality; read the transcript.")
@@ -951,25 +969,32 @@ def _persona_audit(args, cfg: Config) -> int:
 
 
 def _persona_suite(args, cfg: Config) -> int:
+    from datetime import datetime, timezone
     from jarvis.assistant import LocalAssistant, NoActiveModel
     from jarvis.inference.gguf_engine import RuntimeUnavailable
-    from jarvis.personality import evalsuite
+    from jarvis.personality import audit as _audit, evalsuite
     try:
         a = LocalAssistant(cfg, guest=True)           # guest: no saved memory or settings are read or changed
     except (NoActiveModel, RuntimeUnavailable, IntegrityError, OSError, ValueError) as exc:
         print(f"Cannot run the suite: {exc}\nNo report was written and nothing was simulated.", file=sys.stderr)
         return 2
-    from jarvis.personality import audit as _audit
-    outdir = cfg.data_dir / "eval"
-    outdir.mkdir(parents=True, exist_ok=True)
+    keep, partial = _checkpoint_writer(cfg.data_dir / "eval", "personality_suite_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
     try:
         rep = evalsuite.run(a, styles=args.styles or None, scenarios=args.scenarios or None, simulated=False,
-                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True),
-                            checkpoint=lambda r: (outdir / "personality_suite_PARTIAL.json").write_text(json.dumps(r, indent=2, default=str), encoding="utf-8"))
+                            seed_memory=lambda t: a.memory.add("explicit_preference", t), say=lambda s: print(" ", s, flush=True), checkpoint=keep)
         rep["model_identity"] = _audit.model_identity(a)
     finally:
         a.close()
-    path = evalsuite.save(rep, cfg.data_dir)
+    try:
+        path = evalsuite.save(rep, cfg.data_dir)
+    except OSError as exc:
+        kept = f" The partial file is at {partial}." if partial.exists() else ""
+        print(f"ERROR: the suite finished but its report could not be saved ({type(exc).__name__}: {exc}).{kept} No earlier report was changed.", file=sys.stderr)
+        return 3
+    try:
+        partial.unlink()
+    except OSError:
+        pass
     print(f"{rep['passed']}/{rep['run']} scenario checks passed ({len(rep['not_run'])} not run: no voice harness on the command line). Saved: {path}\n"
           "These checks verify program behaviour only. Open the file and read the replies to judge tone, wit and warmth.")
     if not rep["complete"]:

@@ -6,7 +6,7 @@ run has happened.** Jarvis is not claimed to be release-ready, Windows-compatibl
 ## 1. What is proven today and what is not
 | Claim | Evidence | Status |
 |---|---|---|
-| Program hands the model each mode's spec, controls, safety block; overrides, memory exclusions, age gate, settings persistence work | automated tests with a scripted fake model (2,638 tests, 6 skipped) | proven for the code paths tested |
+| Program hands the model each mode's spec, controls, safety block; overrides, memory exclusions, age gate, settings persistence work | automated tests with a scripted fake model (see the final report for counts) | proven for the code paths tested |
 | A real model follows a personality; modes sound distinct; controls change real behaviour | none | **unknown** |
 | Real Personality page works | stand-in-Qt wiring test only | **unknown** |
 | SAPI / Kokoro speak, stop, change speed | fake speakers only | **unknown** |
@@ -35,13 +35,27 @@ python -m jarvis --data-dir $E\data persona suite            # 15 scenarios x 17
 python -m jarvis --data-dir $E\data persona audit            # identical prompts x 17 modes, control sweeps, transcripts
 python -m jarvis --data-dir $E\data persona audit --styles savage calm --categories serious_sensitive serious_undetected_probe   # a subset
 ```
-Exit codes: **0** complete, **1** ran but incomplete or with failed checks, **2** could not start (no active model, runtime missing, model damaged, file unreadable) and
-nothing was written or simulated. Output folder: `$E\data\eval\`:
-- `personality_audit_<UTC>.json` and `.md` (full record and human transcript), `personality_suite_<UTC>.json`.
-- `personality_audit_PARTIAL.json` / `personality_suite_PARTIAL.json`: written after every personality, so a crash or Ctrl-C keeps the evidence.
-Every JSON records: model id, file name and size, the model's `meta.json` identity fields, context size, sampling profile, thinking flag, runtime version, OS/Python,
-temperature, max tokens, `simulated_model` (must be `false`), `complete`, `incomplete`, `missing_cases`, `aborted`, `interrupted`. A failed case has `reply: null` and
-`status: failed`; the `.md` prints `[NO REPLY - FAILED ...]` and an INCOMPLETE banner. After 3 consecutive failures a run stops (`aborted`).
+**Which model:** the audit uses exactly the ACTIVE installed model of that `--data-dir` (`models fetch` or `models select`, then confirm with `models list`). It never downloads, never
+switches model and has no cloud code path (tests make any socket use fail the run). One model per run; the model id is printed into every report.
+
+**Exit codes**
+| Code | Meaning | Files |
+|---|---|---|
+| 0 | every case ran and (suite) every check passed | `.json` (+ `.md` for audit) |
+| 1 | ran but INCOMPLETE (a case failed/aborted/Ctrl-C) or (suite) a check failed | `.json` (+ `.md`) with `complete: false` |
+| 2 | could not start: no active model, runtime missing, model damaged/unreadable. Nothing simulated | none |
+| 3 | finished but the report could not be written (disk full, permissions, bad folder) | the run's own `*_PARTIAL.json` if it could be written |
+
+**Files** in `$E\data\eval\`: `personality_audit_<UTC>.json|.md`, `personality_suite_<UTC>.json`. Files are only ever *created*: a re-run (even in the same second) gets a new
+name (`_1`, `_2`, ...); earlier evidence is never overwritten. While a run is going it writes `<same stem>_PARTIAL.json` after each personality (run-specific name); it is deleted only after
+that run's full report was saved. If a run crashes or you press Ctrl-C the partial file stays.
+
+**Failure behaviour (all tested with a scripted failing model):** a case that raises is recorded as failed (`reply: null`, `status: failed`, error TYPE plus a message with file paths replaced by
+`<path>`) and the run goes on; **3 consecutive failures stop the run** (`aborted`); any success resets that counter; Ctrl-C stops cleanly (`interrupted`). A report is `complete: true` only when
+nothing failed, nothing is missing, and it was not aborted or interrupted. `missing_cases` lists what was NOT tested, `incomplete` lists the failures, `checkpoint_errors` any partial-file write problems.
+**An incomplete report is evidence of a problem, not a pass:** keep it, read `incomplete`, and fix the cause (memory, model file, runtime) before comparing anything.
+Every JSON records: model id, file name and size, the model's own `meta.json` identity fields, context size, sampling profile, thinking flag, runtime version, OS/Python, temperature, max tokens,
+`simulated_model` (must be `false`), and the full prompts.
 
 ## 5. How to read the results
 1. **Real vs fake:** open the JSON: `simulated_model: false` and a real `file_name`/`file_bytes`. The unit tests (`unittest discover`) are *always* fake-model; only these two commands touch a real model.
@@ -56,21 +70,34 @@ temperature, max tokens, `simulated_model` (must be `false`), `complete`, `incom
 Keep the whole `eval` folder untouched (copy it). Do not re-run over a failure before copying. Report: commit, model id/file/size/sha256 (`models verify`), command line, exit code, the INCOMPLETE banner, the JSON `incomplete` list, the console output, and the Windows event/crash text if any. A failed case is a finding about the model/runtime, not something to retry silently.
 
 ## 7. Outstanding validation matrix (nothing below is marked complete)
-| # | Item | Already verified by code/tests (fakes) | Needs real execution | Needs weights/audio | Success looks like |
+Evidence key: **S** = source inspection only; **F** = automated tests using fakes/stand-ins (scripted model, fake speaker/mic, stand-in Qt); **H** = actual hardware/Windows/real-model execution. No row has H today.
+| # | Item | Evidence today | Missing prerequisites | Exact procedure | Success criteria |
 |---|---|---|---|---|---|
-| 1 | Real inference path | engine wrapper, integrity, failure handling, audit fail-closed | Windows/Linux with llama-cpp-python | GGUF (Qwen3 etc.) | `selftest` passes; `persona suite` complete; replies are coherent, no cloud call |
-| 2 | Stage 5 intel/security benchmarks | runners, scorers, bookkeeping | real run per `STAGE5_VALIDATION_RUNBOOK.md` | GGUFs | complete (exit 0) result files, raw vs app-visible separated; target stated honestly even if missed |
-| 3 | Personality quality (17) | wiring only | `persona audit` | one model | rubric filled; distinctness flags reviewed; findings listed |
-| 4 | Five controls effect | levels, limits, persistence | `persona audit` control sweeps | one model | humans see min/max differences; limits documented where not |
-| 5 | Real PySide6 Personality page | stand-in wiring | Windows + PySide6 (`JARVIS_QT_TEST=1` smoke, then manual checklist in STAGE7_AUDIT.md) | none | all 17 listed, 4 locked until opt-in, spins -2..2 persist across restart, no crash on corrupt file |
-| 6 | SAPI speech | speaker interface, rate clamping, errors | Windows 11 speakers | none | audible speech; Stop silences at once; Calm slower, Concise faster, bounded 50-200 % |
-| 7 | Kokoro | state machine, download policy, errors, no silent fallback | Windows + `.[kokoro]` | Kokoro model + voices files (user-consented download) | af_heart/af_aoede/af_nicole/am_onyx audible if the voices file lists them; missing/damaged states shown; no fallback to SAPI without choice |
-| 8 | Microphone, wake word, push-to-talk, hands-free | scripted mic/recogniser | Windows mic + Vosk | Vosk model | mic indicator accurate; mute/Stop/PTT work; nothing records while off |
-| 9 | Windows packaging/installer | manifest/preflight logic | Windows build | none | installer builds, installs, `jarvis.exe runtime --require` passes (Stage 8 territory; not started) |
+| 1 | Real local-model loading and inference | S+F (engine wrapper, integrity checks, failure handling) | Windows or Linux PC with `llama-cpp-python==0.3.36`; a verified GGUF | `runtime --require`; `models fetch qwen3-1.7b-q4_k_m --yes`; `models verify <id>`; `selftest`; `chat "Say hello"` | selftest passes; coherent reply; load time and tokens/s recorded; no network after download |
+| 2 | Stage 5 response quality and performance | S+F (runners, scorers, bookkeeping; old CI numbers are stale) | same + 25 GB free disk | `STAGE5_VALIDATION_RUNBOOK.md` section 3: `bench-intel --model <id> --sampled-runs 0 --max-tokens 512 ...`, `bench-security`, `perf` | exit 0 result files per model; raw vs app-visible separated; whatever the score, it is reported as measured |
+| 3 | Personality distinctness and control effectiveness | F (prompt wiring, limits, persistence) | one real model | section 4 commands, then section 5 reading and rubric | rubric filled by a person; distinctness flags reviewed; each control judged per mode; limitations written down |
+| 4 | Real PySide6 Personality page | F (stand-in Qt wiring) | Windows 11, `pip install -e ".[ui]"` or PySide6 | `set JARVIS_QT_TEST=1` then unittest `test_p10_ui_static`; then the Windows checklist in STAGE7_AUDIT.md | 17 modes listed, 4 locked until opt-in, spins -2..2 persist across restart, corrupt file recovers with a note |
+| 5 | Windows SAPI playback | F (fake speaker; rate bounds, errors) | Windows 11 with an installed SAPI voice and speakers | Voice page: pick a SAPI voice, Preview, Stop; read a reply aloud in Calm and in Concise | audible speech; Stop silences at once; Calm slower, Concise faster; speed stays within 50-200 % |
+| 6 | Kokoro loading, synthesis, playback | F (state machine, consented download via policy, errors, no silent fallback) | Windows, `pip install -e ".[kokoro]"`, Kokoro model + voices files, speakers | Voice page: Install (consent) or Check; Preview `af_heart`, `af_aoede`, `af_nicole`, `am_onyx` | model loads without freezing the window; voices listed only if the voices file has them; audible; Stop works; failure shows two recovery choices and never plays SAPI unasked |
+| 7 | Microphone selection and speech recognition | F (scripted mic and recogniser) | Windows mic, `.[voice]`, a Vosk model | Voice page: choose device, push-to-talk, say a short sentence | chosen device used; text appears; mic indicator accurate; nothing records while off |
+| 8 | Wake phrase, mute, cancellation, shutdown | F (scripted) | same as 7 | enable wake word; say the phrase; mute; Stop during speech; close the window during listening/speaking | wake only with the phrase; mute stops capture; Stop silences within ~1 s; clean exit, no orphan process |
+| 9 | Windows EXE and installer | S+F (manifest, preflight, build scripts) | Windows build PC (PyInstaller, Inno Setup) | `WINDOWS_BUILD_GUIDE.md`; `build_installer.bat`; `jarvis.exe runtime --require` | installer builds; frozen exe starts; checks pass. (Stage 8 territory, not started) |
+| 10 | Clean-machine install, startup, recovery | S (docs) | a Windows PC/VM with no Python | `WINDOWS_TEST_CHECKLIST.md` sections 10-12 | installs, first run works, damaged settings/model/memory recover with understandable messages, uninstall leaves user data as documented |
 
-## 8. Safety detector limitations and improvement strategy
-`personality/safety.py` is a **keyword/regex heuristic** biased to the safe side. It is not a clinical or emergency classifier and is **not comprehensive**.
-- Measured on 20 author-written paraphrases before this change: 3/20 detected; after extending patterns, 17/20. The three still missed (`everything feels pointless`, `I want to vanish`, `my dad keeps shouting and throws things at me`) are ambiguous or would cause many false alarms. The patterns were written while looking at those same 20 phrases, so 17/20 is a **tuning-set** figure that overstates real recall; it is not a validated benchmark.
-- Known failure modes: unusual phrasing, other languages, euphemisms, typos, context spread across turns, sarcasm (false alarms and misses), long messages.
-- When it misses, the only remaining protection is the model following the style rules ("drop the style when the topic is serious") and the harmful-phrase output guard. `persona audit` category `serious_undetected_probe` exists to look at that second layer with a real model.
-- Safe, testable improvement strategy: (1) keep a labelled corpus (must-fire / must-not-fire) in `tests/test_p48_audit_regressions.py::DistressCoverage` and add every real miss there with its false-alarm twin; (2) track recall and false-alarm counts per release in the changelog; (3) review phrasing in multiple languages with fluent speakers before claiming support; (4) consider multi-turn context (a distress message keeps the override for the next turn) as a separately specified behaviour with its own tests; (5) never remove the kind-but-plain override or the 988/emergency wording; (6) any ML classifier would need a labelled held-out set and must run locally.
+## 8. Safety detector: measurement, limits, strategy
+`personality/safety.py` is a **keyword/regex heuristic** biased to the safe side. It is not a clinical or emergency classifier and **not comprehensive**. Phrase sets live in `tests/safety_corpus.py`.
+| Set | What it is | Result |
+|---|---|---|
+| DEV | phrases used while writing the patterns | all fire (tuned: proves nothing) |
+| ROUND1 | first held-out set, measured BEFORE tuning | **9/23 must-fire detected (39 %)**, 4/30 ordinary sentences fired (13 %). Then used to generalise the patterns, so it is now tuned data |
+| HELDOUT (round 2) | written after that tuning, never used to adjust patterns | **10/23 must-fire detected (44 %, 95 % interval 26-63 %)**, **0/30 false alarms (interval 0-11 %)**, 0/10 ordinary technical-frustration sentences fired; 1/6 deliberately ambiguous statements fired |
+Missed in HELDOUT: goodbye notes, giving things away, "no reason to keep living", "the world would be fine if I was gone", sleeping pills "a few minutes ago", imagining one's own funeral, "afraid of what I might do to myself", "nothing left for me", an unwell baby ("limp"), "turning blue", engine fire, crushing chest pain with arm numbness, being hit by a car.
+**Conclusion: with sets this small (23 and 30 items, one author, English only, invented phrases) no accuracy claim is supportable. The only defensible statement is that recall on unseen phrasing was roughly 40-45 % in this sample and false alarms on ordinary and technical frustration were low.** Treat the detector as a first layer only.
+What keyword matching cannot reliably detect: paraphrase and euphemism, indirect or hinted intent, context spread over several messages, other languages, typos and slang, sarcasm and figurative use (it errs both ways), descriptions of a situation rather than a feeling ("the baby is limp"), and anything it was not written for.
+Second layer: the style rules tell the model to drop the style on serious topics, and the output guard blocks harmful phrases; neither is validated with a real model. `persona audit` category `serious_undetected_probe` shows how each personality behaves when the detector does not fire. **Edgy and adult-only styles (Savage, Flirty, Sexy, Romantic) are the riskiest while that probe is unreviewed.**
+Safe, testable improvement strategy: (1) keep adding real misses (with their false-alarm twins) to a NEW held-out set, never tuning on the current one; (2) report recall and false alarms separately each release; (3) native-speaker review before claiming another language; (4) specify multi-turn behaviour (keep the override for the next turn) as its own tested feature; (5) never weaken the plain, kind override or the emergency wording; (6) any learned classifier must run locally and be judged on a held-out set.
+
+## 9. Settings recovery behaviour (Stage 7 gate)
+`persona.json` is checked field by field on load. An invalid field is reset to its default and every other valid field is kept, with a visible note naming what was reset. Safety order: the adult
+opt-in must be the JSON value `true` (strings and numbers are rejected); an adult style without a valid opt-in becomes Normal; if the style or the opt-in was damaged, saved intensities
+(roast, profanity, flirt, ...) are also reset to their gentle defaults. A file that is not a JSON object, unreadable, or written by a newer program (`schema_version` too high) gives plain Normal.
