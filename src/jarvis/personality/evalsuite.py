@@ -61,6 +61,28 @@ def safe_error(exc: BaseException, limit: int = 200) -> str:
     return f"{type(exc).__name__}: {msg[:limit]}".rstrip(": ")
 
 
+def scrub(obj):
+    """Recursively removes file-system paths (which can hold a user name) from every string in a report fragment."""
+    if isinstance(obj, str):
+        return _PATHLIKE.sub("<path>", obj)
+    if isinstance(obj, dict):
+        return {k: scrub(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [scrub(v) for v in obj]
+    return obj
+
+
+def evidence_status(report: dict) -> str:
+    """One plain sentence saying what a report is. Never says more than the report proves: automated, not human-reviewed, and only for the identified model."""
+    if report.get("simulated_model"):
+        return "SIMULATED: scripted fake model. This is program-behaviour testing only and is NOT evidence about any real model or personality quality."
+    base = "REAL MODEL, " + ("COMPLETE" if report.get("complete") else "INCOMPLETE (failed, missing, aborted or interrupted cases: not a pass)")
+    skipped = report.get("not_run") or []
+    if skipped:
+        base += f" - {len(skipped)} case(s) NOT RUN (no harness for them), so those behaviours are untested"
+    return base + ": automated measurements only; NOT human-reviewed; says nothing about personality quality until a person has read the transcripts, and applies only to the model identified in this report."
+
+
 def write_new(directory: Path, stem: str, suffix: str, text: str) -> Path:
     """Create a NEW file; never overwrite an existing one (exclusive create, numbered if the name is taken)."""
     directory = Path(directory)
@@ -259,15 +281,18 @@ def run(assistant, *, styles=None, scenarios=None, simulated: bool, voice=None, 
     done = {(r["style"], r["scenario"]) for r in results}
     missing = [f"{s}/{c}" for s in ids for c in scs if (s, c) not in done]
     errors = [f"{r['style']}/{r['scenario']}: {r['error']}" for r in results if r["status"] == "error"]
-    return {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": getattr(assistant, "model_id", None),
+    rep = {"generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "simulated_model": bool(simulated), "model": getattr(assistant, "model_id", None),
             "scenarios": scs, "styles": ids, "restricted_not_evaluated": locked, "total": len(results), "run": len(run_),
             "passed": sum(1 for r in run_ if r["passed"]), "failed": [f"{r['style']}/{r['scenario']}" for r in run_ if not r["passed"]],
             "errors": errors, "checkpoint_errors": ckerrors, "missing_cases": missing, "aborted": aborted, "interrupted": interrupted,
             "complete": not errors and not missing and not aborted and not interrupted,
+            "human_reviewed": False,
             "not_run": [f"{r['style']}/{r['scenario']}" for r in results if r["status"] == "not_run"], "results": results,
             "needs_human_review": ["Whether each reply actually sounds like the personality (tone, wit, warmth, rhythm).",
                                    "Whether a small model follows the behaviour spec rather than ignoring it.",
                                    "Charm and human-likeness: not measured by any automatic check."]}
+    rep["evidence_status"] = evidence_status(rep)
+    return rep
 
 
 def save(report: dict, data_dir: Path) -> Path:

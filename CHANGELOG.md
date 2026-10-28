@@ -143,3 +143,6 @@ The four adult-only modes (Savage, Flirty, Sexy, Romantic) are temporarily restr
 
 ## Adult-mode restriction security audit
 Review-only unlock replaced: `Persona.review_scope()` (thread-bound, nestable, exception-safe, read-only `review_unlock`, no disk writes during a review) instead of a mutable attribute that selfcheck did not re-lock on error. New tests test_p57 (29): load-path type attacks, controller/CLI/flag acceptance, threads, Ctrl-C, nested scopes, helper isolation. docs/STAGE7_RESTRICTION_AUDIT.md lists every selection path. Detector and frozen sets untouched. Real model, PySide6, Windows, audio NOT run.
+
+## Post-fix review
+Persona.preview() no longer publishes the prompt of a restricted style (described + reason only). Audit/suite reports gain evidence_status and human_reviewed=false; model identity scrubbed of paths. test_p58 (11). Restriction constant, detector and frozen datasets untouched. Real model, PySide6, Windows, audio NOT run.

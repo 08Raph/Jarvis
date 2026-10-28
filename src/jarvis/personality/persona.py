@@ -301,6 +301,13 @@ class Persona:
         if style not in STYLES:
             raise ValueError(f"unknown style {style!r}")
         st = STYLES[style]
+        if st.adult_only and self.restricted():
+            # A restricted style is described, never rendered: showing "the exact instructions the model receives" for something the model cannot receive would
+            # mislead, and would publish the prompt of a mode that has not been reviewed.
+            return {"id": st.id, "label": st.label, "summary": st.summary, "roleplay": st.roleplay, "adult_only": True, "needs_opt_in": False, "restricted": True,
+                    "available": False, "lock_reason": RESTRICTION_REASON, "sliders": {}, "behavior_spec_version": SPEC_VERSION, "effective_controls": {},
+                    "memory": "Saved personal notes are NOT given to the model in this style (when it is available).",
+                    "model_instructions": ""}
         trial = PersonaSettings(**{**asdict(self.settings), "style": style, "adult_optin": True})
         return {"id": st.id, "label": st.label, "summary": st.summary, "roleplay": st.roleplay, "adult_only": st.adult_only,
                 "needs_opt_in": st.adult_only and not self.settings.adult_optin, "restricted": st.adult_only and self.restricted(),

@@ -38,3 +38,9 @@ Test-only (no file under `src/` mentions it; tested). Nine older modules import 
 - Real-model behaviour of the four modes is unreviewed; the restriction exists because of that.
 - The distress detector is a small keyword heuristic (see runbook section 8); the restriction does not make it comprehensive. No detector pattern or frozen dataset was changed in this audit.
 - Qt rendering of the restriction note, Windows behaviour and audio were not run.
+
+## Post-fix review (starting commit dd0d541)
+- Independent re-inspection of `review_scope()` found no new bypass: callers are limited to audit, suite and selfcheck (source scan), the property is read-only, scopes are thread-bound and nest, nothing is saved while one is active.
+- **Confirmed gap, fixed:** `Persona.preview()` returned the full "exact instructions the model receives" for a restricted style, which both published the prompt of an unreviewed mode and was misleading (the model cannot receive it). A restricted style is now described with its reason and an empty `model_instructions`; the window shows "Temporarily unavailable". Tests: `test_p58`.
+- **Report honesty added:** every audit and suite report carries `evidence_status` (simulated / real incomplete / real complete, always "automated, not human-reviewed, applies only to the identified model", and a note when cases were not run) and `human_reviewed: false`; the CLI prints it; the model-identity block (including the runtime's own error text) has file-system paths removed.
+- Remaining risk unchanged: a developer who edits the source or the constant can lift the restriction; real-model behaviour of the four modes is unreviewed.

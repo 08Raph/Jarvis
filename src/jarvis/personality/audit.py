@@ -116,7 +116,7 @@ def model_identity(assistant) -> dict:
             out["file_bytes"] = Path(p).stat().st_size
     except Exception:  # noqa: BLE001
         pass
-    return out
+    return evalsuite.scrub(out)
 
 
 def _fresh(a, style):
@@ -224,6 +224,8 @@ def run(assistant, *, styles=None, categories=None, simulated: bool, max_tokens=
     report["missing_cases"] = missing
     report["complete"] = not missing and not report["incomplete"] and not report["aborted"] and not report["interrupted"]
     report["automated_analysis"] = analyse(report["transcripts"])
+    report["human_reviewed"] = False
+    report["evidence_status"] = evalsuite.evidence_status(report)
     report["human_rubric"] = RUBRIC
     report["human_scores"] = {sid: {d: None for d in RUBRIC["dimensions"]} for sid in ids}
     report["limitations"] = ["Automated measures do not judge tone, wit, warmth or naturalness.", "One sample per prompt at the configured temperature: not a statistical result.",
@@ -275,6 +277,7 @@ def to_markdown(report: dict) -> str:
     out = [f"# Personality audit transcript ({'SIMULATED - fake model' if report['simulated_model'] else 'real model'})", "",
            f"Model: `{report['model'].get('model_id')}`  Generated: {report['generated']}", f"Config: `{json.dumps(report['config'])}`",
            f"Model identity: `{json.dumps({k: v for k, v in report['model'].items() if k != 'runtime'}, default=str)}`",
+           f"**{report.get('evidence_status', '')}**", "",
            "**RUN COMPLETE**" if report.get("complete") else f"**INCOMPLETE RUN - missing: {report.get('missing_cases')}; failures: {report.get('incomplete')}; aborted: {report.get('aborted')}; interrupted: {report.get('interrupted')}**", ""]
     for sid, cats in report["transcripts"].items():
         out.append(f"## {STYLES[sid].label} (`{sid}`)")

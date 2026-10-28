@@ -977,7 +977,7 @@ def _persona_audit(args, cfg: Config) -> int:
     except OSError:
         pass
     an = rep["automated_analysis"]
-    print(f"Saved: {j}\nTranscript for human rating: {m}\nAutomated flags: {len(an['pairs_with_overlap_0.7_or_more'])} very similar reply pairs, "
+    print(f"{rep['evidence_status']}\nSaved: {j}\nTranscript for human rating: {m}\nAutomated flags: {len(an['pairs_with_overlap_0.7_or_more'])} very similar reply pairs, "
           f"{len(an['repeated_openers_3plus_times'])} personalities with repeated openers. These do not judge quality; read the transcript.")
     if not rep["complete"]:
         print(f"INCOMPLETE: {len(rep['missing_cases'])} case(s) not tested, {len(rep['incomplete'])} failure(s), aborted={rep['aborted']}, interrupted={rep['interrupted']}. "
@@ -1017,7 +1017,7 @@ def _persona_suite(args, cfg: Config) -> int:
         partial.unlink()
     except OSError:
         pass
-    print(f"{rep['passed']}/{rep['run']} scenario checks passed ({len(rep['not_run'])} not run: no voice harness on the command line). Saved: {path}\n"
+    print(f"{rep['evidence_status']}\n{rep['passed']}/{rep['run']} scenario checks passed ({len(rep['not_run'])} not run: no voice harness on the command line). Saved: {path}\n"
           "These checks verify program behaviour only. Open the file and read the replies to judge tone, wit and warmth.")
     if not rep["complete"]:
         print(f"INCOMPLETE: {len(rep['errors'])} error(s), {len(rep['missing_cases'])} case(s) not run, aborted={rep['aborted']}, interrupted={rep['interrupted']}. Keep the file as evidence.", file=sys.stderr)

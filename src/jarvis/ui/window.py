@@ -1347,6 +1347,10 @@ class MainWindow(QMainWindow):
         except Exception as e:  # noqa: BLE001
             self.error_box(e)
             return
+        if pv.get("restricted"):
+            self.persona_text.setHtml(f"<h3>{html.escape(pv['label'])}</h3><p>{html.escape(pv['summary'])}</p>"
+                                      f"<p><b>Temporarily unavailable:</b> {html.escape(pv['lock_reason'])}</p>")
+            return
         lock = "<p><b>Locked:</b> needs the adult opt-in.</p>" if pv["needs_opt_in"] else ""
         self.persona_text.setHtml(f"<h3>{html.escape(pv['label'])}</h3><p>{html.escape(pv['summary'])}</p>{lock}<p>{html.escape(pv['memory'])}</p>"
                                   f"<p><b>Instructions the model receives:</b></p><pre>{html.escape(pv['model_instructions'])}</pre>")
