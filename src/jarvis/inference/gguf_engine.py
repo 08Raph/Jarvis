@@ -3,9 +3,11 @@ No network access. UNTESTED against a real model in the authoring sandbox (no ru
 `jarvis selftest` performs the real check on the user's PC. Tests here use a fake runtime to verify our own logic only."""
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Callable, Iterator
@@ -13,6 +15,8 @@ from typing import Callable, Iterator
 SAMPLING_PROFILES = ("default", "publisher")
 DEFAULT_SAMPLING_PROFILE = "default"
 _THINK = re.compile(r"<think>.*?</think>\s*", re.S)
+CLOSE_WAIT_SECONDS = 5.0          # how long close() waits for a reply that is still being generated before it leaves the native free to the garbage collector
+_LOCK_INIT = threading.Lock()
 
 
 class InferenceError(RuntimeError):
@@ -182,62 +186,100 @@ class GGUFEngine:
             msgs[-1]["content"] = msgs[-1]["content"] + " /no_think"
         return fit_messages(msgs, max(256, self.n_ctx - max_tokens - 64), self._count)
 
+    def _lock_object(self) -> threading.Lock:
+        """One lock per engine. llama-cpp-python's Llama object is NOT thread-safe (its own server serialises every request with a lock), so
+        two replies, a summary and a reply, or a reply and a shutdown must never reach the same model object at the same time."""
+        lk = self.__dict__.get("_gen_lock_obj")
+        if lk is None:
+            with _LOCK_INIT:
+                lk = self.__dict__.setdefault("_gen_lock_obj", threading.Lock())
+        return lk
+
+    @contextlib.contextmanager
+    def _generating(self):
+        """Serialise generation on this engine. A second caller on ANOTHER thread waits its turn; a nested call on the SAME thread (it would wait
+        for itself forever) is refused with a clear error instead of hanging."""
+        me = threading.get_ident()
+        if self.__dict__.get("_gen_owner") == me:
+            raise InferenceError("The local model is already producing a reply on this thread. Finish or stop that reply first.")
+        lk = self._lock_object()
+        lk.acquire()
+        try:
+            self.__dict__["_gen_owner"] = me
+            yield
+        finally:
+            self.__dict__["_gen_owner"] = None
+            lk.release()
+
     def close(self) -> None:
         """Free the model's memory NOW (llama-cpp-python's own Llama.close()) instead of waiting for garbage collection: an 8B model is over 5 GB, and two
-        copies alive at once (a model switch, a restart, a verification run) can exhaust a 16 GB PC. Safe to call twice; the engine cannot generate afterwards."""
-        llm, self.llm = getattr(self, "llm", None), None
+        copies alive at once (a model switch, a restart, a verification run) can exhaust a 16 GB PC. Safe to call twice; the engine cannot generate afterwards.
+        New requests are refused immediately. If a reply is still being generated, the native object is not freed underneath it: close() waits up to
+        CLOSE_WAIT_SECONDS for it to end and otherwise only drops its reference, so the memory is returned as soon as that reply finishes."""
+        with _LOCK_INIT:                  # the swap is one step, so two threads closing at once cannot both get the model object
+            llm, self.llm = getattr(self, "llm", None), None
         closer = getattr(llm, "close", None)
-        if callable(closer):
-            try:
-                closer()
-            except Exception:      # noqa: BLE001 - shutting down must never raise; the reference is dropped either way
-                pass
+        if not callable(closer):
+            return
+        lk = self._lock_object()
+        if self.__dict__.get("_gen_owner") == threading.get_ident() or not lk.acquire(timeout=CLOSE_WAIT_SECONDS):
+            return
+        try:
+            closer()
+        except Exception:      # noqa: BLE001 - shutting down must never raise; the reference is dropped either way
+            pass
+        finally:
+            lk.release()
 
     def _require_loaded(self) -> None:
         if getattr(self, "llm", None) is None:
             raise InferenceError("The local model has been shut down. Start it again to continue.")
 
     def chat(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> str:
-        self._require_loaded()
-        try:
-            r = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
-                                                temperature=temperature, **self._gen_kwargs(temperature))
-        except Exception as e:  # noqa: BLE001
-            raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
-        out = strip_thinking(r["choices"][0]["message"]["content"] or "")
-        self._note(r, out)
-        return out
+        with self._generating():
+            self._require_loaded()
+            llm = self.llm
+            try:
+                r = llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
+                                               temperature=temperature, **self._gen_kwargs(temperature))
+            except Exception as e:  # noqa: BLE001
+                raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
+            out = strip_thinking(r["choices"][0]["message"]["content"] or "")
+            self._note(r, out)
+            return out
 
     def stream(self, messages: list[dict], max_tokens: int = 512, temperature: float = 0.7) -> Iterator[str]:
-        self._require_loaded()
-        buf, in_think = "", False
-        try:
-            chunks = self.llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
-                                                     temperature=temperature, stream=True, **self._gen_kwargs(temperature))
-        except Exception as e:  # noqa: BLE001
-            raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
-        for chunk in _guard_stream(chunks):
-            piece = chunk["choices"][0].get("delta", {}).get("content") or ""
-            buf += piece
-            # hide any <think>...</think> block even if the model ignores /no_think
-            while True:
-                if in_think:
-                    if "</think>" in buf:
-                        buf = buf.split("</think>", 1)[1].lstrip()
-                        in_think = False
+        with self._generating():          # held until the reply ends, is stopped (the generator is closed) or fails
+            self._require_loaded()
+            llm = self.llm
+            buf, in_think = "", False
+            try:
+                chunks = llm.create_chat_completion(messages=self._prepare(messages, max_tokens), max_tokens=max_tokens,
+                                                    temperature=temperature, stream=True, **self._gen_kwargs(temperature))
+            except Exception as e:  # noqa: BLE001
+                raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
+            for chunk in _guard_stream(chunks):
+                piece = chunk["choices"][0].get("delta", {}).get("content") or ""
+                buf += piece
+                # hide any <think>...</think> block even if the model ignores /no_think
+                while True:
+                    if in_think:
+                        if "</think>" in buf:
+                            buf = buf.split("</think>", 1)[1].lstrip()
+                            in_think = False
+                            continue
+                        buf = buf[-8:] if len(buf) > 8 else buf
+                        break
+                    if "<think>" in buf:
+                        out, buf = buf.split("<think>", 1)
+                        if out:
+                            yield out
+                        in_think = True
                         continue
-                    buf = buf[-8:] if len(buf) > 8 else buf
+                    keep = 7                      # hold back a possible partial "<think>" tag
+                    if len(buf) > keep:
+                        yield buf[:-keep]
+                        buf = buf[-keep:]
                     break
-                if "<think>" in buf:
-                    out, buf = buf.split("<think>", 1)
-                    if out:
-                        yield out
-                    in_think = True
-                    continue
-                keep = 7                      # hold back a possible partial "<think>" tag
-                if len(buf) > keep:
-                    yield buf[:-keep]
-                    buf = buf[-keep:]
-                break
-        if not in_think and buf:
-            yield buf
+            if not in_think and buf:
+                yield buf
