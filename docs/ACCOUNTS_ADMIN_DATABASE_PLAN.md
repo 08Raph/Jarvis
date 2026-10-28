@@ -1,8 +1,9 @@
 # Accounts, admin panel and online database: preparation plan
 
 **Status: PLANNING ONLY. Nothing in sections 2 to 10 is implemented.** Every table, policy, endpoint, role, job and deadline below is
-**PLANNED, NOT IMPLEMENTED** unless a line says `[EXISTS]`. No Supabase project exists, no Supabase code, dependency, credential or
-migration is in this repository, and nothing here has been tested. Written 2026-10-28 against commit `3cc23ff`.
+**PLANNED, NOT IMPLEMENTED** unless a line says `[EXISTS]`. A Supabase project named "Jarvis" **already exists** (created 2026-10-28 02:27 UTC, healthy, and
+empty when checked read-only on 2026-10-28: 0 auth users, 0 auth sessions, no tables in `public`). No Supabase code, dependency, credential or
+migration is in this repository, and nothing here has been tested. The earlier wording "no Supabase project exists" was an unverified claim and was wrong. Written 2026-10-28 against commit `3cc23ff`.
 
 Labels used: `[EXISTS]` verified in the repository at that commit; `[PLANNED]` proposed only; `[DECISION]` needs the owner (or a lawyer);
 `[UNVERIFIED]` could not be confirmed from official documentation or the repository.
@@ -50,7 +51,7 @@ admin audit trail, a date of birth or age band, entitlements for restricted feat
 - `src/jarvis/security/signing.py` already provides Ed25519 signatures over canonical JSON (used for update manifests). It is a candidate for signed entitlement tokens (section 4.6).
 - Adult personality styles carry `adult_only=True` and are blocked locally by the constant `ADULT_MODES_RESTRICTED = True` in `src/jarvis/personality/styles.py`. There is **no** age or date-of-birth logic anywhere in the client.
 - A grep of the repository for "supabase" returned no matches in code, configuration, tests or docs before this document was added.
-- The Supabase MCP tools available in the authoring session were **not used**. All Supabase facts below come from official documentation pages read on 2026-10-28.
+- The Supabase connector tools were **not used while this plan was written**. After it was first committed they were used **once, read-only** (2026-10-28): list organizations, list projects, list tables in the `public` schema, and one aggregate `SELECT` returning only counts of `auth.users`, `auth.sessions` and public tables plus the earliest and latest `auth.users.created_at`. No user records, emails or other contents were read, and nothing was created, changed or deleted. The project's identifier is deliberately not written here because this repository may be public. All Supabase feature, limit and pricing facts below still come from official documentation pages read on 2026-10-28.
 
 ### 1.4 What remains to be built (all `[PLANNED]`)
 Everything in sections 2 to 9: a hosted Postgres project, account sign-up through a managed auth provider, role-based staff access, the moderation and appeal
@@ -307,7 +308,7 @@ Sources: [pricing](https://supabase.com/pricing), [billing guide](https://supaba
 ## 8. Implementation sequence and dependencies `[PLANNED]`
 Prerequisites (not started): the Windows packaging and clean-machine, offline and recovery validation milestones; the real-model personality review; legal review of terms, privacy notice and retention; the decisions in section 10.
 1. **Decisions and legal review** (section 10).
-2. **Local-only schema work:** migration files and RLS test suite run against a local Supabase (CLI plus Docker) or a throwaway Postgres. No hosted project yet.
+2. **Local-only schema work:** migration files and RLS test suite run against a local Supabase (CLI plus Docker) or a throwaway Postgres. No hosted project is used for this step (the existing empty "Jarvis" project is not used for it until the owner decides).
 3. **Auth skeleton:** register, sign in, sign out, confirmation email through a test SMTP; token storage; failure UI.
 4. **Consent and age model:** consent records, age band logic, entitlement table, feature-token issuing, fail-closed client behaviour.
 5. **Admin panel, read only:** staff login with MFA, account directory view, audit viewer.
@@ -353,4 +354,4 @@ Launch is blocked until every item above has a recorded pass; the pass criteria 
 
 ## What was and was not verified for this document
 Verified by reading: repository structure, local SQLite schemas, the existing server's tables and routes, `docs/ONLINE.md`, `docs/TELEMETRY.md`, the age and personality restriction code, and the official Supabase pages listed in section 7.
-Not verified: any behaviour of Supabase itself (no project exists), RLS or role designs, backups and restores, pricing beyond what the pages stated on 2026-10-28, email delivery, legal sufficiency, and anything about the old server beyond what is stated in its own docs.
+Not verified: any behaviour of Supabase itself (a project exists but has no schema, so none of its behaviour was exercised), RLS or role designs, backups and restores, pricing beyond what the pages stated on 2026-10-28, email delivery, legal sufficiency, and anything about the old server beyond what is stated in its own docs.

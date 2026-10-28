@@ -1,4 +1,4 @@
-# Windows build on GitHub-hosted windows-2022 runners. This repository is PRIVATE, so runs use the account's Actions minutes (Windows runners count at a multiplier) and artifacts count against Actions storage - they are not free. A green run proves only what its steps actually checked; read the run's annotations and logs.
+# Windows build on GitHub-hosted windows-2022 runners. Repository visibility can change (it was PUBLIC when last checked on 2026-10-28; do not rely on that): minutes, storage limits and any runner multiplier depend on the repository's visibility and the account's plan, so check Settings and the Billing/Usage pages before running. Artifacts count against Actions storage. A green run proves only what its steps actually checked; read the run's annotations and logs.
 name: build-windows
 permissions:
   contents: read
