@@ -204,6 +204,20 @@ class FirstRunChecklist(AppCase):
         for banned in ("--cloud", "--download", "--api-key", "--force"):
             self.assertNotIn(banned, text)
 
+    def test_the_project_is_installed_before_the_first_jarvis_command_and_exit_codes_are_explicit(self):
+        text = self.DOC.read_text(encoding="utf-8")
+        self.assertLess(text.index("pip install -e ."), text.index("python -m jarvis runtime --require"))
+        self.assertIn("No module named jarvis", text)
+        self.assertIn("SELFTEST PASSED", text)
+        self.assertIn("type `$LASTEXITCODE`", text)
+        self.assertIn('add-gguf "<path-to-file>"', text)
+        self.assertIn("never moved or changed", text)
+
+    def test_selftest_messages_and_codes_quoted_in_the_checklist_exist_in_the_cli(self):
+        src = (Path(__file__).resolve().parent.parent / "src" / "jarvis" / "cli.py").read_text(encoding="utf-8")
+        for needle in ("SELFTEST PASSED", "SELFTEST FAILED", "return 0 if result[\"passed\"] else 3", "\"passed\": False"):
+            self.assertIn(needle, src)
+
     def guest_assistant(self):
         self.install_model()
         FakeLlama.reply = "A scripted reply."

@@ -5,17 +5,20 @@ argument parser (a test parses every `python -m jarvis ...` line in this file); 
 Background and the full rubric: `STAGE7_REAL_MODEL_REVIEW_PROTOCOL.md`, `STAGE7_VALIDATION_RUNBOOK.md`. The four adult-only modes (Savage, Flirty, Sexy, Romantic) stay restricted and are **not** part of this run.
 
 Four separate steps, never mixed: **A. install the runtime, B. select a model, C. run the audit, D. review the transcripts by hand.**
-Use PowerShell in the repository folder. `$E` is a throw-away folder so none of your own data is involved.
+Use PowerShell in the repository folder (the folder that contains `pyproject.toml`). The PowerShell syntax here (`$E`, `$E\data`, `$LASTEXITCODE`) could not be executed by the author; the Python-side commands were. `$E` is a throw-away folder so none of your own data is involved.
 
-## A. Python and the runtime (same interpreter for everything)
+## A. Python, the project, and the runtime (same interpreter for everything)
 ```
 python --version                                                  # 3.11 to 3.13
 python -c "import sys; print(sys.executable)"                    # note which Python this is; use only this one for every command below
-python -m pip show llama-cpp-python                              # "Version: 0.3.36" is the pinned one; "not found" = step A is not done
+pip install -e .                                                  # installs the PROJECT itself (from the repository folder). Without it every "python -m jarvis" below fails with "No module named jarvis"
+python -m pip show llama-cpp-python                              # "Version: 0.3.36" is the pinned one; "not found" = the runtime is not installed yet
 python -m jarvis runtime --require                               # must print "available": true, and exits 0
 ```
-If `runtime --require` prints `available: false` or exits 3, **stop**. Install the runtime into THAT Python (the project's own extra is `pip install -e ".[local]"`; Jarvis never installs it for you),
-then run the check again. `pip show` succeeding in a different Python proves nothing: `python -m jarvis runtime` uses the interpreter you ran it with.
+Instead of `pip install -e .` you can run from the repository folder with `$env:PYTHONPATH = "src"` set in that PowerShell window (this was the only way the commands were exercised on Linux).
+`pip install` uses the network to fetch packages; it is the only step in this file that does, and it never fetches a model.
+If `runtime --require` prints `available: false` or exits 3, **stop**. Install the runtime into THAT Python (the project's own extra is `pip install -e ".[local]"`, which also installs the project; Jarvis never installs it for you),
+then run the check again. If the `llama-cpp-python` wheel will not install, see "Windows 11 build" in `docs/LOCAL_MODEL.md` (Python 3.12, or Visual Studio Build Tools + CMake). Whether a prebuilt Windows wheel exists for the pinned version could not be confirmed from the authoring environment. `pip show` succeeding in a different Python proves nothing: `python -m jarvis runtime` uses the interpreter you ran it with.
 The check prints the error text if the import fails; it can contain a local path.
 
 ## B. A model that is already installed and selected
@@ -26,9 +29,13 @@ python -m jarvis --data-dir $E\data models verify <id>           # {"ok": true}
 python -m jarvis --data-dir $E\data selftest                     # REAL load + generate test of the active model (needs step A)
 ```
 `--data-dir` goes before the subcommand. `models list` prints ids, sizes, hashes and licence, not folder paths, and no secrets; it is safe to read, but still read it before pasting it anywhere.
-If you only have a `.gguf` file and it is not installed yet, install your own copy (no download, licence text or URL required):
-`python -m jarvis --data-dir $E\data models add-gguf <path-to-file> --id <id> --license <SPDX id> --license-url <url> --sha256 <trusted hash>` (or `--accept-unverified` if you have no trusted hash).
+If you only have a `.gguf` file and it is not installed yet, install your own copy (nothing is downloaded; your original file is copied, never moved or changed, and needs one extra full copy of free disk space). A licence id plus a licence file or URL is required:
+`python -m jarvis --data-dir $E\data models add-gguf "<path-to-file>" --id <id> --license <SPDX id> --license-url <url> --sha256 <trusted hash>` (or `--accept-unverified` if you have no trusted hash).
+Put the path in double quotes (`"C:\Models\my model.gguf"`); a path with spaces and no quotes is read as several arguments. Keep the data folder path free of spaces, or quote it everywhere.
+Compatibility is not checked by the program ahead of time: use an instruction/chat-tuned GGUF that llama-cpp-python 0.3.36 can load (the project's tested default is Qwen3-1.7B Q4_K_M, never run here). `selftest` is the real compatibility test; an unsupported file fails there.
 `models select <id>` changes the active model. The audit uses the ACTIVE model only. It never downloads, never switches models and has no cloud fallback.
+Right after `selftest`, run `$LASTEXITCODE` (type exactly that and press Enter). `0` and the console line `SELFTEST PASSED` are both required. `3` / `SELFTEST FAILED` means the model did not load or produced no text; `2` means no model is selected.
+"Passed" here only means the model loaded and returned non-empty text; look at `answer` in the printed JSON (a sensible reply to "2+2" is `4`). It writes `selftest.json` into `$E\data` and prints the runtime error text if there was one, which can contain a local path.
 **Stop here** if `selftest` fails to load the model, prints nothing, or exits non-zero: fix that first; an audit on a model that does not load is exit code 2 and writes no report.
 
 ## C. The first, limited run
@@ -46,7 +53,7 @@ Do not run `persona suite` or an audit of all styles until you have reviewed thi
 | exit code 1, `INCOMPLETE` on the console | a case failed, was empty, aborted (3 failures in a row), or you interrupted it |
 | exit code 3 | finished but the report could not be written; look for `*_PARTIAL.json` in `$E\data\eval` |
 | replies that are empty, only a label, or garbage | counted as failed cases, never as answers; do not "fix" by rerunning silently |
-Check the exit code right after the run: `$LASTEXITCODE`.
+Check the exit code right after the run: type `$LASTEXITCODE` and press Enter before running anything else (the next command overwrites it).
 
 ## D. Check the report before reading any reply
 Files are in `$E\data\eval\` (`personality_audit_<time>.json` and `.md`). Open the `.json` and confirm, in this order:

@@ -155,3 +155,6 @@ Empty/blank/label-only model replies are now failed cases (previously a report c
 
 ## Real-model validation handoff
 New docs/STAGE7_FIRST_REAL_RUN_CHECKLIST.md: ordered Windows checklist (runtime, model, first limited audit, report checks, stop conditions, redaction). Every command in it is parsed by the real argument parser in test_p60; documented reply counts (36 / 6 with --no-controls) are checked against a real run with the fake model. No code behaviour changed. Real model, PySide6, Windows, audio NOT run.
+
+## Handoff review correction
+First-run checklist: added the missing "install the project" step (python -m jarvis fails with "No module named jarvis" otherwise), explicit $LASTEXITCODE use, selftest pass meaning, path quoting, GGUF compatibility and wheel caveats. Tests in test_p60. No code behaviour changed.
