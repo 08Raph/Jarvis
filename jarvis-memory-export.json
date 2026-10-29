@@ -1,0 +1,40 @@
+{
+  "format": "project-jarvis-memory-export",
+  "version": 1,
+  "exported_at": "2026-10-29T03:17:29.046100+00:00",
+  "storage": "this PC only",
+  "memories": [
+    {
+      "id": 1,
+      "category": "explicit_preference",
+      "key": null,
+      "text": "I prefer short answers",
+      "project": null,
+      "source": "user_said",
+      "confidence": 0.9,
+      "status": "active",
+      "created_at": "2026-10-29T03:17:28.472155+00:00",
+      "updated_at": "2026-10-29T03:17:28.472155+00:00",
+      "expires_at": null,
+      "last_used_at": null,
+      "use_count": 0,
+      "meta": {},
+      "expired": false
+    }
+  ],
+  "workflow_runs": [],
+  "learning_log": [
+    {
+      "id": 1,
+      "kind": "memory_update",
+      "detail": "saved #1 (explicit_preference)",
+      "ref_id": 1,
+      "created_at": "2026-10-29T03:17:28.473217+00:00"
+    }
+  ],
+  "signals": [],
+  "conversations": [],
+  "messages": [],
+  "notes": [],
+  "action_log": []
+}

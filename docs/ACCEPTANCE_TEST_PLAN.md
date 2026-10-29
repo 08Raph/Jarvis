@@ -8,7 +8,7 @@
 
 | Area | Evidence level | Where | What is NOT shown |
 |---|---|---|---|
-| Unit logic (2,895 tests) | **Linux CI** (Python 3.12, 2,820 pass, 75 skip) and **Windows CI** (2,787 pass, 108 skip), run 40797911038 on 1545890 | `windows-ci` | Skips are mostly platform/opt-in tests (see section 4) |
+| Unit logic (2,911 tests) | **Linux CI** (Python 3.12: 2,836 pass, 0 fail, 75 skip) and **Windows CI** (hosted windows-2022: 2,803 pass, 0 fail, 108 skip), run 40809900593 on ed80fd5 | `windows-ci` | 183 skips in total; only about 50 of their reasons are visible (see section 4) |
 | Build, installer | **Windows CI (hosted runner)**: PyInstaller build, release-asset checks, Inno Setup installer built | `scripts/build_windows.ps1` | Never built or run on your own PC |
 | Silent install / uninstall | **Windows CI**: 10 checks pass (install, exe, version 0.6.0, VC++ DLL bundled, bare launch exits 0, offline defaults, "chat without a model" refuses cleanly, no model bundled, uninstall keeps data) | `scripts/clean_install_test.ps1` | Not a clean consumer PC; no SmartScreen/antivirus; no upgrade path |
 | llama.cpp runtime in the packaged app | **Windows CI**: `llama-cpp-python 0.3.36` imports inside the installed app (`available: true`, AVX2) | install check | Import only: no model was loaded through a working file |
@@ -59,7 +59,7 @@ Only AT-01 (on Linux/Windows hosted runners), AT-13's silent install and AT-15 r
 
 - **Opt-in real model** (3 tests in 3 files; `JARVIS_REAL_MODEL_TEST=1` + `JARVIS_REAL_MODEL_PATH`): tool-call parsing, planning, new tools. They stay skipped everywhere until you run them in part 4 of the checklist.
 - **Qt** (`JARVIS_QT_TEST=1`): needs PySide6.
-- **Sandbox / POSIX-only / OCR / PyTorch**: skipped where the platform or tool is missing; the Linux skip count (75) is higher than Windows' for the plugin sandbox (`unshare` is refused on hosted runners).
+- **Everything else skipped.** Windows skips more than Linux (108 vs 75). The reasons visible in the CI annotations (which list only the first 40 skips per job) are: POSIX shell-script stand-ins (p65), no genuine plugin sandbox on win32, `PyYAML is not installed`, the POSIX-only process-group kill test (Windows); on Linux, the plugin sandbox, because `unshare` is refused on the hosted runner. The rest of the 183 are not itemised anywhere I can read. **`PyYAML is not installed` matters:** the tests that parse `windows-ci.yml` (shape and timeout nesting) are skipped on Windows CI, and most likely on Linux CI too (its install step has no PyYAML; its skip list is cut off before that point), so those workflow-shape checks have only run on the author's machine.
 
 ## 5. Known unexplained items
 
@@ -84,5 +84,16 @@ These steps were run with the real CLI against a synthetic one-tensor GGUF, on a
 | plan test 04: one byte flipped in the installed copy | `jarvis models verify <id>`: `model.gguf: hash mismatch`, exit **3**; `selftest`: `Model failed its integrity check`, exit 3, no worker started, no report written |
 | plan test 04: model file renamed away | `jarvis chat hello`: `failed its integrity check: ['model.gguf: missing']`, exit 3, no reply text |
 | `jarvis chat hello` with the runtime absent | plain message naming the missing runtime, exit 2 |
+
+More steps run the same way (real CLI, Linux, no model, throw-away data folder):
+
+| Step | Observed |
+|---|---|
+| plan test 08: `jarvis memory add explicit_preference "<text>"`, `jarvis memory list` | saved as #1, listed with source `user_said`; each CLI call is a separate process, so the item surviving between calls was seen; a GUI close-and-reopen was not tested |
+| plan test 08: a line containing a fake password | **refused** ("looks like a password or secret, so I did not save it"), exit 2; `jarvis memory export` contained no occurrence of it |
+| plan test 08: `jarvis memory forget-all --yes` | reported what was deleted and what was kept (backups, undo points); `memory list` then said "Nothing saved yet." |
+| plan test 09: `jarvis desktop status`, `jarvis desktop allow-folder <folder>`, `jarvis desktop audit` | only the "system" permission on by default; the folder was added. This is the real policy code on the **Linux** backend; no Windows window, click or file action was performed |
+| plan test 12: `jarvis voice devices` without the voice packages | "sounddevice is not installed or PortAudio is missing ... Install with: pip install sounddevice", exit 0; no microphone exists here |
+| `jarvis privacy` | every online feature `false` (model download, update check, telemetry, cloud AI, ...) |
 
 Deterministic tests with a **fake** runtime (they prove our handling, not llama.cpp): `tests/test_p69_engine_malformed_replies.py` (a reply that is not a chat completion becomes `InferenceError`, never a raw `KeyError`; the engine lock is released; shutdown while a reply is streaming does not free the model underneath it), `test_p62` (serialization), `test_p63` (worker crash, hang, cancel, bad reply), `test_local_model` (load failure, damaged `meta.json`).
