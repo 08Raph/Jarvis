@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -56,6 +57,9 @@ def fake_engine_factory(p):
 
 
 class AppCase(unittest.TestCase):
+    # Seconds the safety net below waits for a controller's background tasks before it fails the test NAMING the task.
+    CLEANUP_WAIT = 30.0
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.d = Path(self.tmp.name)
@@ -64,6 +68,34 @@ class AppCase(unittest.TestCase):
         FakeLlama.instances.clear()
         FakeLlama.reply = "Hello from the scripted fake model."
         self.addCleanup(self.tmp.cleanup)
+        # Safety net for the temp-folder cleanup on Windows. AppController.shutdown(timeout) deliberately returns WITHOUT closing memory.sqlite when a task is still
+        # running after `timeout` (it never closes a database a live worker may be using). Most tests call shutdown(1.0); on a slow runner a task can outlive that, the
+        # database stays open, and tmp.cleanup then fails with PermissionError [WinError 32] on memory.sqlite although the test body passed (CI run 40795644979, whose
+        # unit-test step took 661 s against 268-359 s in every other run). Cleanups run last-in-first-out, so this one, registered after tmp.cleanup, runs BEFORE the
+        # folder is deleted: it waits (bounded, by condition) for each controller's tasks and then closes the database, or fails naming the task that never ended.
+        # It never calls shutdown() itself and it cannot hide a failure: assertions inside the test body are unaffected.
+        self._controllers = []
+        from jarvis.app.controller import AppController
+        original = AppController.__init__
+
+        def tracking(ctl, *a, **k):
+            original(ctl, *a, **k)
+            self._controllers.append(ctl)
+        patcher = mock.patch.object(AppController, "__init__", tracking)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._settle_controllers)
+
+    def _settle_controllers(self) -> None:
+        stuck = []
+        for ctl in self._controllers:
+            left = ctl.tasks.shutdown(self.CLEANUP_WAIT)
+            if left:
+                stuck.append(left)
+            elif ctl.assistant is not None:
+                ctl.assistant.close()                      # idempotent: an earlier shutdown() may already have closed it
+        if stuck:
+            raise AssertionError(f"background task(s) still running {self.CLEANUP_WAIT:.0f} s after the test finished: {stuck}")
 
     def install_model(self, mid="fake"):
         store = ModelStore(self.cfg.models_dir)

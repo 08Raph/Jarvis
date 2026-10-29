@@ -161,3 +161,7 @@ First-run checklist: added the missing "install the project" step (python -m jar
 
 ## Home screen HUD and always-on voice (not run on a real screen, microphone or Windows)
 - Added: `ui/hud_model.py`, `ui/hud.py`, a **Home** page (first page; Chat is now Ctrl+2), `VoiceService.live()`, `failure_kind`, `phase`, wake timestamp, `VoiceSession.level` (a number, never audio), `AppController.voice_live()/hud_facts()`, a dark navigation rail. First start on a fresh profile now turns wake-word listening ON (`listening_choice_made`); an explicit OFF/mute is remembered; no microphone is opened without a device and a Vosk model. Tests: `test_p70_hud.py`, `test_p71_hud_qt.py` (skipped without PySide6). See `docs/VOICE.md`.
+
+## Test isolation: Windows temp-folder cleanup (investigation of CI run 40795644979)
+
+- Test-only change. `tests/p10_common.AppCase` now settles every controller created during a test (bounded wait for its tasks, then closes the database) before the temp folder is removed, and fails naming a task that never ends. `tests/test_p72_cleanup_isolation.py` pins the mechanism (shutdown(timeout) deliberately leaves the database open while a task runs) and the safety net, with a negative control. No product code changed. The root cause of the slow Windows runner in that run is NOT established; see docs/ACCEPTANCE_TEST_PLAN.md section 5.
