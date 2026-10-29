@@ -831,7 +831,9 @@ class AppController:
             return None
         svc = self._voice_service()
         if not svc.enabled():
-            return svc.state()
+            if not svc.never_chosen():
+                return svc.state()                     # the user turned it OFF: respected
+            return svc.enable("wake_word")             # first start on a fresh profile: listen for the wake phrase by default. The microphone is opened only AFTER a sound device exists and the Vosk model loads
         return svc.start()
 
     def voice_enable(self, mode: str = "wake_word") -> dict:
@@ -854,6 +856,35 @@ class AppController:
 
     def voice_state(self) -> dict:
         return self._voice_service().state()
+
+    def voice_live(self) -> dict:
+        """In-memory snapshot for the Home screen's animation (many times a second): reads no file, creates nothing, never opens the microphone."""
+        svc = self.voice
+        if svc is None:
+            return {"alive": False, "mic_open": False, "recognizer_loaded": False, "phase": "", "level": 0.0, "wake_age": None}
+        return svc.live()
+
+    def hud_facts(self) -> dict:
+        """What the Home screen's side panels show, every item MEASURED and each guarded on its own (one failing source never blanks the rest).
+        Refreshed every second or two, not per frame. Nothing here loads the model, opens the microphone or uses the network."""
+        out: dict = {"model_ok": False, "model_text": "unknown", "memory_count": None, "online_on": None, "guest": bool(self.guest)}
+        try:
+            ms = self.model_status()
+            out["model_ok"], out["model_text"] = bool(ms.ok), ("Installed and checked (loads on first use)" if ms.ok and self.assistant is None else "Installed and checked" if ms.ok else ms.summary)
+        except Exception:  # noqa: BLE001
+            pass
+        if not self.guest:
+            try:
+                out["memory_count"] = len(self.memory_items())
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            from jarvis.net.policy import FEATURES, NetworkPolicy
+            pol = NetworkPolicy.load(self.cfg.settings_path)
+            out["online_on"] = [f for f in FEATURES if pol.is_enabled(f)]
+        except Exception:  # noqa: BLE001
+            pass
+        return out
 
     def voice_setting(self, **kw) -> dict:
         """Speaking speed / volume for hands-free speech (validated, saved with the voice settings)."""

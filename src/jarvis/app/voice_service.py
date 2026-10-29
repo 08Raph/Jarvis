@@ -30,7 +30,12 @@ SPOKEN_NORMAL = {"return to normal", "back to normal", "go back to normal", "nor
 
 
 class Unavailable(RuntimeError):
-    pass
+    """Voice cannot run. `kind` says what is missing so the window can show the right state: "microphone" (no device, in use, stream failed),
+    "model" (speech recogniser or its model folder) or "other"."""
+
+    def __init__(self, message: str = "", kind: str = "other"):
+        super().__init__(message)
+        self.kind = kind
 
 
 class VoiceService:
@@ -62,6 +67,8 @@ class VoiceService:
         self._rec_loaded = False
         self._preflight_done = False
         self._failure = ""                     # why voice is Unavailable (real reason)
+        self._failure_kind = ""                # "microphone" | "model" | "other" | "" (see Unavailable)
+        self._wake_at: float | None = None     # clock time of the newest wake-phrase event (drives the window's brief "wake detected" flash)
         self._note = ""
         self._cancel_turn = threading.Event()
         self._mic_lock = InstanceLock(Path(cfg.profile_dir) / "mic.lock")
@@ -81,6 +88,10 @@ class VoiceService:
         if self.guest:
             raise ValueError("Voice settings are not saved in a guest session.")
         vs.save(self.path)
+
+    def never_chosen(self) -> bool:
+        """True until the user has turned hands-free ON or OFF at least once (a fresh profile)."""
+        return not self.guest and not self.settings().listening_choice_made
 
     def enabled(self) -> bool:
         return self.settings().input_mode != "off"
@@ -120,7 +131,7 @@ class VoiceService:
                 elif ss == S.MUTED:
                     st, detail = MUTED, "Microphone muted: capture is stopped."
                 elif ss == S.RECOVERING:
-                    st, detail = STARTING, "Microphone problem; retrying. " + (ses.error_message or "")
+                    st, detail = STARTING, "Microphone problem; retrying. " + (ses.error_message or self.last_error or "")
                 elif ss == S.ERROR:
                     st, detail = UNAVAILABLE, ses.error_message or "Microphone unavailable."
                 elif ss == S.SLEEPING:
@@ -129,11 +140,25 @@ class VoiceService:
                     st, detail = STARTING, "Starting..."
         elif vs.input_mode != "off":
             st, detail = OFF, "Hands-free voice is enabled but not running yet."
+        phase = ses.state if (ses is not None and self.alive() and self._preflight_done) else ""
+        kind = self._failure_kind if self._failure else ("microphone" if phase in (S.ERROR, S.RECOVERING) else "")
         return {"state": st, "detail": detail, "mic_open": mic_open, "mode": vs.input_mode, "mic_muted": vs.muted,
+                "phase": phase, "failure_kind": kind,
                 "speaker_muted": vs.speaker_muted, "thread_alive": self.alive(), "recognizer_loaded": self._rec_loaded,
                 "can_retry": st == UNAVAILABLE, "wake_phrase": vs.wake_phrase, "volume": vs.volume, "rate": vs.rate,
                 "note": self.degraded_text_only or self._note, "audio_saved": False, "audio_leaves_device": False,
                 "enabled": vs.input_mode != "off"}
+
+    def live(self) -> dict:
+        """Cheap in-memory snapshot for a window that redraws many times a second: NO file is read and nothing blocks. `level` is the RMS of the newest microphone
+        frame (0 when the stream is closed); it is a number only, never audio. `wake_age` is seconds since the last wake phrase (None if none this run)."""
+        ses = self._session
+        open_ = bool(ses is not None and ses.mic_open)
+        w = self._wake_at
+        return {"alive": self.alive(), "mic_open": open_, "recognizer_loaded": self._rec_loaded,
+                "phase": ses.state if (ses is not None and self._preflight_done) else "",
+                "level": float(ses.level) if (open_ and ses is not None) else 0.0,
+                "wake_age": None if w is None else max(0.0, self._clock() - w)}
 
     def _changed(self) -> None:
         try:
@@ -156,7 +181,9 @@ class VoiceService:
             if vs.input_mode == "off":
                 return self.state()
             self._failure = ""
+            self._failure_kind = ""
             self._note = ""
+            self._wake_at = None
             self._stop.clear()
             self._cancel_turn.clear()
             self._rec_loaded = False
@@ -183,23 +210,27 @@ class VoiceService:
             return self.start()                      # reports "not available in a guest session"; nothing is saved
         vs = self.settings()
         vs.input_mode = mode
+        vs.listening_choice_made = True
         self._save(vs)
         return self.start()
 
     def disable(self, timeout: float = 5.0) -> dict:
         """Turn hands-free OFF (saved): stops the worker, closes the microphone, releases the lock."""
         vs = self.settings()
-        if vs.input_mode != "off" and not self.guest:
+        if not self.guest and (vs.input_mode != "off" or not vs.listening_choice_made):
             vs.input_mode = "off"
+            vs.listening_choice_made = True                 # an explicit OFF is remembered: the first-start default never turns it back on
             self._save(vs)
         self.shutdown(timeout)
         self._failure = ""
+        self._failure_kind = ""
         self._changed()
         return self.state()
 
     def retry(self, timeout: float = 5.0) -> dict:
         self.shutdown(timeout)
         self._failure = ""
+        self._failure_kind = ""
         return self.start()
 
     def shutdown(self, timeout: float = 5.0) -> dict:
@@ -313,30 +344,30 @@ class VoiceService:
         """Everything slow or fallible, on the worker thread. Raises Unavailable with the real reason."""
         from jarvis.voice.backends import BackendUnavailable, SoundDeviceMic, VoskRecognizer
         if not self._mic_lock.acquire():
-            raise Unavailable("Another Jarvis process is already using the microphone (see mic.lock in your profile folder). Close it, then press Retry.")
+            raise Unavailable("Another Jarvis process is already using the microphone (see mic.lock in your profile folder). Close it, then press Retry.", kind="microphone")
         mic = self._mic_factory() if self._mic_factory else SoundDeviceMic()
         if not vs.muted:
             try:
                 devs = mic.devices() if hasattr(mic, "devices") else [1]
             except BackendUnavailable as e:
-                raise Unavailable(str(e)) from e
+                raise Unavailable(str(e), kind="microphone") from e
             except Exception as e:  # noqa: BLE001
-                raise Unavailable(f"Could not list microphones: {type(e).__name__}: {str(e)[:160]}") from e
+                raise Unavailable(f"Could not list microphones: {type(e).__name__}: {str(e)[:160]}", kind="microphone") from e
             if not devs:
-                raise Unavailable("No microphone was found. Plug one in or enable it in Windows Settings > Privacy & security > Microphone, then press Retry.")
+                raise Unavailable("No microphone was found. Plug one in or enable it in Windows Settings > Privacy & security > Microphone, then press Retry.", kind="microphone")
         if self._rec_factory is not None:
             rec = self._rec_factory(vs)
         else:
             if not vs.vosk_model:
-                raise Unavailable("No Vosk speech model folder is set. Download a small English Vosk model yourself, unzip it, and set its folder with: jarvis voice set vosk_model <folder>.")
+                raise Unavailable("No Vosk speech model folder is set. Download a small English Vosk model yourself, unzip it, and set its folder with: jarvis voice set vosk_model <folder>.", kind="model")
             if not Path(vs.vosk_model).is_dir():
-                raise Unavailable(f"The Vosk model folder was not found: {vs.vosk_model}")
+                raise Unavailable(f"The Vosk model folder was not found: {vs.vosk_model}", kind="model")
             rec = VoskRecognizer(vs.vosk_model, vs.all_wake_phrases())
         try:
             if hasattr(rec, "preload"):
                 rec.preload()
         except BackendUnavailable as e:
-            raise Unavailable(str(e)) from e
+            raise Unavailable(str(e), kind="model") from e
         ok, why = self.speech.available()
         if not ok and vs.output_mode != "text_only":
             self.degraded_text_only = f"Replies will be shown as text only: {why}"
@@ -349,10 +380,12 @@ class VoiceService:
             try:
                 mic, rec = self._preflight(vs)
             except Unavailable as e:
+                self._failure_kind = e.kind
                 self._failure = str(e)
                 self.last_error = str(e)
                 return
             except Exception as e:  # noqa: BLE001
+                self._failure_kind = "other"
                 self._failure = f"Voice could not start: {type(e).__name__}: {str(e)[:200]}"
                 return
             self._mic, self._rec, self._rec_loaded = mic, rec, True
@@ -373,6 +406,7 @@ class VoiceService:
                 if ses.state == S.RECOVERING:
                     self._stop.wait(0.05)
         except Exception as e:  # noqa: BLE001 - the worker must report, not die silently
+            self._failure_kind = "other"
             self._failure = f"Voice stopped unexpectedly: {type(e).__name__}: {str(e)[:200]}"
             self.last_error = self._failure
         finally:
@@ -392,6 +426,8 @@ class VoiceService:
     def _event(self, kind: str, payload) -> None:
         if kind == "error":
             self.last_error = str(payload)
+        elif kind == "wake":
+            self._wake_at = self._clock()
         self._changed()
 
     # ---------------- one voice turn (runs on the worker, inside VoiceSession._handle_text) ----------------

@@ -428,7 +428,7 @@ class Readiness(AppCase):
     def test_feature_row_for_voice_is_not_misleading(self):
         row = next(r for r in status.feature_rows(self.cfg) if r["id"] == "voice")
         self.assertNotIn("no voice controls", row["detail"])
-        self.assertIn("OFF by default", row["detail"])      # Prompt 17: was "never opens the microphone"; hands-free voice (off by default) now owns the microphone
+        self.assertIn("only if a sound device and a Vosk model exist", row["detail"])      # HUD milestone: first start turns wake-phrase listening ON, but the row must say what it needs
         self.assertIn("NOT", row["evidence"].upper() + " NOT") if False else None
         self.assertNotEqual(row["state"], "available")
 

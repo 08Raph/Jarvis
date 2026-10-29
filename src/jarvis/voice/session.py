@@ -16,7 +16,7 @@ import numpy as np
 
 from jarvis.voice.settings import VoiceSettings
 from jarvis.voice.speakable import apply_pronunciations, shorten, speakable
-from jarvis.voice.vad import EnergyVAD
+from jarvis.voice.vad import EnergyVAD, rms
 from jarvis.voice.wake import match_wake, normalize
 
 OFF, LISTENING, CAPTURING, THINKING, SPEAKING, FOLLOW_UP, SLEEPING, MUTED, RECOVERING, ERROR = (
@@ -80,6 +80,7 @@ class VoiceSession:
         self._spoken_at = -1e9
         self._last_key = ""                  # the last accepted utterance, to refuse an immediate duplicate
         self._last_key_t = -1e9
+        self.level = 0.0                     # RMS (0..1) of the newest microphone frame, for the window's meter. A number only: no audio is kept. 0 while the stream is closed.
 
     # ---------- state / mic plumbing ----------
     def _set(self, state: str, note: str = "") -> None:
@@ -109,6 +110,7 @@ class VoiceSession:
             except Exception:
                 pass
             self.mic_open = False
+        self.level = 0.0
 
     def _mic_failed(self, msg: str) -> None:
         self._close_mic()
@@ -218,6 +220,7 @@ class VoiceSession:
         now = self.clock()
         speech = self.vad.is_speech(frame)
         self._last_speech = speech
+        self.level = rms(frame)
         st = self.state
         if now < self._guard_until and st in (LISTENING, FOLLOW_UP):
             return                       # just finished speaking: do not listen to our own echo
@@ -382,6 +385,7 @@ class VoiceSession:
         """Frames that arrive while the reply is being produced are not recognised, but the voice detector still sees them, so a reply is not
         spoken over a user who started talking in the meantime."""
         self._last_speech = self.vad.is_speech(frame)
+        self.level = rms(frame)
 
     def set_speaker_muted(self, on: bool) -> None:
         """Speaker mute only: silences speech now and from here on; the microphone state is untouched."""

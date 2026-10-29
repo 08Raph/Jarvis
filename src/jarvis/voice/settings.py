@@ -35,6 +35,7 @@ class VoiceSettings:
     post_speech_guard_seconds: float = 0.6  # after Jarvis finishes speaking, frames are ignored this long so its own echo is not heard as the user
     speak_in_window: bool = False           # the window reads replies aloud (Windows SAPI) only when this is turned on
     voice_by_persona: dict[str, str] = field(default_factory=dict)   # OPTIONAL per-personality-mode voice ids; empty = every mode uses `tts_voice` (the global default)
+    listening_choice_made: bool = False     # False = the user has never chosen: the window's first start turns wake-word listening ON (it still needs a sound device and a Vosk model before any microphone is opened). True once the user turns it ON or OFF themselves, so an OFF choice is never overridden
     vad_min_rms: float = 0.01               # speech-detection floor (0.001..0.2): higher = needs louder speech to count as speaking
 
     def validate(self) -> "VoiceSettings":
@@ -64,6 +65,7 @@ class VoiceSettings:
              and all(isinstance(k, str) and 0 < len(k) <= 40 and isinstance(v, str) and 0 < len(v) <= 200 and "\x00" not in v for k, v in self.voice_by_persona.items()),
              "voice_by_persona must map personality mode ids to voice ids")
         need(isinstance(self.vad_min_rms, (int, float)) and not isinstance(self.vad_min_rms, bool) and 0.001 <= self.vad_min_rms <= 0.2, "vad_min_rms must be 0.001..0.2")
+        need(isinstance(self.listening_choice_made, bool), "listening_choice_made must be true or false")
         need(isinstance(self.speaker_muted, bool), "speaker_muted must be true or false")
         need(isinstance(self.muted, bool), "muted must be true or false")
         need(isinstance(self.post_speech_guard_seconds, (int, float)) and not isinstance(self.post_speech_guard_seconds, bool) and 0.0 <= self.post_speech_guard_seconds <= 3.0, "post_speech_guard_seconds must be 0..3")

@@ -7,22 +7,25 @@ from __future__ import annotations
 import html
 import os
 import sys
+import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
                                QSplitter, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis import version as V
 from jarvis.app.controller import AppController, explain_error
 from jarvis.brains import viewmodel as BVM
+from jarvis.ui import hud_model as HM
 from jarvis.ui import theme
+from jarvis.ui.hud import HudWidget
 from jarvis.voice import viewmodel as VVM
 
 READINESS = "System & Model Readiness"
 IMPORT_BRAIN = "Import Brain"
-PAGES = ["Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN]
+PAGES = ["Home", "Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN]
 
 
 def _slug(name: str) -> str:
@@ -96,7 +99,7 @@ class MainWindow(QMainWindow):
         self.ctl, self.bridge = ctl, bridge
         self.settings = QSettings("ProjectJarvis", "Window")
         self.setWindowTitle(f"{V.APP_NAME} {V.__version__} ({V.RELEASE_CHANNEL})")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(960, 640)
         self.resize(1100, 720)
         ctl.on_update = self.on_update
         ctl.ask_user = self.ask_user
@@ -111,7 +114,7 @@ class MainWindow(QMainWindow):
         for n in PAGES:
             self.nav.addItem(n)
         self.stack = QStackedWidget()
-        self.pages = {"Chat": self._chat_page(), "Missions": self._missions_page(), "Schedules": self._schedules_page(),
+        self.pages = {"Home": self._home_page(), "Chat": self._chat_page(), "Missions": self._missions_page(), "Schedules": self._schedules_page(),
                       "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Safety": self._safety_page(), "Status": self._status_page(),
                       READINESS: self._readiness_page(), IMPORT_BRAIN: self._import_brain_page()}
         for n in PAGES:
@@ -140,16 +143,24 @@ class MainWindow(QMainWindow):
         self.dark = dark
         self.pal = theme.palette(dark)
         scale = theme.SCALES.get(str(self.settings.value("text_scale", "100%")), 1.0)
-        QApplication.instance().setStyleSheet(theme.stylesheet(self.pal, scale))
+        QApplication.instance().setStyleSheet(theme.stylesheet(self.pal, scale) + HM.nav_rail_css())
         self.render_chat()
 
     def _goto(self, row):
         if row >= 0:
             self.stack.setCurrentIndex(row)
             self.refresh(PAGES[row])
+            if PAGES[row] == "Home":
+                self.home_timer.start()
+            else:
+                self.home_timer.stop()          # the 1-second refresh of the Home panels runs only while Home is the page being shown
 
     # ------------------------------------------------------------ updates from the controller (always on the interface thread)
     def on_update(self, topic):
+        if topic in ("voice", "busy", "model", "persona"):
+            self.refresh("Home")
+        if topic == "transcript" and hasattr(self, "home_recent"):
+            self._home_recent_only()
         if topic in ("transcript", "busy"):
             self.render_chat()
         if topic in ("missions", "busy"):
@@ -199,6 +210,258 @@ class MainWindow(QMainWindow):
         box.setEscapeButton(no)
         box.exec()
         resolve(box.clickedButton() is yes)
+
+
+    # ------------------------------------------------------------ Home: the HUD. A view only: every value comes from the controller's measured state.
+    def _panel(self, title):
+        f = QFrame()
+        f.setObjectName("panel")
+        v = QVBoxLayout(f)
+        v.setContentsMargins(12, 10, 12, 10)
+        v.setSpacing(6)
+        t = QLabel(title.upper())
+        t.setStyleSheet(f"color: {HM.HUD['accent']}; font-weight: 600; background: transparent;")
+        v.addWidget(t)
+        return f, v
+
+    def _home_page(self):
+        w = QWidget()
+        w.setObjectName("homePage")
+        w.setStyleSheet(HM.home_stylesheet())
+        self._home_voice = {}
+        self._home_facts = {}
+        self._home_facts_at = -1e9
+        self._home_res_at = -1e9
+        self._home_res = {}
+        self._home_view = HM.describe(HM.OFF)
+        self._home_css = {}
+        self._resources = HM.Resources()
+        self.home_timer = QTimer(self)
+        self.home_timer.setInterval(1000)
+        self.home_timer.timeout.connect(lambda: self.refresh("Home"))
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(10)
+        # header: name, privacy status, the unmistakable microphone chip, clock
+        head = QHBoxLayout()
+        title = QLabel("JARVIS")
+        title.setStyleSheet("font-size: 20pt; font-weight: 600;")
+        tag = _label("YOUR PERSONAL AI ASSISTANT", muted=True, wrap=False)
+        self.home_privacy = _label("", wrap=False)
+        self.home_privacy.setAccessibleName("Privacy status")
+        self.home_mic = QLabel("MIC OFF")
+        self.home_mic.setAccessibleName("Microphone indicator")
+        self.home_clock = QLabel("")
+        self.home_clock.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.home_clock.setAccessibleName("Time")
+        head.addWidget(title)
+        head.addSpacing(12)
+        head.addWidget(tag)
+        head.addStretch(1)
+        head.addWidget(self.home_privacy)
+        head.addSpacing(12)
+        head.addWidget(self.home_mic)
+        head.addSpacing(12)
+        head.addWidget(self.home_clock)
+        outer.addLayout(head)
+        # body: the HUD and its caption on the left, three panels on the right
+        body = QHBoxLayout()
+        body.setSpacing(14)
+        centre = QVBoxLayout()
+        self.hud = HudWidget(provider=self._hud_provider)
+        self.hud.stateChanged.connect(lambda _s: self.refresh("Home"))
+        centre.addWidget(self.hud, 1)
+        self.home_label = QLabel("")
+        self.home_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.home_label.setAccessibleName("Jarvis state")
+        self.home_sub = _label("", muted=True)
+        self.home_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.home_sub.setAccessibleName("Jarvis state detail")
+        self.home_wave_cap = _label("", muted=True)
+        self.home_wave_cap.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.home_wave_cap.setAccessibleName("Waveform source")
+        centre.addWidget(self.home_label)
+        centre.addWidget(self.home_sub)
+        centre.addWidget(self.home_wave_cap)
+        ctl_row = QHBoxLayout()
+        ctl_row.addStretch(1)
+        self.home_toggle = _btn("Turn hands-free ON", self._home_toggle, primary=True,
+                                tip="Hands-free ON: the microphone opens and Jarvis listens for the wake phrase, on this PC only; audio is not saved. It starts by itself when Jarvis opens, until you turn it OFF.")
+        self.home_mute = _btn("Mute microphone", self._home_mute_toggle,
+                              tip="Closes the microphone stream (Ctrl+Shift+M). Saved: stays muted after a restart.")
+        self.home_stop = _btn("Stop speaking", self.ctl.stop_speaking, tip="Silences Jarvis now and returns to listening.")
+        self.home_retry = _btn("Retry", self._voice_retry, tip="Try to start voice again after fixing the problem shown above.")
+        for b in (self.home_toggle, self.home_mute, self.home_stop, self.home_retry):
+            ctl_row.addWidget(b)
+        ctl_row.addStretch(1)
+        centre.addLayout(ctl_row)
+        body.addLayout(centre, 1)
+        side = QVBoxLayout()
+        side.setSpacing(10)
+        act, av = self._panel("Current activity")
+        self.home_act = _label("", wrap=True)
+        self.home_act.setAccessibleName("Current activity")
+        av.addWidget(self.home_act)
+        side.addWidget(act)
+        qi, qv = self._panel("Quick info")
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        self.home_qi = []
+        for r in range(4):
+            n, val = _label("", muted=True, wrap=False), _label("", wrap=True)
+            grid.addWidget(n, r, 0)
+            grid.addWidget(val, r, 1)
+            self.home_qi.append((n, val))
+        grid.setColumnStretch(1, 1)
+        qv.addLayout(grid)
+        side.addWidget(qi)
+        rc, rv = self._panel("Recent conversation")
+        self.home_recent = QLabel("")
+        self.home_recent.setTextFormat(Qt.TextFormat.RichText)
+        self.home_recent.setWordWrap(True)
+        self.home_recent.setAccessibleName("Recent conversation")
+        rv.addWidget(self.home_recent)
+        rv.addWidget(_btn("View full history", lambda: self.nav.setCurrentRow(PAGES.index("Chat")), tip="Opens the Chat page."))
+        side.addWidget(rc)
+        side.addStretch(1)
+        sidew = QWidget()
+        sidew.setLayout(side)
+        sidew.setFixedWidth(310)
+        body.addWidget(sidew)
+        outer.addLayout(body, 1)
+        # footer: local-AI / privacy box, the honest stage strip, resources
+        foot = QHBoxLayout()
+        foot.setSpacing(14)
+        lp, lv = self._panel("Local AI")
+        self.home_local = _label("", muted=True)
+        self.home_local.setAccessibleName("Local AI and privacy")
+        lv.addWidget(self.home_local)
+        foot.addWidget(lp, 2)
+        self.home_stages = QLabel("")
+        self.home_stages.setTextFormat(Qt.TextFormat.RichText)
+        self.home_stages.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.home_stages.setAccessibleName("Stage")
+        foot.addWidget(self.home_stages, 2)
+        sp, sv = self._panel("System resources")
+        self.home_bars = {}
+        for key, name in (("cpu", "CPU"), ("ram", "RAM"), ("disk", "DISK")):
+            row = QHBoxLayout()
+            lab = _label(name, muted=True, wrap=False)
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setTextVisible(False)
+            bar.setAccessibleName(name + " usage")
+            val = _label("n/a", wrap=False)
+            val.setMinimumWidth(48)
+            val.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(lab)
+            row.addWidget(bar, 1)
+            row.addWidget(val)
+            sv.addLayout(row)
+            self.home_bars[key] = (bar, val)
+        foot.addWidget(sp, 2)
+        outer.addLayout(foot)
+        QShortcut(QKeySequence("Ctrl+Shift+M"), self, activated=self._home_mute_shortcut)
+        return w
+
+    def _hud_provider(self):
+        """Called once per animation frame: in-memory values only (no file, no device). Returns (state, microphone level, wake age)."""
+        live = self.ctl.voice_live()
+        try:
+            speaking = bool(self.ctl.speech.is_speaking())
+        except Exception:  # noqa: BLE001
+            speaking = False
+        st = HM.resolve_state(self._home_voice, live, bool(self.ctl.busy), speaking)
+        return st, float(live.get("level") or 0.0), live.get("wake_age")
+
+    def _style_once(self, widget, css):
+        """setStyleSheet re-polishes the widget; the Home panels refresh every second, so only touch it when the style really changed."""
+        if self._home_css.get(id(widget)) != css:
+            self._home_css[id(widget)] = css
+            widget.setStyleSheet(css)
+
+    def _home_toggle(self):
+        try:
+            if self.ctl.voice_state()["enabled"]:
+                self.ctl.voice_disable()
+            else:
+                self.ctl.voice_enable("wake_word")
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+
+    def _home_mute_toggle(self):
+        st = self.ctl.voice_state()
+        if not st["enabled"]:
+            self.statusBar().showMessage("Hands-free voice is off, so there is no microphone to mute.", 5000)
+            return
+        self.ctl.voice_unmute() if st["mic_muted"] else self.ctl.voice_mute()
+
+    def _home_mute_shortcut(self):
+        self._home_mute_toggle()
+
+    def _home_recent_only(self):
+        lines = HM.recent_lines(HM.recent_from_entries(self.ctl.transcript.entries))
+        if not lines:
+            self.home_recent.setText(f"<span style='color:{HM.HUD['muted']}'>Nothing said yet.</span>")
+            return
+        self.home_recent.setText("<br>".join(
+            f"<b style='color:{HM.HUD['accent'] if l['who'] == 'Jarvis' else HM.HUD['text']}'>{html.escape(l['who'])}</b> "
+            f"<span style='color:{HM.HUD['muted']}'>{html.escape(l['stamp'])}</span><br>{html.escape(l['text'])}" for l in lines))
+
+    def _refresh_home(self):
+        now = time.monotonic()
+        self._home_voice = self.ctl.voice_state()
+        if now - self._home_facts_at >= 2.0:
+            self._home_facts, self._home_facts_at = self.ctl.hud_facts(), now
+        if now - self._home_res_at >= 0.9:
+            self._home_res, self._home_res_at = self._resources.sample(), now
+        live = self.ctl.voice_live()
+        try:
+            speaking = bool(self.ctl.speech.is_speaking())
+        except Exception:  # noqa: BLE001
+            speaking = False
+        st = HM.resolve_state(self._home_voice, live, bool(self.ctl.busy), speaking)
+        view = HM.describe(st, self._home_voice, live, loading=bool(self.ctl.loading))
+        self._home_view = view
+        H = HM.HUD
+        accent = H.get(view.accent, H["accent"])
+        self.home_label.setText(view.label)
+        self._style_once(self.home_label, f"font-size: 18pt; font-weight: 600; color: {accent};")
+        self.home_sub.setText(view.sub)
+        self.home_wave_cap.setText("Waveform: " + view.wave_caption)
+        tone = H.get(view.mic_tone, H["off"])
+        self.home_mic.setText(view.mic_text)
+        self._style_once(self.home_mic, f"font-weight: 700; padding: 4px 14px; border: 2px solid {tone}; border-radius: 13px; color: {tone}; background: transparent;")
+        self.home_clock.setText("\n".join(HM.clock_text()))
+        v = self._home_voice
+        on = bool(v.get("enabled"))
+        self.home_toggle.setText("Turn hands-free OFF" if on else "Turn hands-free ON")
+        self.home_toggle.setProperty("primary", not on)
+        self.home_toggle.style().unpolish(self.home_toggle)
+        self.home_toggle.style().polish(self.home_toggle)
+        self.home_mute.setEnabled(on)
+        self.home_mute.setText("Unmute microphone" if v.get("mic_muted") else "Mute microphone")
+        self.home_retry.setVisible(bool(v.get("can_retry")))
+        self.home_act.setText(f"<b style='color:{accent}'>{html.escape(view.label)}</b><br>{html.escape(view.sub)}")
+        self.home_act.setTextFormat(Qt.TextFormat.RichText)
+        for (n, val), (name, text, t) in zip(self.home_qi, HM.quick_info(self._home_facts, view)):
+            n.setText(name)
+            val.setText(text)
+            self._style_once(val, f"color: {H.get(t, H['text'])}; background: transparent;")
+        self._home_recent_only()
+        head, htone, ltitle, ldetail = HM.privacy_lines(self._home_facts.get("online_on"))
+        self.home_privacy.setText("● " + head)
+        self._style_once(self.home_privacy, f"color: {H.get(htone, H['off'])}; background: transparent;")
+        self.home_local.setText(f"<b style='color:{H['text']}'>{html.escape(ltitle)}</b><br>{html.escape(ldetail)}")
+        self.home_local.setTextFormat(Qt.TextFormat.RichText)
+        active = HM.stage_active(st)
+        self.home_stages.setText("&nbsp;&nbsp;&nbsp;".join(
+            (f"<b style='color:{H['accent']}'>● {s}</b>" if s == active else f"<span style='color:{H['muted']}'>○ {s}</span>") for s in HM.STAGES))
+        for key, (bar, val) in self.home_bars.items():
+            x = self._home_res.get(key)
+            bar.setValue(0 if x is None else int(round(x)))
+            val.setText("n/a" if x is None else f"{int(round(x))}%")
+        self.hud.setAccessibleDescription(f"{view.label}. {view.sub} {view.mic_text}.")
 
     # ------------------------------------------------------------ Chat
     def _chat_page(self):
@@ -1890,6 +2153,8 @@ class MainWindow(QMainWindow):
                 e.ignore()
                 return
         self.timer.stop()
+        self.home_timer.stop()
+        self.hud.timer.stop()                  # no frame or refresh may run against a controller that is shutting down
         res = self.ctl.shutdown(timeout=3.0)
         if res["still_running"]:
             QMessageBox.information(self, V.APP_NAME, "These were still running and could not be interrupted: " + ", ".join(res["still_running"])

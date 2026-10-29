@@ -103,7 +103,7 @@ def feature_rows(cfg: Config, settings=None) -> list[dict]:
         {"id": "memory", "title": "Personal memory (review, edit, export, delete)", "state": "available",
          "detail": "Stored locally in your profile folder; not encrypted.", "evidence": "tested on Linux with real SQLite files"},
         {"id": "voice", "title": "Voice (microphone, spoken replies)", "state": "needs_setup" if not voice_ok else "experimental",
-         "detail": ("Needs sounddevice and vosk plus a Vosk model. " if not voice_ok else "Packages present. ") + "Hands-free voice is OFF by default; when you turn it on (Voice page) the window opens the microphone only while enabled and not muted. Replies can be read aloud. Presence of packages is not proof they work: see the Status page.",
+         "detail": ("Needs sounddevice and vosk plus a Vosk model. " if not voice_ok else "Packages present. ") + "On the first start of a new profile the window turns wake-phrase listening ON by itself (the microphone is opened only if a sound device and a Vosk model exist); turn it OFF or mute it on Home or the Voice page and that choice is kept. Replies can be read aloud. Presence of packages is not proof they work: see the Status page.",
          "evidence": V_UNTESTED},
         {"id": "desktop", "title": "Desktop operations (files, apps, windows, UI, input)", "state": "experimental" if win else "unavailable",
          "detail": "Only on Windows, each category is OFF until you enable it with `jarvis desktop enable ...`; risky actions ask every time." if win

@@ -158,3 +158,6 @@ New docs/STAGE7_FIRST_REAL_RUN_CHECKLIST.md: ordered Windows checklist (runtime,
 
 ## Handoff review correction
 First-run checklist: added the missing "install the project" step (python -m jarvis fails with "No module named jarvis" otherwise), explicit $LASTEXITCODE use, selftest pass meaning, path quoting, GGUF compatibility and wheel caveats. Tests in test_p60. No code behaviour changed.
+
+## Home screen HUD and always-on voice (not run on a real screen, microphone or Windows)
+- Added: `ui/hud_model.py`, `ui/hud.py`, a **Home** page (first page; Chat is now Ctrl+2), `VoiceService.live()`, `failure_kind`, `phase`, wake timestamp, `VoiceSession.level` (a number, never audio), `AppController.voice_live()/hud_facts()`, a dark navigation rail. First start on a fresh profile now turns wake-word listening ON (`listening_choice_made`); an explicit OFF/mute is remembered; no microphone is opened without a device and a Vosk model. Tests: `test_p70_hud.py`, `test_p71_hud_qt.py` (skipped without PySide6). See `docs/VOICE.md`.

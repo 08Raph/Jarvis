@@ -46,11 +46,16 @@ class AutoStart(AppCase):
         self.assertEqual((r.mic.opens, r.mic.reads), (0, 0))
         self.assertFalse(r.c.voice.alive())
 
-    def test_default_settings_keep_the_microphone_off(self):
-        self.assertEqual(VoiceSettings().input_mode, "off")
+    def test_the_saved_default_is_off_but_a_fresh_profile_is_turned_on_at_first_start_only_if_it_can_listen(self):
+        """The dataclass default stays 'off' with no recorded choice; the window's first start (voice_autostart) turns wake-word listening ON for a profile
+        that never chose, and it still cannot open a microphone without a sound device and a Vosk model (here: no PortAudio, no model folder)."""
+        vs = VoiceSettings()
+        self.assertEqual((vs.input_mode, vs.listening_choice_made), ("off", False))
         c = AppController(self.cfg, simulate=True)
         self.addCleanup(c.shutdown, 1.0)
-        self.assertEqual(c.voice_autostart()["state"], "Off")
+        c.voice_autostart()
+        self.assertTrue(wait_for(lambda: c.voice_state()["state"] == "Unavailable", 5, c))
+        self.assertFalse(c.voice_state()["mic_open"])
 
     def test_init_is_idempotent_one_thread_one_loop(self):
         r = Rig(self)
