@@ -77,9 +77,15 @@ def run_wizard(cfg: Config, ask: Callable[[str], str] = input, say: Callable[[st
     raw_ask = ask
 
     def ask(prompt: str) -> str:
-        # Windows PowerShell can put a UTF-8 byte-order mark in front of text piped into a program (`'' | jarvis.exe setup`). U+FEFF is not whitespace,
-        # so an otherwise empty answer was taken as a file name ("File not found: <BOM>"). Drop a leading mark; nothing else is changed.
-        return raw_ask(prompt).lstrip("\ufeff")
+        # Windows PowerShell puts a UTF-8 byte-order mark (EF BB BF) in front of text piped into a program (`'' | jarvis.exe setup`). Decoded as UTF-8 it is
+        # U+FEFF; a program whose piped stdin uses the ANSI code page (the packaged exe on the CI runner: the CI log shows the bytes EF BB BF echoed back) reads
+        # it as the three characters below. Neither is whitespace, so an empty answer was taken as a file name ("File not found: <BOM>").
+        # Drop a leading mark in either form; nothing else is changed.
+        text = raw_ask(prompt)
+        for mark in ("\ufeff", "\u00ef\u00bb\u00bf"):
+            if text.startswith(mark):
+                text = text[len(mark):]
+        return text
 
     say(f"PROJECT JARVIS {__version__} - setup guide")
     say("Everything runs on this computer. No account, no subscription, no paid service.\n")

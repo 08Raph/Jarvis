@@ -399,6 +399,10 @@ class ByteOrderMarkInAnswers(unittest.TestCase):
         self.assertNotIn("File not found", text)
         self.assertTrue(any("press Enter to skip" in a for a in asked))
 
+    def test_the_ansi_code_page_reading_of_a_bom_is_also_an_empty_answer(self):
+        text, _ = self.run_with("\u00ef\u00bb\u00bf")       # EF BB BF read as cp1252: what a piped stdin gives when it is not decoded as UTF-8
+        self.assertNotIn("File not found", text)
+
     def test_a_real_path_after_a_bom_is_still_looked_up_and_reported(self):
         text, _ = self.run_with("﻿no-such-model-file.gguf")
         self.assertIn("File not found: no-such-model-file.gguf", text)
