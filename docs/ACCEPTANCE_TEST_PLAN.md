@@ -68,6 +68,8 @@ Only AT-01 (on Linux/Windows hosted runners), AT-13's silent install and AT-15 r
 
 ## 6. Recommended order on your PC
 
+(A shorter, ordered, step-by-step form of these tests for one person on one PC is in WINDOWS_ACCEPTANCE_RUNBOOK.md; the one consented CI run is described in REAL_INFERENCE_ONE_RUN.md.)
+
 AT-02 -> AT-03/04 -> **AT-05** (the single most informative test) -> AT-06 -> AT-07 -> AT-08 -> AT-09/10 -> AT-11 -> AT-12 -> AT-13/14. Stop at the first failure and send the evidence.
 
 ## 7. What was actually executed without a model (Linux, 2026-10-28)

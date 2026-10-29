@@ -826,8 +826,9 @@ class AppController:
             self._ui(lambda: (self.transcript.add("assistant", text), self.on_update("transcript")))
 
     def voice_autostart(self) -> dict | None:
-        """Called once by the window after it is shown. Starts hands-free voice ONLY if the user enabled it earlier; otherwise the microphone stays untouched.
-        Idempotent: calling it again while voice runs does nothing."""
+        """Called once by the window after it is shown. Starts hands-free voice if the user enabled it earlier. On a fresh profile where the user has NEVER chosen, it turns
+        wake-word listening ON (the owner asked for an always-listening default); an explicit OFF is remembered and respected. Even then the microphone opens only once a sound
+        device AND a local Vosk model exist, and Jarvis never installs a Vosk model by itself. Idempotent: calling it again while voice runs does nothing."""
         if self.guest or self.closed:
             return None
         svc = self._voice_service()

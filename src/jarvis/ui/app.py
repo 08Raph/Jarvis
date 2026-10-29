@@ -59,7 +59,7 @@ def run_gui(cfg, guest: bool = False, simulate: bool = False) -> int:
             from jarvis.ui.setup_dialog import SetupDialog
             SetupDialog(ctl, win).exec()
             win.refresh_all()
-        ctl.voice_autostart()          # only starts if the user turned hands-free voice ON earlier; a no-op otherwise (never opens the microphone by itself)
+        ctl.voice_autostart()          # starts wake-word listening if the user enabled it, or on a fresh profile where they never chose (an explicit OFF is remembered); the microphone still opens only with a sound device AND a local Vosk model
         return app.exec()
     finally:
         ctl.shutdown(timeout=2.0)

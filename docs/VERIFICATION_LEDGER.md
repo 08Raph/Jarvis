@@ -23,6 +23,17 @@ Linux fast lane and the Windows unit suite pass; the PyInstaller exe and Inno Se
 
 A person's own Windows 11 PC; any GPU; Qwen3-8B; a physical microphone, speakers, a Vosk model or Kokoro audio; the personality system, voice stack, HUD and Import Brain with a real model; real desktop-control actions (clicking other applications, UI Automation, the emergency stop); a clean consumer machine with SmartScreen and antivirus; upgrade installs; the Windows cleanup flake (below).
 
-## 5. The Windows `WinError 32` cleanup flake: run history
+## 5. The Windows `WinError 32` cleanup flake: run history (updated 2026-10-29 after run 40936176943)
 
-`PermissionError [WinError 32]` on `memory.sqlite` while deleting a test's temp folder: **3 of 18** `windows-ci` runs (40795644979, 40918820914, 40922037937). The other six failed runs failed for different, since-fixed reasons (HUD Qt tests under development, a docs test). Two runs have completed since the voice-reply shutdown fix (3f36530): 40925532946 (no WinError 32; red only for a docs test) and 40928361454 (green). A product-level ordering defect was found and fixed; that it causes the Windows error is **not proven**. A 17% base rate means two clean runs say almost nothing (two clean runs happen about 69% of the time with no fix at all). Append every later `windows-ci` result here; call it resolved only after a long clean streak (at least 15 consecutive Windows runs, which would be unlikely, about 7%, by chance at the old rate).
+`PermissionError [WinError 32]` on `memory.sqlite` while deleting a test's temp folder: **3 of 18** `windows-ci` runs up to the voice-reply fix: 40795644979 (00:41 UTC), 40918820914 (17:10), 40922037937 (17:30), all on 2026-10-29. The other failed runs failed for different, since-fixed reasons (HUD Qt tests under development, a docs test), checked run by run in their annotations.
+
+| Run | Commit | Created (UTC) | Result | `WinError 32` | Whole run |
+|---|---|---|---|---|---|
+| 40922037937 | 76eb1cc | 17:30 | failure (original P17 test) | **yes** | 12.0 min |
+| 40925532946 | 3f36530 (voice-reply fix) | 17:52 | failure (docs test only) | no | 11.6 min |
+| 40928361454 | c508666 | 18:10 | success | no | 12.0 min |
+| 40936176943 | 60c8f61 | 19:00 | success | no | 11.3 min |
+
+**Since the fix: 3 consecutive runs without `WinError 32`, over an observation window of about 1 h 20 min (17:52 to 19:12 UTC).** That is not evidence of a cure: between the first and second events there were **11 consecutive runs without it, about 16 hours, with no relevant fix in place** (a 17 % per-run rate gives a streak that long about 13 % of the time). The streak also does not cover a slow-runner period, which is when the failures happened (runs of 331 to 661 s against 270 to 350 s normally).
+
+Revised bar for calling it resolved: **at least 20 consecutive Windows runs without the error (chance of that at the old rate: about 3 %), spread over several days and including at least some slow runs.** Until then the status is "not recurred in N runs", never "fixed". The product-level ordering defect (shutdown reporting nothing running and closing the database under a live voice reply) is real and fixed; that it causes the Windows error is not proven. Append each later `windows-ci` result to the table above.
