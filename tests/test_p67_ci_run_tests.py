@@ -99,6 +99,23 @@ class Runs(Base):
         self.assertIn("test_bad", out)
         self.assertIn("test_boom", out)
 
+    def test_failure_annotations_carry_the_assertion_text(self):
+        self.suite(FAILING)
+        code, out = self.run_runner()
+        self.assertEqual(code, 1)
+        self.assertIn("AssertionError: 1 != 2", out)
+        self.assertIn("RuntimeError: x", out)
+        self.assertIn("::error title=Unit%3A FAIL%3A test_bad", out)
+
+    def test_failure_blocks_parser(self):
+        text = ("test_a (m.T.test_a) ... FAIL\n\n" + "=" * 70 + "\nFAIL: test_a (m.T.test_a)\n" + "-" * 70 + "\nTraceback (most recent call last):\n  File \"x.py\", line 3\n"
+                "AssertionError: 5 != 6\n\n" + "-" * 70 + "\nRan 1 test in 0.0s\n\nFAILED (failures=1)\n")
+        b = R.failure_blocks(text)
+        self.assertEqual(len(b), 1)
+        self.assertTrue(b[0][0].startswith("FAIL: test_a"))
+        self.assertIn("AssertionError: 5 != 6", b[0][1])
+        self.assertNotIn("Ran 1 test", b[0][1])
+
     def test_suite_that_runs_nothing_is_not_success(self):
         self.suite(EMPTY)
         code, out = self.run_runner()

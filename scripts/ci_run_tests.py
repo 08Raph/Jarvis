@@ -99,6 +99,33 @@ def running_test(lines: list[str]) -> str:
     return "(could not tell from the output)"
 
 
+def failure_blocks(text: str, keep: int = 14) -> list[tuple[str, str]]:
+    """[(header, tail)] for each FAIL:/ERROR: block of unittest's final report: the header line and the LAST `keep` lines (where the assertion or
+    exception message is). Safe text only: this is the test's own output. Test code that prints secrets would show up here, so none should."""
+    blocks, cur = [], None
+    for line in text.splitlines():
+        if line.startswith("=" * 70):
+            if cur:
+                blocks.append(cur)
+            cur = []
+        elif line.startswith("-" * 70) and cur is not None and len(cur) > 1 and cur[0].startswith(("FAIL:", "ERROR:")) and line.strip() == "-" * 70 and cur[-1] == "":
+            continue
+        elif cur is not None:
+            if line.startswith("Ran ") and line[4:5].isdigit():
+                blocks.append(cur)
+                cur = None
+            else:
+                cur.append(line)
+    if cur:
+        blocks.append(cur)
+    out = []
+    for b in blocks:
+        if b and b[0].startswith(("FAIL:", "ERROR:")):
+            body = [x for x in b[1:] if x.strip() and not x.startswith("-" * 20)]
+            out.append((b[0], "\n".join(body[-keep:])))
+    return out
+
+
 def stack_dump(text: str) -> str:
     i = text.rfind("Timeout (")
     return text[i:] if i >= 0 else ""
@@ -181,6 +208,8 @@ def report(title: str, run: dict, parsed: dict, code: int, log: Path, tail: int,
         if chunk:
             annotate("error", f"{title}: failing tests", "\n".join(chunk))
         annotate("error", f"{title}: counts", counts)
+        for head, tail_text in failure_blocks(text)[:12]:
+            annotate("error", f"{title}: {head[:90]}", f"{head}\n{tail_text}", limit=1800)
     elif code == EXIT_NOT_RUN:
         annotate("error", f"{title}: NOT RUN / inconsistent result", f"{parsed.get('reason') or 'child exit ' + str(run.get('returncode')) + ' with label ' + parsed['label']}. Counts: {counts}\n--- last lines ---\n" + "\n".join(lines[-25:]))
     else:
