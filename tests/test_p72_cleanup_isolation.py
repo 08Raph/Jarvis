@@ -144,7 +144,11 @@ class AVoiceReplyInFlightAtShutdown(AppCase):
             self.assertTrue(r.wait_state("Processing"))
             time.sleep(0.2)
             self.assertTrue(r.c.voice.turn_running())
+            end = time.monotonic() + 10                                # the assistant is built lazily by the reply thread; on a slow runner "Processing" can show before it exists (CI run 40959418900)
+            while r.c.assistant is None and time.monotonic() < end:
+                time.sleep(0.05)
             asst = r.c.assistant
+            self.assertIsNotNone(asst, "the reply thread never built the assistant")
             res = r.c.shutdown(1.0)
             self.assertIn("voice reply", res["still_running"])         # it used to be [] while the helper was still alive
             self.assertTrue(r.c.voice.turn_running())
