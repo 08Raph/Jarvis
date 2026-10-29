@@ -18,7 +18,9 @@ if ARGS[:1] == ["--data-dir"]:
 def die(how: str) -> None:
     if how == "kill" and sys.platform != "win32":
         os.kill(os.getpid(), signal.SIGKILL)          # what the OS does to a process that runs out of memory
-    os._exit(0xC0000005 if sys.platform == "win32" else 139)      # an abnormal exit code, as after a crash
+    # An abnormal exit code, as after a crash. On Windows os._exit takes a C int, so the NTSTATUS 0xC0000005 (access violation) is passed as its signed
+    # 32-bit value; the OS reports it back as 0xC0000005. (The unsigned literal raised OverflowError there, so the "crash" never happened.)
+    os._exit(0xC0000005 - (1 << 32) if sys.platform == "win32" else 139)
 
 
 class FakeLlama:

@@ -25,8 +25,11 @@ def settle(ctl, timeout=10.0):
 
 
 class SlowLlama(FakeLlama):
+    started = threading.Event()        # set when the first token is produced, so a test can wait for real generation instead of guessing with sleep()
+
     def create_chat_completion(self, messages, max_tokens, temperature, stream=False):
         def gen():
+            SlowLlama.started.set()
             for i in range(300):
                 time.sleep(0.01)
                 yield {"choices": [{"delta": {"content": "word "}}]}
@@ -334,8 +337,9 @@ class ShutdownTests(AppCase):
         self.install_model()
         from jarvis.inference import gguf_engine as ge
         c = AppController(self.cfg, simulate=True, engine_factory=lambda p: ge.GGUFEngine(p, llama_factory=SlowLlama))
+        SlowLlama.started.clear()
         c.send("long")
-        time.sleep(0.1)
+        self.assertTrue(SlowLlama.started.wait(60), "the reply never started generating")      # model load time varies a lot between machines
         self.assertEqual(c.shutdown(3.0), {"still_running": []})
         self.assertFalse(c.send("after close"))
         self.assertFalse(c.mission_start("m-x"))

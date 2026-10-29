@@ -99,7 +99,7 @@ def running_test(lines: list[str]) -> str:
     return "(could not tell from the output)"
 
 
-def failure_blocks(text: str, keep: int = 14) -> list[tuple[str, str]]:
+def failure_blocks(text: str, keep: int = 16) -> list[tuple[str, str]]:
     """[(header, tail)] for each FAIL:/ERROR: block of unittest's final report: the header line and the LAST `keep` lines (where the assertion or
     exception message is). Safe text only: this is the test's own output. Test code that prints secrets would show up here, so none should."""
     blocks, cur = [], None
@@ -111,7 +111,7 @@ def failure_blocks(text: str, keep: int = 14) -> list[tuple[str, str]]:
         elif line.startswith("-" * 70) and cur is not None and len(cur) > 1 and cur[0].startswith(("FAIL:", "ERROR:")) and line.strip() == "-" * 70 and cur[-1] == "":
             continue
         elif cur is not None:
-            if line.startswith("Ran ") and line[4:5].isdigit():
+            if (line.startswith("Ran ") and line[4:5].isdigit()) or line.startswith("Slowest test durations"):
                 blocks.append(cur)
                 cur = None
             else:
@@ -122,7 +122,9 @@ def failure_blocks(text: str, keep: int = 14) -> list[tuple[str, str]]:
     for b in blocks:
         if b and b[0].startswith(("FAIL:", "ERROR:")):
             body = [x for x in b[1:] if x.strip() and not x.startswith("-" * 20)]
-            out.append((b[0], "\n".join(body[-keep:])))
+            if len(body) > keep:           # long chained tracebacks: the FIRST lines (the original error) and the LAST lines (the final message)
+                body = body[:keep // 2] + ["    [...]"] + body[-(keep // 2):]
+            out.append((b[0], "\n".join(body)))
     return out
 
 
