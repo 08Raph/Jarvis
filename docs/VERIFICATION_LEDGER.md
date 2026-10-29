@@ -39,4 +39,13 @@ A person's own Windows 11 PC; any GPU; Qwen3-8B; a physical microphone, speakers
 
 Revised bar for calling it resolved: **at least 20 consecutive Windows runs without the error (chance of that at the old rate: about 3 %), spread over several days and including at least some slow runs.** Until then the status is "not recurred in N runs", never "fixed". The product-level ordering defect (shutdown reporting nothing running and closing the database under a live voice reply) is real and fixed; that it causes the Windows error is not proven. Append each later `windows-ci` result to the table above.
 
-**Status 2026-10-29 (after run 40947992903): 4 consecutive runs without `WinError 32` since the fix (40925532946, 40928361454, 40936176943, 40947992903), window about 2.5 h (17:52 to 20:29 UTC). Threshold (20 runs, several days, some slow runs) NOT reached; status remains unresolved.**
+**Status 2026-10-29 (after runs 40954058955 and 40955846622, both without `WinError 32`): 6 consecutive runs since the fix (40925532946, 40928361454, 40936176943, 40947992903, 40954058955, 40955846622), window about 3.5 h (17:52 to 21:25 UTC). Earlier count, kept for history: 4 consecutive runs without `WinError 32` since the fix (40925532946, 40928361454, 40936176943, 40947992903), window about 2.5 h (17:52 to 20:29 UTC). Threshold (20 runs, several days, some slow runs) NOT reached; status remains unresolved.**
+
+## 6. The one authorised real-model run (2026-10-29): RESULT
+
+`windows-ci` run **40955846622** (workflow_dispatch, commit **665e400883c402bf72769088c3a12886d3f2f459**, consent value typed once). Jobs: Linux unit tests **success** (123735632828); Windows build, frozen worker gate, install check **success** (123735633421). Read from the job's annotations, not from step colour.
+
+The real-response checker **genuinely executed** and reported **PASS**: genuine GGUF (311 tensors, 28 blocks, qwen3, Q4_K_M, 1,282,439,264 bytes, matching the pinned size), SHA-256 `d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5` (equal to the pin), runtime llama-cpp-python 0.3.36 in the packaged exe (CPU, AVX2, no GPU offload), and `jarvis chat` answered "The capital of France is Paris." in 12.31 s. The selftest in the same step passed (load 1.57 s, answer "4").
+
+**What this proves:** the current code at 665e400, packaged and installed on a hosted Windows runner, loads a genuine Qwen3-1.7B Q4_K_M with the pinned runtime and answers one question correctly through the application.
+**What it does not prove:** the SHA-256 is still only an observed pin (not publisher-confirmed); one reply to one prompt on a 2-vCPU CPU runner; no quality, speed (the selftest's 1.15 tok/s is a one-token figure, not throughput), GPU, Qwen3-8B, GUI, voice, personality, tools, offline behaviour of this commit, or a person's PC. No retry or second download was made.

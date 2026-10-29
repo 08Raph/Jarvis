@@ -205,3 +205,5 @@ First-run checklist: added the missing "install the project" step (python -m jar
 
 - `windows-ci` `real` step now runs `scripts/ci_real_response_check.py` after a passing selftest (size, SHA-256, runtime and commit pinned; annotations emitted; "NOT EXECUTED" recorded otherwise). Gate, timeout and permissions unchanged.
 - Docs: speaker recognition recorded as not required; always-listening default recorded; Prompts 1-5 recorded as unreviewed; flake ledger updated (4 clean runs, unresolved).
+
+- Authorised real-model run 40955846622 at 665e400: real-response checker executed and passed (genuine 311-tensor Qwen3-1.7B Q4_K_M, runtime 0.3.36, reply "The capital of France is Paris."). Recorded in `docs/VERIFICATION_LEDGER.md` section 6.

@@ -86,7 +86,7 @@ Overall: about 3.5 out of 10. Not ready for everyday users and not ready for pay
 
 ## Release decision
 
-**Not a release candidate.** Release-blocking items: (a) no real-model run on the current code; (b) no run on a person's Windows PC (GUI look and feel, DPI, microphone, speakers, desktop control); (c) no clean-machine install; (d) unsigned installer; (e) unexplained Windows test-cleanup flake, not yet shown fixed; (f) open decision 2 above; (g) Prompts 1-5 have not been provided and remain UNREVIEWED, so requirements in them are unknown. A preview build is fine for a person who will run `ACCEPTANCE_TEST_PLAN.md` and report back; it is not a product release.
+**Not a release candidate.** Release-blocking items: (a) real-model run on the current code now exists for ONE reply on a hosted CPU runner only (run 40955846622, see the ledger), none on a person's PC; (b) no run on a person's Windows PC (GUI look and feel, DPI, microphone, speakers, desktop control); (c) no clean-machine install; (d) unsigned installer; (e) unexplained Windows test-cleanup flake, not yet shown fixed; (f) open decision 2 above; (g) Prompts 1-5 have not been provided and remain UNREVIEWED, so requirements in them are unknown. A preview build is fine for a person who will run `ACCEPTANCE_TEST_PLAN.md` and report back; it is not a product release.
 
 ## What would change this most, in order
 
