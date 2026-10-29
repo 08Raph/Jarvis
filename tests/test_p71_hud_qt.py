@@ -4,6 +4,7 @@ these tests were NEVER executed before being committed: they are the first real-
 What this proves when it passes: the widget and the Home page construct, paint non-blank frames, react to state and level, stop their timer when hidden, and the
 window wires the buttons to the controller (with FAKE audio and a scripted fake model).
 What it can NOT prove: how it looks to a person, real screen scaling, a real microphone or speaker, Windows 11 behaviour."""
+import importlib
 import importlib.util
 import os
 import sys
@@ -137,9 +138,27 @@ class RealQt(AppCase):
         h.close()
 
     # ------------------------------------------------------------ the window
+    def real_window_module(self):
+        """Import `jarvis.ui.window` fresh against the REAL PySide6. Several earlier test modules import it against stand-in Qt modules (p34, p42, p45, p50, p70) and
+        can leave that module cached in sys.modules or bound on the `jarvis.ui` package, so `from jarvis.ui import window` could hand this test a stand-in (CI runs
+        40814195606 and 40815815932). Drop any cached copy, import again, and refuse to continue if the result is not built on the real Qt."""
+        import jarvis.ui as pkg
+        from unittest import mock
+        import PySide6.QtWidgets as real_widgets
+        self.assertFalse(isinstance(real_widgets, mock.Mock), "PySide6.QtWidgets in sys.modules is a stand-in, not the real Qt")
+        for name in ("window", "hud"):                       # window.py imports hud at import time, so a stand-in hud would be inherited too
+            sys.modules.pop("jarvis.ui." + name, None)
+            if name in vars(pkg):
+                delattr(pkg, name)
+        W = importlib.import_module("jarvis.ui.window")
+        self.assertIs(W.HudWidget, importlib.import_module("jarvis.ui.hud").HudWidget)
+        self.assertFalse(isinstance(W.HudWidget, mock.Mock), "jarvis.ui.hud was imported against a stand-in Qt")
+        self.assertIs(W.QApplication, real_widgets.QApplication, "jarvis.ui.window was not built on the real PySide6")
+        return W
+
     def window(self, rig=None, **kw):
         from jarvis.app.controller import AppController
-        from jarvis.ui import window as W
+        W = self.real_window_module()
         if rig is None:
             self.install_model()
             ctl = AppController(self.cfg, simulate=True, **kw)
