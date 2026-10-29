@@ -83,5 +83,44 @@ class SafetyNet(unittest.TestCase):
         self.assertIn("the body failed first", result.failures[0][1])
 
 
+class SafetyNetCoversTheBrainCaseBase(unittest.TestCase):
+    """CI run 40918820914: test_p42's Ctl derives from BrainCase (plain unittest.TestCase), not AppCase, so it had no safety net and failed with WinError 32."""
+
+    def run_case(self, body, wait):
+        import test_p42_brain_controller as T42
+
+        class Inner(T42.Ctl):
+            CLEANUP_WAIT = wait
+
+            def test_it(self):
+                body(self)
+        result = unittest.TestResult()
+        unittest.defaultTestLoader.loadTestsFromTestCase(Inner).run(result)
+        return result
+
+    def test_a_task_that_ends_late_is_waited_for(self):
+        release = threading.Event()
+
+        def body(case):
+            case.ctl.tasks.submit("stuck", lambda token: release.wait(30))
+            threading.Timer(0.4, release.set).start()
+            self.assertEqual(case.ctl.shutdown(0.1), {"still_running": ["stuck"]})
+        result = self.run_case(body, wait=10.0)
+        self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
+
+    def test_a_task_that_never_ends_fails_the_test_and_names_it(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        def body(case):
+            case.ctl.tasks.submit("stuck", lambda token: release.wait(30))
+            case.ctl.shutdown(0.1)
+        result = self.run_case(body, wait=0.3)
+        self.assertFalse(result.wasSuccessful())
+        text = "\n".join(t for _, t in result.errors + result.failures)
+        self.assertIn("still running", text)
+        self.assertIn("stuck", text)
+
+
 if __name__ == "__main__":
     unittest.main()

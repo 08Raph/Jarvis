@@ -14,6 +14,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import p41_common as C                                    # noqa: E402
+from p10_common import settle_controllers                 # noqa: E402
 from jarvis.app.controller import AppController           # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,9 +26,14 @@ class Ctl(C.BrainCase):
         self.ctl = AppController(self.cfg, engine_factory=C.FakeEngine, guest=False)
         self.ctl.brain_manager()._hw = C.hw()
         self.ctl.brain_manager()._rt = {"available": True, "gpu_offload_supported": False}
+        # BrainCase does not derive from AppCase, so it needs the same cleanup safety net: registered before the shutdown below, it runs AFTER it (last-in-first-out) and
+        # before the temp folder is deleted. Without it a chat task that outlives shutdown(2.0) leaves memory.sqlite open (CI run 40918820914: WinError 32).
+        self.addCleanup(lambda: settle_controllers([self.ctl], getattr(self, "CLEANUP_WAIT", 30.0)))
         self.addCleanup(lambda: self.ctl.shutdown(2.0))
 
-    def wait(self, cond, timeout=5.0):
+    def wait(self, cond, timeout=30.0):
+        """Poll until `cond()` is true or `timeout` seconds pass. Every caller is `assertTrue(self.wait(...))`: the bound is only how long to be patient, it returns the moment the
+        condition holds. It was 5 s, and a stall of that length on a slow Windows runner failed the test with the work still in progress (CI run 40918820914)."""
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             self.ctl.tasks.pump()

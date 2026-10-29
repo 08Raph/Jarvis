@@ -74,6 +74,21 @@ def engine_for_gguf_file(case, gguf_path):
     return ge.GGUFEngine(d)
 
 
+def settle_controllers(controllers, wait: float = 30.0) -> None:
+    """Wait (bounded, by condition) for each controller's background tasks, then close its database; if a task never ends, raise NAMING it. Never calls shutdown().
+    Shared by AppCase and by test bases that do not derive from it (tests/p41_common.BrainCase users), because a task that outlives shutdown(timeout) leaves
+    memory.sqlite open and the temp-folder cleanup then fails with PermissionError [WinError 32] on Windows (CI runs 40795644979 and 40918820914)."""
+    stuck = []
+    for ctl in controllers:
+        left = ctl.tasks.shutdown(wait)
+        if left:
+            stuck.append(left)
+        elif ctl.assistant is not None:
+            ctl.assistant.close()                      # idempotent: an earlier shutdown() may already have closed it
+    if stuck:
+        raise AssertionError(f"background task(s) still running {wait:.0f} s after the test finished: {stuck}")
+
+
 class AppCase(unittest.TestCase):
     # Seconds the safety net below waits for a controller's background tasks before it fails the test NAMING the task.
     CLEANUP_WAIT = 30.0
@@ -105,15 +120,7 @@ class AppCase(unittest.TestCase):
         self.addCleanup(self._settle_controllers)
 
     def _settle_controllers(self) -> None:
-        stuck = []
-        for ctl in self._controllers:
-            left = ctl.tasks.shutdown(self.CLEANUP_WAIT)
-            if left:
-                stuck.append(left)
-            elif ctl.assistant is not None:
-                ctl.assistant.close()                      # idempotent: an earlier shutdown() may already have closed it
-        if stuck:
-            raise AssertionError(f"background task(s) still running {self.CLEANUP_WAIT:.0f} s after the test finished: {stuck}")
+        settle_controllers(self._controllers, self.CLEANUP_WAIT)
 
     def install_model(self, mid="fake"):
         store = ModelStore(self.cfg.models_dir)
