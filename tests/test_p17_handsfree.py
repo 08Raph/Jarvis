@@ -60,7 +60,7 @@ class AutoStart(AppCase):
         for _ in range(5):
             r.c.voice_autostart()
             r.c.voice_enable("wake_word")
-        voice_threads = [t for t in threading.enumerate() if t.name == "jarvis-voice"]
+        voice_threads = [t for t in r.voice_threads() if t.name == "jarvis-voice"]      # this test's own threads only
         self.assertEqual(len(voice_threads), 1)
         self.assertEqual(r.mic.opens, 1)
 
@@ -252,7 +252,7 @@ class Controls(AppCase):
         r = self.listening()
         r.c.voice_disable()
         self.assertTrue(wait_for(lambda: not r.mic.is_open, 3))
-        self.assertFalse(any(t.name == "jarvis-voice" for t in threading.enumerate()))
+        self.assertEqual([t.name for t in r.voice_threads() if t.name == "jarvis-voice"], [])
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
         self.assertEqual(r.state()["state"], "Off")
         self.assertEqual(VoiceSettings.load(self.cfg.profile_dir / "voice.json").input_mode, "off")
@@ -270,7 +270,7 @@ class Controls(AppCase):
         r.c.shutdown(3.0)
         self.assertFalse(r.c.voice_thread_leaked)
         self.assertFalse(r.mic.is_open)
-        self.assertFalse(any(t.name.startswith("jarvis-voice") for t in threading.enumerate()))
+        self.assertEqual([t.name for t in r.voice_threads()], [])
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
 
     def test_cancel_stops_speech_immediately_and_returns_to_listening(self):
@@ -307,6 +307,7 @@ class Controls(AppCase):
             return iter([{"choices": [{"delta": {"content": "late answer"}}]}])
         with mock.patch.object(FakeLlama, "create_chat_completion", slow):
             r = self.listening()
+            self.addCleanup(gate.set)       # runs BEFORE the controller shutdown: a failed early assertion must not leave the chat thread blocked in gate.wait(3)
             r.ask("a question that takes a long time")
             self.assertTrue(r.wait_state("Processing"))
             r.c.stop_speaking()
@@ -327,6 +328,7 @@ class Controls(AppCase):
             return iter([{"choices": [{"delta": {"content": "late answer"}}]}])
         with mock.patch.object(FakeLlama, "create_chat_completion", slow):
             r = self.listening()
+            self.addCleanup(gate.set)       # runs BEFORE the controller shutdown: a failed early assertion must not leave the chat thread blocked in gate.wait(3)
             r.ask("a question that takes a long time")
             self.assertTrue(r.wait_state("Processing"))
             r.c.voice_mute()
@@ -359,7 +361,7 @@ class Failures(AppCase):
         st = r.state()
         self.assertIn("No microphone", st["detail"])
         self.assertTrue(st["can_retry"] and not st["mic_open"])
-        self.assertFalse(any(t.name == "jarvis-voice" for t in threading.enumerate()))
+        self.assertEqual([t.name for t in r.voice_threads() if t.name == "jarvis-voice"], [])
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
 
     def test_missing_speech_model_files(self):
@@ -935,7 +937,7 @@ class ControllerLifecycle(AppCase):
             self.assertTrue(r.wait_state("Listening"))
             r.c.voice_disable()
             self.assertEqual(r.state()["state"], "Off")
-        self.assertFalse(any(t.name == "jarvis-voice" for t in threading.enumerate()))
+        self.assertEqual([t.name for t in r.voice_threads() if t.name == "jarvis-voice"], [])
         self.assertEqual(r.mic.opens, r.mic.closes)
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
 
@@ -1027,6 +1029,7 @@ class ExtraGuards(AppCase):
             return iter([{"choices": [{"delta": {"content": "late answer"}}]}])
         with mock.patch.object(FakeLlama, "create_chat_completion", slow):
             r = Rig(self)
+            self.addCleanup(gate.set)       # see the other two tests: unblock the fake model before the shutdown cleanup, whatever happens
             r.c.voice_autostart()
             self.assertTrue(r.wait_state("Listening"))
             r.ask("a question that takes a while")

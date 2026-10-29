@@ -64,11 +64,11 @@ Never share files without reading them first: logs can contain folder names.
 ### 5. Memory persistence and deletion
 - *Prerequisites:* part 3 (a model is not required).
 - *Do:*
-      jarvis --data-dir C:\jarvis-test\data memory add "I prefer short answers"
+      jarvis --data-dir C:\jarvis-test\data memory add explicit_preference "I prefer short answers"
       jarvis --data-dir C:\jarvis-test\data memory list
       (close and reopen the window; open the Memory page)
       jarvis --data-dir C:\jarvis-test\data memory export
-      jarvis --data-dir C:\jarvis-test\data memory add "my password is hunter2-Xk9"
+      jarvis --data-dir C:\jarvis-test\data memory add explicit_preference "my password is hunter2-Xk9"
       jarvis --data-dir C:\jarvis-test\data memory forget-all
 - *Expect:* the item survives a restart; export matches the list; the password line is **refused** (not stored, not echoed in the export); `forget-all` asks first, then reports what it removed and what it kept (undo points are kept unless `--include-undo-points`); `memory list` is then empty.
 - *Record:* each output; open `memory.sqlite` copy with a viewer and confirm no secret text.

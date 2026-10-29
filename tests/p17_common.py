@@ -122,6 +122,9 @@ def wait_for(pred, timeout=6.0, ctl=None):
 class Rig:
     """A controller wired to fake audio, a scripted model and a hands-free voice.json (no guard delay so tests are quick)."""
     def __init__(self, case, *, mode="wake_word", rec=None, mic=None, spk=None, settings=None, engine=True, **kw):
+        # Threads named jarvis-voice that already exist (a slow-to-exit leftover of an EARLIER test in the same process) are not this test's business:
+        # compare Thread objects, never names alone and never idents (an ident can be reused after a thread exits).
+        self._voice_threads_before = {t for t in threading.enumerate() if t.name.startswith("jarvis-voice")}
         self.mic = mic or ThreadMic()
         self.rec = rec or ScriptRec()
         self.spk = spk or ThreadSpk()
@@ -131,6 +134,10 @@ class Rig:
         self.c = AppController(case.cfg, engine_factory=fake_engine_factory if engine else None, speaker_factory=lambda: self.spk,
                                mic_factory=lambda: self.mic, recognizer_factory=lambda vs_: self.rec, **kw)
         case.addCleanup(self.c.shutdown, 2.0)
+
+    def voice_threads(self, prefix: str = "jarvis-voice") -> list:
+        """Live voice threads that were started after this Rig was created (i.e. by this test's own controller)."""
+        return [t for t in threading.enumerate() if t.name.startswith(prefix) and t.is_alive() and t not in self._voice_threads_before]
 
     def state(self):
         return self.c.voice_state()
