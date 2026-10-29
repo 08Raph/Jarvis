@@ -46,8 +46,11 @@ class Provenance(AppCase):
         return a
 
     def test_flagged_real_without_a_recorded_runtime_is_unverified_never_real(self):
-        rep = audit.run(self.make(), styles=["normal"], categories=["ordinary"], simulated=False, with_controls=False)
-        self.assertNotEqual(rep["model"]["runtime"].get("available"), True)          # no llama.cpp in this sandbox: the fake looks like a missing runtime
+        a = self.make()
+        # A CI build machine can have the real llama.cpp installed, so the missing runtime is simulated instead of assumed from the sandbox.
+        with mock.patch("jarvis.inference.gguf_engine.runtime_info", return_value={"available": False, "error": "not installed (test)"}):
+            rep = audit.run(a, styles=["normal"], categories=["ordinary"], simulated=False, with_controls=False)
+        self.assertNotEqual(rep["model"]["runtime"].get("available"), True)          # the fake looks like a missing runtime
         self.assertTrue(rep["evidence_status"].startswith("UNVERIFIED"))
         self.assertNotIn("REAL MODEL", rep["evidence_status"])
         self.assertIn("NOT human-reviewed", rep["evidence_status"])

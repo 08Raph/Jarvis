@@ -3,6 +3,7 @@
 LABELS: static source inspection (regex over the source), MOCKED network/socket (any use raises), FakeEngine (not inference), SYNTHETIC GGUF files.
 The Windows branch of the available-memory reader cannot run on Linux and is NOT tested here."""
 import json
+import os
 import re
 import socket
 import sys
@@ -71,7 +72,10 @@ class ModelFilesAreUntrusted(C.BrainCase):
         link = self.files / "dir.gguf"
         link.symlink_to(self.files, target_is_directory=True)
         self.assertEqual(self.mgr.import_file(link)["kind"], "not_a_file")
-        self.assertEqual(self.mgr.import_file("/dev/null")["kind"], "not_a_file")
+        dev = self.mgr.import_file(os.devnull)
+        self.assertFalse(dev["ok"])
+        # POSIX: /dev/null exists and is not a regular file. Windows: "nul" is not reported as an existing path at all. Either way it is refused.
+        self.assertIn(dev["kind"], ("not_a_file", "not_found"))
 
     def test_huge_string_lengths_in_a_header_are_rejected_not_allocated(self):
         import struct

@@ -105,8 +105,10 @@ class PackagedFiles(unittest.TestCase):
             self.frozen(self.bundle(Path(b) / "_internal"))
             old = os.getcwd()
             os.chdir(elsewhere)
-            self.addCleanup(os.chdir, old)
-            r = diagnostics.packaged_files()
+            try:
+                r = diagnostics.packaged_files()
+            finally:
+                os.chdir(old)           # Windows cannot delete a folder that is the current directory, so leave it BEFORE the temp folders are removed
             self.assertEqual((r["mode"], r["missing_required"]), ("packaged", []))
             self.assertEqual(r["checked"], len(manifest.DATAS) + len(manifest.DOCS))
 

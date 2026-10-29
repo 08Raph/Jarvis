@@ -181,9 +181,10 @@ class TimeoutsAndCrashes(Base):
             with self.subTest(mode=mode):
                 rc, _, err = self.run_cli(mode)
                 r = self.report()
-                self.assertEqual((rc, r["status"], r["passed"], r["failure"]["kind"], r["failure"]["stage"]), (5, "crashed", False, "worker_crashed", stage))
-                self.assertIn("exit", r["worker_exit"])
-                self.assertIn("native crash", r["failure"]["message"])
+                info = f"rc={rc} status={r.get('status')!r} stage={r.get('failure', {}).get('stage')!r} kind={r.get('failure', {}).get('kind')!r} worker_exit={r.get('worker_exit')!r} stages={[x.get('stage') for x in r.get('stages', [])]} stderr={err[-300:]!r}"
+                self.assertEqual((rc, r["status"], r["passed"], r["failure"]["kind"], r["failure"]["stage"]), (5, "crashed", False, "worker_crashed", stage), info)
+                self.assertRegex(r["worker_exit"], r"exit|Windows status", info)        # "exit code 139" (POSIX) or "Windows status 0x... (name)"
+                self.assertIn("native crash", r["failure"]["message"], info)
 
     @unittest.skipIf(sys.platform == "win32", "uses a POSIX signal")
     def test_a_worker_killed_by_the_system_is_reported_with_the_signal(self):

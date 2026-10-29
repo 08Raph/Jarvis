@@ -52,7 +52,7 @@ class LocalImport(C.BrainCase):
             def __init__(self, **kw):
                 self.path = kw["model_path"]
         eng = GGUFEngine(self.store.path(mid), llama_factory=L)
-        self.assertEqual(Path(eng.llm.path), self.files / "a.gguf")
+        self.assertEqual(Path(eng.llm.path), (self.files / "a.gguf").resolve())      # the registry stores the resolved path (Windows temp folders may use 8.3 short names)
 
     def test_a_moved_or_changed_file_is_noticed_not_loaded(self):
         mid = self.imp()

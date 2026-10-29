@@ -174,8 +174,13 @@ class RefusalTests(V):
     def test_whole_screen_allowed_when_nothing_sensitive(self):
         be, w = self.look()
         r = self.ob(scope="screen")
-        self.assertIn(r.status, ("verified", "unverified"))
-        self.assertEqual(be.shots, 1)
+        info = f"status={r.status!r} message={r.message[:200]!r} shots={be.shots} tesseract={HAVE_TESS}"
+        self.assertNotEqual(r.status, "denied", info)            # the refusal rules are NOT relaxed: only a sensitive window may cause a refusal
+        self.assertEqual(be.shots, 1, info)                      # the picture was taken
+        if HAVE_TESS:
+            self.assertIn(r.status, ("verified", "unverified"), info)
+        else:                                                    # no OCR engine (for example a stock CI image): the capture happens but nothing can be read
+            self.assertIn(r.status, ("verified", "unverified", "failed"), info)
 
 
 @needs_tess
