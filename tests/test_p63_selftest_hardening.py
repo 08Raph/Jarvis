@@ -278,14 +278,23 @@ class RecoveryAndAtomicity(Base):
         core.write_json_atomic(p, {"n": 0, "pad": "x" * 50000})
         stop, bad = threading.Event(), []
 
+        refused = []
+
         def writer():
-            for i in range(1, 150):
-                core.write_json_atomic(p, {"n": i, "pad": "x" * 50000})
-            stop.set()
-        t = threading.Thread(target=writer)
+            try:
+                for i in range(1, 150):
+                    try:
+                        core.write_json_atomic(p, {"n": i, "pad": "x" * 50000})
+                    except PermissionError:
+                        refused.append(i)       # Windows: the reader's open handle can outlast write_json_atomic's retries; that is not a torn read
+            finally:
+                stop.set()                      # ALWAYS end the reader loop (a writer that died used to leave this test spinning until the CI timeout)
+        t = threading.Thread(target=writer, daemon=True)
         t.start()
         reads = 0
-        while not stop.is_set():
+        deadline = time.monotonic() + 120
+        while not stop.is_set() and time.monotonic() < deadline:
+            time.sleep(0.0005)                  # give the writer's replace a chance on Windows
             try:
                 json.loads(p.read_text(encoding="utf-8"))
             except ValueError:
@@ -293,7 +302,8 @@ class RecoveryAndAtomicity(Base):
             except OSError:
                 pass            # Windows can refuse a read during the replace; a torn read would be a ValueError
             reads += 1
-        t.join()
+        t.join(30)
+        self.assertFalse(t.is_alive(), "the writer thread did not finish")
         self.assertEqual(bad, [])
         self.assertGreater(reads, 0)
 
