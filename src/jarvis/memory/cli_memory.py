@@ -1,6 +1,8 @@
 """`jarvis memory ...` commands: inspect, edit, export, delete and approve what Jarvis has saved about you."""
 from __future__ import annotations
 
+from jarvis.security.private_file import write_private_text
+
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -190,7 +192,7 @@ def _run(args, cfg, mem: PersonalMemory) -> int:
         return 0
     if c == "export":
         out = Path(args.out)
-        out.write_text(json.dumps(mem.export(), indent=2, default=str), encoding="utf-8")
+        write_private_text(out, json.dumps(mem.export(), indent=2, default=str))
         print(f"Exported to {out.resolve()} (plain JSON; it contains your personal memory, so keep it somewhere private).")
         return 0
     if c == "summaries":

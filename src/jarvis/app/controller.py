@@ -5,6 +5,8 @@ State is changed on the "interface thread" only (callbacks are delivered through
 Confirmation requests reach the person through the view; if there is no view, or it does not answer in time, the answer is NO (fail closed)."""
 from __future__ import annotations
 
+from jarvis.security.private_file import write_private_text
+
 import json
 import threading
 from dataclasses import dataclass
@@ -744,7 +746,7 @@ class AppController:
     def memory_export(self, out: Path) -> Path:
         mem = self._memory()
         try:
-            Path(out).write_text(json.dumps(mem.export(), indent=2, default=str), encoding="utf-8")
+            write_private_text(out, json.dumps(mem.export(), indent=2, default=str))
         finally:
             mem.close()
         return Path(out)

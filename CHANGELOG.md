@@ -207,3 +207,8 @@ First-run checklist: added the missing "install the project" step (python -m jar
 - Docs: speaker recognition recorded as not required; always-listening default recorded; Prompts 1-5 recorded as unreviewed; flake ledger updated (4 clean runs, unresolved).
 
 - Authorised real-model run 40955846622 at 665e400: real-response checker executed and passed (genuine 311-tensor Qwen3-1.7B Q4_K_M, runtime 0.3.36, reply "The capital of France is Paris."). Recorded in `docs/VERIFICATION_LEDGER.md` section 6.
+
+## Milestones 2-5 pass (branch work/milestones-2-5)
+
+- Memory, mission and window exports are now written owner-only (POSIX) via `jarvis.security.private_file`; regression tests added (test_p75).
+- Added `docs/FINAL_ACCEPTANCE_REPORT.md` (evidence-level matrix, security review, release checklist, short Windows sequence). Recorded that an optional Jarvis Online client and server exist (CLI only, no GUI sign-in, no admin or ban features).

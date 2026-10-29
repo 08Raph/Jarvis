@@ -2,6 +2,8 @@
 only read mission status (tool `mission_status`)."""
 from __future__ import annotations
 
+from jarvis.security.private_file import write_private_text
+
 import json
 import sys
 from datetime import timezone
@@ -275,7 +277,7 @@ def _mission(args, cfg, store, confirm, engine):
             print(json.dumps(r))
         return 0
     if c == "export":
-        Path(args.out).write_text(json.dumps(store.export(args.id), indent=2, default=str), encoding="utf-8")
+        write_private_text(args.out, json.dumps(store.export(args.id), indent=2, default=str))
         print(f"Exported to {Path(args.out).resolve()} (redacted; plain JSON).")
         return 0
     if c == "context":
