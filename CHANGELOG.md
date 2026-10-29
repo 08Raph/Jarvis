@@ -165,3 +165,9 @@ First-run checklist: added the missing "install the project" step (python -m jar
 ## Test isolation: Windows temp-folder cleanup (investigation of CI run 40795644979)
 
 - Test-only change. `tests/p10_common.AppCase` now settles every controller created during a test (bounded wait for its tasks, then closes the database) before the temp folder is removed, and fails naming a task that never ends. `tests/test_p72_cleanup_isolation.py` pins the mechanism (shutdown(timeout) deliberately leaves the database open while a task runs) and the safety net, with a negative control. No product code changed. The root cause of the slow Windows runner in that run is NOT established; see docs/ACCEPTANCE_TEST_PLAN.md section 5.
+
+## Local model behaviour audit (scripted runtime; no real inference was possible)
+
+- Fixed: an EMPTY model reply left a blank assistant bubble above the "The model returned no text." error (`controller.py`). Observed and deliberately NOT changed: an empty reply is still stored in the conversation history as an empty assistant turn (an existing benchmark test pins the user/assistant alternation); whether that confuses a real model was not measured.
+- Tests: `tests/test_p73_inference_behaviour.py` (scripted runtime through the real controller/assistant/engine/model store: empty reply (no blank bubble), crash mid-reply with no prompt leak, stop then reuse, load failure then retry, garbage/truncated/missing files refused before the runtime is touched, truthful status) plus one opt-in `RealRuntime` test that needs llama-cpp-python and a real .gguf and was NOT run. The opt-in tests in test_p8_integration and test_desktop_agent_integration passed a .gguf file where `GGUFEngine` needs a model folder; fixed with `engine_for_gguf_file`.
+- Not done: genuine inference. No runtime and no model were reachable in the authoring sandbox.

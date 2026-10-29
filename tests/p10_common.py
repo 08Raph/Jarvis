@@ -2,6 +2,7 @@
 
 LABELS: REAL = real files, SQLite, executor/policy/confirmation, mission store, lock files, packaging manifest and scripts.
 FAKE MODEL = FakeLlama (scripted replies, no real inference). NO Qt, NO Windows, NO real Qwen weights, NO PyInstaller/Inno Setup were available."""
+import json
 import struct
 import sys
 import tempfile
@@ -54,6 +55,18 @@ class FakeLlama:
 
 def fake_engine_factory(p):
     return ge.GGUFEngine(p, llama_factory=FakeLlama)
+
+
+def engine_for_gguf_file(case, gguf_path):
+    """A REAL GGUFEngine for a .gguf FILE the person already has. GGUFEngine takes a model FOLDER (the folder's model.gguf, or a meta.json that links to the user's own
+    file), so passing the file itself raises RuntimeUnavailable. Used only by the opt-in real-model tests; it copies nothing."""
+    d = Path(tempfile.mkdtemp(prefix="jarvis-real-"))
+    case.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
+    meta = {"linked": {"path": str(gguf_path)}}
+    if "qwen" in Path(gguf_path).name.lower():
+        meta["no_think_suffix"] = True                 # Qwen3 only; other models are left as they are
+    (d / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    return ge.GGUFEngine(d)
 
 
 class AppCase(unittest.TestCase):

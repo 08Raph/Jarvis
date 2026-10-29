@@ -491,6 +491,7 @@ class AppController:
             elif result and result["stopped"]:
                 self.transcript.add("system", "Stopped. The reply above is only what was produced before you pressed Stop.")
             elif result and not result["parts"]:
+                self.transcript.entries = [e for e in self.transcript.entries if e.id != entry.id or e.text]      # no blank assistant bubble above the error
                 self.transcript.add("error", "The model returned no text.")
             if result and not err and not result["stopped"] and result["parts"] and not self.closed:
                 final = next((e.text for e in self.transcript.entries if e.id == entry.id), "")

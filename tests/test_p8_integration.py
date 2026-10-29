@@ -189,8 +189,8 @@ class RealModelNewToolsTests(P8):
     """REAL MODEL, SIMULATED desktop. Measures only whether Qwen emits parseable calls to the Prompt 8 tools for harmless goals. A pass would not show reliability."""
 
     def test_model_can_pick_the_new_tools(self):
-        from jarvis.inference.gguf_engine import GGUFEngine
-        engine = GGUFEngine(Path(os.environ["JARVIS_REAL_MODEL_PATH"]))
+        from p10_common import engine_for_gguf_file
+        engine = engine_for_gguf_file(self, os.environ["JARVIS_REAL_MODEL_PATH"])      # GGUFEngine wants a model FOLDER, not the .gguf file
         self.make8(enable=("monitoring", "gaming", "files_read"), backend=SimulatedDesktop(extra_processes={"minecraft.exe"}))
         self.answer = False
         out = []

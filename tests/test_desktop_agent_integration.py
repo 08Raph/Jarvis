@@ -525,8 +525,8 @@ class RealModelToolCallingTests(Harness):
     model produces parseable single tool calls for harmless goals. A pass would NOT show the model is safe or reliable."""
 
     def test_the_model_produces_parseable_single_calls_for_harmless_goals(self):
-        from jarvis.inference.gguf_engine import GGUFEngine
-        engine = GGUFEngine(Path(os.environ["JARVIS_REAL_MODEL_PATH"]))
+        from p10_common import engine_for_gguf_file
+        engine = engine_for_gguf_file(self, os.environ["JARVIS_REAL_MODEL_PATH"])      # GGUFEngine wants a model FOLDER, not the .gguf file
         self.make(enable=("files_read", "system"))
         self.answer = False
         (self.work / "hello.txt").write_text("hello")
