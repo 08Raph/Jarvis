@@ -3,7 +3,9 @@
 A local Windows assistant. Two separate model tracks: (1) a **research pipeline** with its own tokenizer and transformer code (tiny, never trained, kept for experimentation), and (2) the **shipped chat model**, a third-party free open-weight model (default Qwen3-1.7B, Apache-2.0) that is downloaded on the user's request and run locally. The app does not claim to have created track 2's weights. It runs on the user's computer: no paid AI API, no message quotas, and
 no network use during local inference. Local use needs no account. An optional Jarvis Online mode (sign-in required, off until you connect) is described in `docs/ONLINE.md`. See `docs/CONCEPTS.md` for what "original" does and does not mean.
 
-## Status (Prompt 4 implemented in code; hardware parts untested)
+> **Read `docs/VERIFICATION_LEDGER.md` first.** The status table below dates from an early milestone and is partly out of date: the desktop window, installer, Windows build and a real-model run on a hosted Windows CI runner all exist now (see the ledger for exactly what ran, at which commit, and what did not).
+
+## Status (early-milestone table, partly out of date)
 
 | Area | State |
 |---|---|
@@ -25,12 +27,12 @@ no network use during local inference. Local use needs no account. An optional J
 | Adaptive personal memory: 8 categories with source/confidence/expiry, secrets refused, remember/correct/usual-style/like-last-time rules, verified-only procedures, profiles, guest mode, export/delete (`docs/MEMORY.md`) | Implemented; tested with real SQLite and a fake model. **Never tried with a real model or real users.** No model retraining from conversations, by design |
 | Desktop UI, installer download inside the app | Not started |
 
-**No model has been trained, no benchmark scores exist, nothing has been built or installed on Windows.**
+**No model has been trained by this project.** The shipped chat model is a third-party open-weight model. Benchmark scores for three third-party models exist (CI, CPU, small heuristic suite; see `docs/VERIFICATION_LEDGER.md`). The Windows build and installer are produced by CI; no clean consumer PC has been tested.
 Without an installed model the CLI says so and exits; it never fabricates answers.
 
 ## Commands
 
-    python -m unittest discover -s tests            # 339 tests: 338 pass, 1 skipped without torch (Linux only; never run on Windows)
+    python -m unittest discover -s tests            # about 3,000 tests; the exact numbers are in the latest CI run summary
     python -m jarvis setup                          # guided first-run (what the Start-menu shortcut runs)
     python -m jarvis first-run                      # folders + safe defaults + hardware check (no network)
     python -m jarvis hardware

@@ -1,0 +1,39 @@
+# Requirements-based acceptance report (commit c508666, 2026-10-29)
+
+**Source of the requirements.** The original master prompt pack is not in the repository and was not available when this report was written. The requirement list below is rebuilt from what the repository's own audits record (`PROMPT11_FINAL_AUDIT.md`, `STAGE7_AUDIT.md`, `ACCEPTANCE_TEST_PLAN.md`, `ROADMAP.md`) and from requirements the owner has stated in conversation. Anything in the original pack that is in neither place is missing from this report. Check the list against the pack.
+
+**Status words.** *Verified (real)* = ran for real on Windows CI with a real model/UI, at the commit named. *Verified (fakes)* = unit-tested with fake runtime, fake audio or a simulated desktop. *Implemented* = code exists with tests but no run beyond that. *Missing* = no implementation found. *Blocked* = needs something this project cannot supply. Evidence for "real" is in `VERIFICATION_LEDGER.md`; "older commit" means bee5873 (2026-10-27), 68 commits and about 10,700 source lines before this one.
+
+| # | Requirement | Where | Status | Evidence and what is NOT shown |
+|---|---|---|---|---|
+| 1 | Local AI, no paid API, no mandatory cloud | `inference/`, `models/`, `brains/`, `net/policy.py` | Verified (real, older commit); current code unverified | Qwen3-1.7B loaded and answered on a Windows CI runner (runs 40422256861, 40431278616), also with the app's network firewall-blocked. A source scan test forbids vendor API/quota logic. Not run on the current code or a person's PC. |
+| 2 | Target model Qwen3-8B Q4_K_M | `models/catalog.py` | Partial: **decision needed** | The 8B entry exists and is installable by choosing it, but the first-run wizard never selects it (`auto_recommend=False`) and it was never benchmarked. On a 32 GB / RTX 4070 SUPER class machine the wizard still proposes what the selector picks among auto-recommended models. Changing that is a product decision, not a defect fix. |
+| 3 | Guided setup and System & Model Readiness UI (no PowerShell for customers) | `app/setup_engine.py`, `app/readiness.py`, `ui/` | Verified (real, older commit) | Real clicks drove consent, download with progress, integrity check, load, first answer, cancel and close mid-download, damaged-model refusal. Looks, scaling and accessibility not shown. |
+| 4 | Model integrity: SHA-256, damaged file refused, rollback | `models/manager.py`, `models/package.py` | Verified (real, older commit) | A one-byte change was detected and the model re-fetched (run 40431278616). Other drives and antivirus interaction not shown. |
+| 5 | Memory: remember, correct, forget, export; secrets refused; guest mode | `memory/` (7 files) | Verified (fakes) | Real SQLite, real CLI probes (add, list, secret refusal, export, forget-all) on Linux. Survival across a real GUI close/reopen on a PC not shown. |
+| 6 | Personalization: 17 personalities, five intensity controls, per-field recovery | `personality/` (9 files) | Verified (fakes) | Behaviour with a real model is unmeasured (`STAGE7_AUDIT.md`). |
+| 7 | 18+ gating for Savage, Flirty, Sexy, Romantic; distress override | `personality/`, tests p55 | Verified (fakes) | Self-declaration gate that fails closed; distress detection is a keyword heuristic that will miss phrasings. Not an age-verification system. |
+| 8 | Rename the assistant | `app/`, `personality/` | Implemented | 8 source files, 10 test files. |
+| 9 | Voice: always-listening wake word, Vosk speech-to-text, SAPI and Kokoro speech, mute, hands-free turn-taking | `voice/` (14 files), `app/voice_service.py` | Verified (fakes) | Fake audio drives the real session logic. **No real microphone, speaker, Vosk model or Kokoro run exists.** A shutdown-ordering defect in the reply thread was found and fixed this session. |
+| 10 | Speaker recognition (only respond to the owner's voice) | none | **Missing** | No implementation or test (grep for speaker/voiceprint: 0 source, 0 test files). It was requested for the earlier Jarvis project; whether the current spec still requires it is for the owner to confirm. |
+| 11 | Permission-controlled computer operations | `desktop/` (23 files), `dev/`, `monitor/` | Verified (fakes) | One executor path, fingerprint-bound confirmation, audit, emergency stop; tested against a **simulated** desktop. Real windows, clicks, UI Automation, junction handling and OCR on Windows are not verified (R-5 in `PROMPT11_FINAL_AUDIT.md`). |
+| 12 | Planning modes: missions, step approval, schedules | `missions/` (8 files), `planning/` | Verified (fakes) | Approval bound to plan hash, tamper detection, schedule limits, crash recovery tested with the real executor and fakes. No real tool side effects on Windows; a real model's plans unmeasured. |
+| 13 | Offline by default; optional online only with consent, no silent cloud fallback | `net/policy.py`, `online/` | Verified (fakes); offline run Verified (real, older commit) | Every network feature off by default; one choke point; DNS-rebinding and NAT64 defects fixed earlier. Online research uses mocked HTTP; no real internet request. |
+| 14 | Privacy controls and data deletion | `memory/`, `telemetry/`, `app/diagnostics.py` | Verified (fakes) | Telemetry endpoint is empty (inert). Diagnostics export contained no user name in a real CI run. Redaction is best-effort. |
+| 15 | Windows packaging: PyInstaller exe, Inno Setup installer, silent install and uninstall keeping data | `packaging/`, `scripts/`, `.github/workflows/` | Verified (real) at the current commit for build and silent install | Built and installed on every push (run 40928361454). A clean consumer PC, upgrade-over-install and SmartScreen not tested. |
+| 16 | Release security | `security/signing.py`, `updater/`, `scripts/release_tools.py` | Partial; signing **Blocked** | SHA-256 checksums are produced. Catalog and update manifests use Ed25519 verification, but no real keys or URLs exist. **The exe and installer are not code-signed** (needs a paid certificate): SmartScreen will warn. Not independently audited. |
+| 17 | Game/FPS monitor, vision/OCR | `monitor/`, `desktop/ocr.py` | Implemented (fakes) | Parsers tested on fixtures; Tesseract absent on CI, no real PresentMon run. |
+| 18 | Crash recovery, shutdown safety | `app/controller.py`, `inference/` | Verified (fakes) | Worker crash, hang and cancel tested with a fake runtime in real child processes. Intermittent Windows cleanup error `WinError 32` still **unexplained** (`VERIFICATION_LEDGER.md` section 5). |
+| 19 | Accounts, admin panel, licensing backend | `docs/ACCOUNTS_ADMIN_DATABASE_PLAN.md`, `server/` | Deferred by the owner | Planned for after Windows validation; not part of this acceptance. |
+| 20 | Original from-scratch model (own tokenizer/transformer) | `model/`, `train/`, `tokenizer/` | Research track only | Tiny, never trained; the shipped model is a third-party Qwen model, stated as such everywhere. |
+
+## Release decision
+
+**Not a release candidate.** Release-blocking items: (a) no real-model run on the current code; (b) no run on a person's Windows PC (GUI look and feel, DPI, microphone, speakers, desktop control); (c) no clean-machine install; (d) unsigned installer; (e) unexplained Windows test-cleanup flake, not yet shown fixed; (f) open decisions 2 and 10 above. A preview build is fine for a person who will run `ACCEPTANCE_TEST_PLAN.md` and report back; it is not a product release.
+
+## What would change this most, in order
+
+1. One consented `windows-ci` real-model run on the current commit (about 1.28 GB download; needs the owner's go-ahead because it spends Actions minutes and bandwidth).
+2. One pass of `ACCEPTANCE_TEST_PLAN.md` AT-05 to AT-14 on a real Windows 11 PC.
+3. Owner answers to decisions 2 and 10.
+4. A code-signing certificate, if the product will be sold.

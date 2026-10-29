@@ -1,7 +1,6 @@
 # Running the real-inference test (REAL_INFERENCE_CHECKLIST)
 
-**Status: genuine local inference has NEVER been run by this project.** No genuine GGUF model has been loaded through the real llama.cpp runtime by any test, anywhere. Every other
-model test uses a scripted stand-in runtime. This page is the exact sequence for running the one test that does not (`test_p73_inference_behaviour.RealRuntime`) as soon as both
+**Status (corrected 2026-10-29, see `docs/VERIFICATION_LEDGER.md`):** a genuine GGUF model (Qwen3-1.7B Q4_K_M) WAS loaded and answered through the real llama.cpp runtime on a hosted Windows CI runner on 2026-10-26/27 (runs 40422256861, 40431278616, older commit bee5873). It has NOT been done with the current code, on a person's PC, or by THIS test (`RealRuntime`), and the authoring sandbox has neither a runtime nor weights. Every other model test in the unit suite uses a scripted stand-in runtime. This page is the exact sequence for running the one test that does not (`test_p73_inference_behaviour.RealRuntime`) as soon as both
 prerequisites exist. A skipped test is not a pass, and a run that stops at a prerequisite check proves nothing about inference.
 
 ## What the test does (and does not) prove

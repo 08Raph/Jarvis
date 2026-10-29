@@ -1,6 +1,6 @@
 """The PySide6 window. A THIN view: every action calls AppController (src/jarvis/app/controller.py), which calls the existing Jarvis code.
-STATUS: this file has been syntax- and name-checked on Linux but has NEVER been run with PySide6 (not installable in the authoring sandbox) and never on
-Windows. docs/PROMPT10_REVIEW.md and docs/WINDOWS_TEST_CHECKLIST.md section 6k list what must be checked by running it.
+STATUS: the authoring sandbox has no PySide6, so this file is checked there only by syntax/name checks and stand-in Qt classes. It has run under real PySide6 on hosted Windows CI
+(offscreen render tests on every push; a click-through of the wizard and chat in an older run, see docs/VERIFICATION_LEDGER.md) but NOT by a person on a real PC. docs/PROMPT10_REVIEW.md and docs/WINDOWS_TEST_CHECKLIST.md section 6k list what must be checked by running it.
 Rule for this file: a visible control either works or is disabled with a tooltip that says why."""
 from __future__ import annotations
 

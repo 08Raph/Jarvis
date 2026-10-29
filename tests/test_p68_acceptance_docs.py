@@ -60,7 +60,12 @@ class Commands(unittest.TestCase):
 class Honesty(unittest.TestCase):
     def test_the_plan_says_it_is_a_plan_and_names_what_is_not_verified(self):
         self.assertIn("PLAN ONLY", PLAN)
-        self.assertIn("NOT RUN anywhere", PLAN)
+        # Corrected 2026-10-29: real inference WAS run once on a hosted Windows runner at an older commit (docs/VERIFICATION_LEDGER.md). The plan must still say, in so many
+        # words, that it was NOT run on the current code or on a person's PC, and must cite the evidence rather than claim it from memory.
+        self.assertIn("NOT run on the current code or on a person's PC", PLAN)
+        self.assertIn("OLDER commit", PLAN)
+        self.assertIn("40431278616", PLAN)
+        self.assertIn("never been run with real weights", PLAN)
         for needle in ("AT-05", "Real load + one generation", "never"):
             self.assertIn(needle, PLAN)
 

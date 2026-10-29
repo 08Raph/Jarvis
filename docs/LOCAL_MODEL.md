@@ -3,9 +3,9 @@
 ## Honest status - read this first
 | Item | State |
 |---|---|
-| Runtime wiring (llama.cpp through llama-cpp-python), GGUF validation, install/verify/rollback, guarded download, chat, streaming, personality system prompt, hardware fit check, `selftest` | Implemented and tested **with a fake runtime and synthetic files only** (219 tests) |
-| **Real inference with a real model** | **NOT TESTED.** The authoring sandbox could not install llama-cpp-python (package index blocked) and could not reach the model host, so no weights were ever loaded. **Nobody should say "it works" until `jarvis selftest` passes on a real Windows PC** |
-| Model download from huggingface.co (file name + SHA-256 are read from the host's own metadata over HTTPS) | Implemented; tested against a local imitation server. The real host's response format was assumed from memory of its public API and **not verified** |
+| Runtime wiring (llama.cpp through llama-cpp-python), GGUF validation, install/verify/rollback, guarded download, chat, streaming, personality system prompt, hardware fit check, `selftest` | Implemented and unit-tested with a fake runtime and synthetic files; exercised with the real runtime and model only in the older CI runs listed in the next row |
+| **Real inference with a real model** | **Demonstrated once on a hosted Windows CI runner (CPU only), on an OLDER commit; NOT re-run on the current code and NOT run on a person's PC.** On 2026-10-26/27 (runs 40422256861, 40431278616, commit bee5873) the packaged app loaded the real Qwen3-1.7B Q4_K_M with llama-cpp-python 0.3.36 and answered (selftest "4"; chat "The capital of France is Paris."; 11.15 tok/s sustained). The authoring sandbox itself still has no runtime and no weights. See `docs/VERIFICATION_LEDGER.md`. Say "it works" only about that snapshot until `jarvis selftest` passes again on the current build and on a real PC |
+| Model download from huggingface.co (file name + SHA-256 are read from the host's own metadata over HTTPS) | Implemented; tested against a local imitation server, and the real download (1,282 MB, SHA-256 checked) completed on a Windows CI runner in run 40431278616 |
 | Speed on your CPU | **Unknown**. `jarvis selftest` measures it and writes `selftest.json` |
 | Prebuilt Windows wheel for your Python version | Documented by the runtime's authors for CPU use; Python-version coverage **not verified**. Python 3.12 64-bit is the safest choice |
 
