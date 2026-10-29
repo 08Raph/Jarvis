@@ -2,7 +2,7 @@
 
 **Source of the requirements (updated 2026-10-29).** The owner's prompt pack was found in the session's attachment folder: 73 files from Prompt 6 (2026-10-25) to the current instruction, indexed in `PROMPT_PACK_INDEX.md`. The baseline requirements document is `MASTER ENGINEERING PROMPT 19` (product vision, hardware tiers, 15-category scorecard, the 12 hands-free rules, testing rules). **Prompts 1 to 5 were not available and were not checked**; a requirement that exists only there is not covered by this report. The rows below were first written from the repository's audits and the owner's stated requirements, then cross-checked against Prompts 17, 19 and the approved-UI prompt.
 
-**Speaker recognition ("only respond to my voice") is UNRESOLVED, not deleted and not implemented.** A search of all 73 prompts for speaker/voiceprint/voice-ID/"my voice"/"only respond"/enroll found no such requirement (the hits are about speaker output, speaker mute and Kokoro voice IDs). It appears only in the owner's earlier project notes for an older Jarvis. Whether it is an original requirement is for the owner to confirm; no substitute was built.
+**Speaker recognition ("only respond to my voice") is DECIDED: not required (owner, 2026-10-29). It is out of scope and is not implemented; no voice biometrics will be built.** A search of all 73 prompts for speaker/voiceprint/voice-ID/"my voice"/"only respond"/enroll found no such requirement (the hits are about speaker output, speaker mute and Kokoro voice IDs). It appears only in the owner's earlier project notes for an older Jarvis. Whether it is an original requirement is for the owner to confirm; no substitute was built.
 
 **Status words.** *Verified (real)* = ran for real on Windows CI with a real model/UI, at the commit named. *Verified (fakes)* = unit-tested with fake runtime, fake audio or a simulated desktop. *Implemented* = code exists with tests but no run beyond that. *Missing* = no implementation found. *Blocked* = needs something this project cannot supply. Evidence for "real" is in `VERIFICATION_LEDGER.md`; "older commit" means bee5873 (2026-10-27), 68 commits and about 10,700 source lines before this one.
 
@@ -17,7 +17,7 @@
 | 7 | 18+ gating for Savage, Flirty, Sexy, Romantic; distress override | `personality/`, tests p55 | Verified (fakes) | Self-declaration gate that fails closed; distress detection is a keyword heuristic that will miss phrasings. Not an age-verification system. |
 | 8 | Rename the assistant | `app/`, `personality/` | Implemented | 8 source files, 10 test files. |
 | 9 | Voice: always-listening wake word, Vosk speech-to-text, SAPI and Kokoro speech, mute, hands-free turn-taking | `voice/` (14 files), `app/voice_service.py` | Verified (fakes) | Fake audio drives the real session logic. **No real microphone, speaker, Vosk model or Kokoro run exists.** A shutdown-ordering defect in the reply thread was found and fixed this session. |
-| 10 | Speaker recognition (only respond to the owner's voice) | none | **Missing; requirement UNCONFIRMED** | No implementation or test. Not found in any of the 73 available prompts (only in older project notes). Kept open until the owner confirms it is required; wake-word detection alone does not identify who is speaking. |
+| 10 | Speaker recognition (only respond to the owner's voice) | none | **Out of scope: owner decided it is not required (2026-10-29)** | No implementation or test. Not found in any of the 73 available prompts (only in older project notes). Kept open until the owner confirms it is required; wake-word detection alone does not identify who is speaking. |
 | 11 | Permission-controlled computer operations | `desktop/` (23 files), `dev/`, `monitor/` | Verified (fakes) | One executor path, fingerprint-bound confirmation, audit, emergency stop; tested against a **simulated** desktop. Real windows, clicks, UI Automation, junction handling and OCR on Windows are not verified (R-5 in `PROMPT11_FINAL_AUDIT.md`). |
 | 12 | Planning modes: missions, step approval, schedules | `missions/` (8 files), `planning/` | Verified (fakes) | Approval bound to plan hash, tamper detection, schedule limits, crash recovery tested with the real executor and fakes. No real tool side effects on Windows; a real model's plans unmeasured. |
 | 13 | Offline by default; optional online only with consent, no silent cloud fallback | `net/policy.py`, `online/` | Verified (fakes); offline run Verified (real, older commit) | Every network feature off by default; one choke point; DNS-rebinding and NAT64 defects fixed earlier. Online research uses mocked HTTP; no real internet request. |
@@ -78,7 +78,7 @@ Overall: about 3.5 out of 10. Not ready for everyday users and not ready for pay
 
 | ID | Item | Why it matters |
 |---|---|---|
-| A | Speaker recognition: required or not? | Unconfirmed; not in the 73 prompts |
+| A | Speaker recognition: required or not? | **Decided 2026-10-29: not required; ordinary wake word and voice controls stay** |
 | B | Qwen3-8B: should the first-run wizard recommend it on capable machines? | It is the stated target but unmeasured; the wizard never selects it (`auto_recommend=False`). Per the owner's instruction it stays non-default until measured |
 | C | Authorise one consented real-model run on the current commit (`REAL_INFERENCE_ONE_RUN.md`) | Only way to re-verify inference on the current code without a PC |
 | D | Wake-word listening ON by default on a fresh profile vs Prompt 19 rule 12 ("never activate the microphone merely because it was installed") | The approved-UI prompt asked for always-listening "when enabled"; the code enables it at first start, but the microphone opens only if a sound device and a Vosk model exist, and Jarvis never installs the model. Decide: keep default-on with a first-run notice, or make it an explicit opt-in. Comments in the code that wrongly said "no-op unless enabled earlier" were corrected; behaviour is unchanged |
@@ -86,7 +86,7 @@ Overall: about 3.5 out of 10. Not ready for everyday users and not ready for pay
 
 ## Release decision
 
-**Not a release candidate.** Release-blocking items: (a) no real-model run on the current code; (b) no run on a person's Windows PC (GUI look and feel, DPI, microphone, speakers, desktop control); (c) no clean-machine install; (d) unsigned installer; (e) unexplained Windows test-cleanup flake, not yet shown fixed; (f) open decisions 2 and 10 above. A preview build is fine for a person who will run `ACCEPTANCE_TEST_PLAN.md` and report back; it is not a product release.
+**Not a release candidate.** Release-blocking items: (a) no real-model run on the current code; (b) no run on a person's Windows PC (GUI look and feel, DPI, microphone, speakers, desktop control); (c) no clean-machine install; (d) unsigned installer; (e) unexplained Windows test-cleanup flake, not yet shown fixed; (f) open decision 2 above; (g) Prompts 1-5 have not been provided and remain UNREVIEWED, so requirements in them are unknown. A preview build is fine for a person who will run `ACCEPTANCE_TEST_PLAN.md` and report back; it is not a product release.
 
 ## What would change this most, in order
 
@@ -94,3 +94,10 @@ Overall: about 3.5 out of 10. Not ready for everyday users and not ready for pay
 2. One pass of `ACCEPTANCE_TEST_PLAN.md` AT-05 to AT-14 on a real Windows 11 PC.
 3. Owner answers to decisions 2 and 10.
 4. A code-signing certificate, if the product will be sold.
+
+
+## Owner decisions of 2026-10-29
+
+* Always-listening (wake word) is ON by default on a fresh profile. Implemented by `AppController.voice_autostart`; the microphone opens only when a sound device and a local Vosk model both exist; an explicit OFF is remembered; mute and disable controls exist; no cloud speech fallback; no raw audio is retained (tests in `test_p17_handsfree.py`, `test_p39_no_silent_cloud.py`; all with fake audio, no physical microphone has been tested).
+* Speaker recognition is not required.
+* **Prompts 1-5 remain unreviewed** until the owner provides them. Their contents are not guessed anywhere in this repository.

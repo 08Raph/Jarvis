@@ -200,3 +200,8 @@ First-run checklist: added the missing "install the project" step (python -m jar
 - New `docs/WINDOWS_ACCEPTANCE_RUNBOOK.md`: ordered steps with expected results, evidence to capture and pass/fail, and a table of what CI can and cannot stand in for.
 - Comments corrected (no behaviour change): `AppController.voice_autostart` and `ui/app.py` claimed the microphone stays untouched unless voice was enabled earlier; on a fresh profile the first start does enable wake-word listening (the microphone still opens only with a sound device and a Vosk model). Policy question recorded as decision D.
 - Windows flake: ledger now tracks each run; 3 consecutive runs without `WinError 32` since the fix; 11 consecutive clean runs happened earlier without any fix, so the bar for "resolved" was raised from 15 to 20 consecutive runs including slow ones.
+
+## Unreleased: real-response check wired into the consent-gated CI step
+
+- `windows-ci` `real` step now runs `scripts/ci_real_response_check.py` after a passing selftest (size, SHA-256, runtime and commit pinned; annotations emitted; "NOT EXECUTED" recorded otherwise). Gate, timeout and permissions unchanged.
+- Docs: speaker recognition recorded as not required; always-listening default recorded; Prompts 1-5 recorded as unreviewed; flake ledger updated (4 clean runs, unresolved).

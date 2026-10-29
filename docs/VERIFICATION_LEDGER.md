@@ -33,7 +33,10 @@ A person's own Windows 11 PC; any GPU; Qwen3-8B; a physical microphone, speakers
 | 40925532946 | 3f36530 (voice-reply fix) | 17:52 | failure (docs test only) | no | 11.6 min |
 | 40928361454 | c508666 | 18:10 | success | no | 12.0 min |
 | 40936176943 | 60c8f61 | 19:00 | success | no | 11.3 min |
+| 40947992903 | a260143 (docs and agent files) | ~20:29 | no `WinError 32` (result per annotations at the time) | no | - |
 
 **Since the fix: 3 consecutive runs without `WinError 32`, over an observation window of about 1 h 20 min (17:52 to 19:12 UTC).** That is not evidence of a cure: between the first and second events there were **11 consecutive runs without it, about 16 hours, with no relevant fix in place** (a 17 % per-run rate gives a streak that long about 13 % of the time). The streak also does not cover a slow-runner period, which is when the failures happened (runs of 331 to 661 s against 270 to 350 s normally).
 
 Revised bar for calling it resolved: **at least 20 consecutive Windows runs without the error (chance of that at the old rate: about 3 %), spread over several days and including at least some slow runs.** Until then the status is "not recurred in N runs", never "fixed". The product-level ordering defect (shutdown reporting nothing running and closing the database under a live voice reply) is real and fixed; that it causes the Windows error is not proven. Append each later `windows-ci` result to the table above.
+
+**Status 2026-10-29 (after run 40947992903): 4 consecutive runs without `WinError 32` since the fix (40925532946, 40928361454, 40936176943, 40947992903), window about 2.5 h (17:52 to 20:29 UTC). Threshold (20 runs, several days, some slow runs) NOT reached; status remains unresolved.**

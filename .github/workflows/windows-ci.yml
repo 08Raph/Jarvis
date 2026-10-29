@@ -155,6 +155,12 @@ jobs:
           if (Test-Path "$D\selftest.json") { Write-Host "::group::selftest.json"; Get-Content "$D\selftest.json" | ForEach-Object { Write-Host $_ }; Write-Host "::endgroup::" }
           .\.venv\Scripts\python.exe scripts\ci_check_selftest_report.py --data-dir $D --exit-code $code --model-id $id --summary $env:GITHUB_STEP_SUMMARY
           $verdict = $LASTEXITCODE
+          if ($verdict -eq 0) {
+            .\.venv\Scripts\python.exe scripts\ci_real_response_check.py --data-dir $D --model-id $id --cmd $X --expect-bytes 1282439264 --expect-sha256 d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5 --expect-runtime 0.3.36 --commit $env:GITHUB_SHA --annotate --summary $env:GITHUB_STEP_SUMMARY
+            $verdict = $LASTEXITCODE
+          } else {
+            .\.venv\Scripts\python.exe scripts\ci_real_response_check.py --data-dir $D --model-id $id --annotate --summary $env:GITHUB_STEP_SUMMARY --not-executed "the selftest did not pass (verdict $verdict)"
+          }
           Remove-Item $D -Recurse -Force -ErrorAction SilentlyContinue
           exit $verdict
       - name: Evidence annotations (build log markers, installer file) - visible without opening any log

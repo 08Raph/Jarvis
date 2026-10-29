@@ -1,6 +1,6 @@
-# One consented real-inference run: exact plan (NOT yet authorised, NOT yet run)
+# One consented real-inference run: exact plan (authorised once on 2026-10-29; see the ledger for whether it has run)
 
-Prepared 2026-10-29 for the source at commit `60c8f61` (CI green, run 40936176943). **Nothing in this file has been executed.** Dispatching the run, applying the workflow patch in section 5, or pinning a tag all need the owner's explicit go-ahead.
+Prepared 2026-10-29. On 2026-10-29 the owner authorised **exactly one** run with the consent value below, after the minimal workflow edit in section 5 was applied and reviewed. No second run, retry or other model download is authorised. Whether the run has happened, and its result, is recorded only in `VERIFICATION_LEDGER.md`.
 
 ## 1. What the run must prove (and what it cannot)
 
@@ -17,8 +17,8 @@ Prepared 2026-10-29 for the source at commit `60c8f61` (CI green, run 4093617694
 | Item | Value |
 |---|---|
 | Model | Qwen3 1.7B Q4_K_M, `ggml-org/Qwen3-1.7B-GGUF` (catalogue id `qwen3-1.7b-q4_k_m`), Apache-2.0, third-party pretrained |
-| Download size | about 1.28 GB (earlier runs: **1,282,439,264 bytes**) |
-| SHA-256 | **observed** in runs 40422256861 and 40431278616: `d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5`. Not independently confirmed against the publisher (huggingface.co is unreachable from the authoring sandbox). Pass it as `--expect-sha256` to pin identity; a mismatch means "a different file", not necessarily "a bad one" |
+| Download size | about 1.28 GB (**1,282,439,264 bytes**, confirmed from the publisher's file listing through the Hugging Face connector on 2026-10-29; the run pins this size) |
+| SHA-256 | **observed** in runs 40422256861 and 40431278616: `d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5`. Not independently confirmed against the publisher (the publisher's hash could not be obtained from any trusted source). The run pins it as a consistency check only: a mismatch fails, a match proves this is the same file as before, not that the publisher issued it. Pass it as `--expect-sha256` to pin identity; a mismatch means "a different file", not necessarily "a bad one" |
 | Runtime | llama-cpp-python **0.3.36**, CPU (AVX2), no GPU offload |
 | Runner | GitHub-hosted `windows-2022`, 2 vCPU, ~8.6 GB RAM |
 | Duration | about 11 min for the usual Windows job (run 40936176943: 11.3 min) plus download and selftest/chat; **estimate 15-25 min**. Earlier real-model runs took 12-16 min in total |
@@ -40,25 +40,20 @@ or in the browser: Actions > windows-ci > Run workflow > type exactly `yes-downl
 * **FAIL** (exit 1): the model or application was there and was wrong. Treat as a finding: keep the log, do not retry silently.
 * Judge from the run's annotations and step summary, not the step colour (the step is `continue-on-error`).
 
-## 5. Workflow patch needed for the application-level check (NOT applied)
+## 5. The workflow edit (applied; the only change)
 
-`windows-ci` currently runs only `selftest` in the `real` step. To add the `jarvis chat` check, insert before `Remove-Item $D ...` (and make the step's exit code the worse of the two verdicts):
+One block in the `real` step of `windows-ci.yml`, before `Remove-Item $D`. The gate, timeout, `continue-on-error` and permissions are unchanged. When the selftest passes, the application-level check runs and its verdict becomes the step's exit code; otherwise the check records "NOT EXECUTED" with the reason (so a skipped check is never read as a pass).
 
 ```diff
-           .\.venv\Scripts\python.exe scripts\ci_check_selftest_report.py --data-dir $D --exit-code $code --model-id $id --summary $env:GITHUB_STEP_SUMMARY
-           $verdict = $LASTEXITCODE
 +          if ($verdict -eq 0) {
-+            .\.venv\Scripts\python.exe scripts\ci_real_response_check.py --data-dir $D --model-id $id --cmd $X `
-+              --expect-sha256 d2387ca2dbfee2ffabce7120d3770dadca0b293052bc2f0e138fdc940d9bc7b5 `
-+              --json ci-logs\real_response.json --summary $env:GITHUB_STEP_SUMMARY
++            ...ci_real_response_check.py --data-dir $D --model-id $id --cmd $X --expect-bytes 1282439264 --expect-sha256 <pinned> --expect-runtime 0.3.36 --commit $env:GITHUB_SHA --annotate --summary $env:GITHUB_STEP_SUMMARY
 +            $verdict = $LASTEXITCODE
-+            Get-Content ci-logs\real_response.json | ForEach-Object { Write-Host $_ }
++          } else {
++            ...ci_real_response_check.py --data-dir $D --model-id $id --annotate --summary $env:GITHUB_STEP_SUMMARY --not-executed "the selftest did not pass (verdict $verdict)"
 +          }
-           Remove-Item $D -Recurse -Force -ErrorAction SilentlyContinue
-           exit $verdict
 ```
 
-The script is in the repository and unit-tested (`tests/test_p74_real_response_check.py`, 16 tests, every safeguard mutation-tested). The workflow edit is the only missing piece and is deliberately left for your approval, because you asked that workflows not be changed without it. Without the patch the run still proves the selftest result (load plus one answer) but not the application-level reply.
+Results are read from the run's check-run annotations (`Real selftest.json`, `Real response through the application: PASS|FAIL|BLOCKED|NOT EXECUTED`), because raw logs are not readable from the authoring environment. The checker rejects the project's synthetic fixture, a stand-in command and a wrong size, hash or runtime. Text checks of the edit are in `tests/test_p74_real_response_check.py` (class `TheWorkflowEdit`). The PowerShell itself can only be proven by running it; no PowerShell was available to the author, so the first execution is the real test.
 
 ## 6. After a PASS
 

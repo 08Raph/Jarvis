@@ -46,7 +46,7 @@ def _catalog_size(model_id: str):
     return None
 
 
-def check_weights(path: Path, model_id: str, min_tensors: int, min_bytes: int, expect_sha256: str = "") -> tuple[list[str], dict]:
+def check_weights(path: Path, model_id: str, min_tensors: int, min_bytes: int, expect_sha256: str = "", expect_bytes: int = 0) -> tuple[list[str], dict]:
     problems: list[str] = []
     facts: dict = {"model_file": str(path)}
     if not path.is_file():
@@ -63,6 +63,8 @@ def check_weights(path: Path, model_id: str, min_tensors: int, min_bytes: int, e
         problems.append(f"tensor_count {info.get('tensor_count')!r} is below {min_tensors}: not a genuine model's weights")
     if size < min_bytes:
         problems.append(f"file is {size} bytes, below {min_bytes}")
+    if expect_bytes and size != expect_bytes:
+        problems.append(f"size {size} is not the expected {expect_bytes} bytes")
     exp = _catalog_size(model_id)
     if exp:
         facts["catalog_size_bytes"] = exp
@@ -80,6 +82,16 @@ def check_weights(path: Path, model_id: str, min_tensors: int, min_bytes: int, e
     if expect_sha256 and facts["model_sha256"] != expect_sha256.strip().lower():
         problems.append(f"sha256 {facts['model_sha256']} is not the expected {expect_sha256.strip().lower()}")
     return problems, facts
+
+
+def runtime_version(data_dir: Path) -> tuple[str | None, str]:
+    """The llama-cpp-python version that the real `jarvis selftest` recorded in this data folder (None if there is no readable report)."""
+    try:
+        rep = json.loads((data_dir / "selftest.json").read_text(encoding="utf-8"))
+        rt = rep.get("runtime") or {}
+        return (str(rt["version"]) if rt.get("available") and rt.get("version") else None), ""
+    except Exception:                              # noqa: BLE001
+        return None, "no readable selftest.json: the runtime version could not be read"
 
 
 def run_chat(cmd: list[str], data_dir: Path, prompt: str, max_tokens: int, timeout: float) -> dict:
@@ -126,7 +138,12 @@ def judge(args) -> tuple[str, str, dict]:
     cmd = args.cmd
     if not model.is_file():
         return "BLOCKED", f"no model file at {model}: nothing was tested", {"model_file": str(model)}
-    wp, facts = check_weights(model, args.model_id, args.min_tensors, args.min_bytes, args.expect_sha256)
+    wp, facts = check_weights(model, args.model_id, args.min_tensors, args.min_bytes, args.expect_sha256, args.expect_bytes)
+    facts["commit"] = args.commit or None
+    rt, rtp = runtime_version(d)
+    facts["runtime_version"] = rt
+    if args.expect_runtime and rt != args.expect_runtime:
+        wp = wp + [rtp or f"runtime version {rt!r} is not the expected {args.expect_runtime!r}"]
     if wp:
         return "FAIL", "the model file is not a genuine model: " + "; ".join(wp), facts
     if cmd[0] == sys.executable and not args.allow_test_command:
@@ -141,8 +158,23 @@ def judge(args) -> tuple[str, str, dict]:
     if cp:
         return "FAIL", "the application did not produce a valid reply: " + "; ".join(cp), facts
     return "PASS", (f"the application answered from a genuine model file ({facts['tensor_count']} tensors, {facts['model_bytes']} bytes, "
-                    f"{facts.get('architecture')} {facts.get('quantization')}, sha256 {facts['model_sha256'][:16]}...) in {res['seconds']} s; one reply to one prompt, "
+                    f"{facts.get('architecture')} {facts.get('quantization')}, sha256 {facts['model_sha256']}, runtime {facts.get('runtime_version')}, commit {facts.get('commit')}) in {res['seconds']} s; one reply to one prompt, "
                     "not a quality, speed, GPU, voice or other-PC result"), facts
+
+
+def _esc(text: str) -> str:
+    return text.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
+
+
+def annotate(verdict: str, why: str, facts: dict, data_dir: Path) -> None:
+    """GitHub workflow commands, so the outcome is readable from the run's annotations without opening any log."""
+    try:
+        st = (data_dir / "selftest.json").read_text(encoding="utf-8")
+        print(f"::notice title=Real selftest.json::{_esc(st)}")
+    except OSError:
+        print("::warning title=Real selftest.json::no selftest.json was found")
+    level = "notice" if verdict == "PASS" else ("warning" if verdict == "BLOCKED" else "error")
+    print(f"::{level} title=Real response through the application: {verdict}::{_esc(why)}%0A{_esc(json.dumps(facts, indent=2))}")
 
 
 def main(argv=None) -> int:
@@ -157,14 +189,30 @@ def main(argv=None) -> int:
     ap.add_argument("--min-tensors", type=int, default=MIN_TENSORS)
     ap.add_argument("--min-bytes", type=int, default=MIN_BYTES)
     ap.add_argument("--expect-sha256", default="", help="optional: the exact SHA-256 the model file must have (pins the model identity)")
+    ap.add_argument("--expect-bytes", type=int, default=0, help="optional: the exact size in bytes the model file must have")
+    ap.add_argument("--expect-runtime", default="", help="optional: the llama-cpp-python version the selftest report must show")
+    ap.add_argument("--commit", default="", help="the source commit under test (recorded in the report)")
     ap.add_argument("--allow-test-command", action="store_true", help="TESTS ONLY: accept this Python interpreter as the application")
+    ap.add_argument("--annotate", action="store_true", help="also print GitHub annotations (CI)")
+    ap.add_argument("--not-executed", default="", help="CI: record that this check was NOT executed, with the reason, and exit 0 without checking anything")
     ap.add_argument("--json")
     ap.add_argument("--summary")
     a = ap.parse_args(argv)
     a.cmd = [a.cmd] if Path(a.cmd).exists() or " " not in a.cmd else a.cmd.split()
+    if a.not_executed:
+        why = f"NOT EXECUTED: {a.not_executed}"
+        print(why)
+        if a.annotate:
+            print(f"::warning title=Real response through the application: NOT EXECUTED::{_esc(a.not_executed)}")
+        if a.summary:
+            with open(a.summary, "a", encoding="utf-8") as f:
+                f.write(f"### Real response through the application: **NOT EXECUTED**\n\n{a.not_executed}\n\n")
+        return 0
     verdict, why, facts = judge(a)
     line = f"{verdict}: {why}"
     print(line)
+    if a.annotate:
+        annotate(verdict, why, facts, Path(a.data_dir))
     if a.json:
         Path(a.json).write_text(json.dumps({"verdict": verdict, "why": why, **facts}, indent=2), encoding="utf-8")
     if a.summary:
