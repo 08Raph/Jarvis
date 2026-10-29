@@ -241,7 +241,9 @@ class RealQt(AppCase):
         win._refresh_home()
         self.app.processEvents()
         img = win.pages["Home"].grab().toImage()
-        self.assertGreaterEqual(img.width(), 900)
+        # the page fills the area beside the navigation rail (CI run 40817425745 measured 890 px in a 1100 px window; a fixed 900 was a miscalculated guess)
+        self.assertGreaterEqual(img.width(), win.width() - win.nav.width() - 40)
+        self.assertGreaterEqual(img.height(), 400)
         self.assertGreater(len(self.colours(img)), 50)
         for w in (win.home_label, win.home_act, win.home_recent, win.home_local, win.home_stages, win.hud):
             self.assertTrue(w.isVisible(), w.accessibleName() or w.objectName())
