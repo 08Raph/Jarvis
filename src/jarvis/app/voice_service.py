@@ -59,6 +59,7 @@ class VoiceService:
         self._clock, self._dt = clock, frame_seconds
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._turn_thread: threading.Thread | None = None      # the helper thread of the reply being produced (it can outlive the worker's wait for it)
         self._stop = threading.Event()
         self._cmds: queue.Queue = queue.Queue()
         self._session: S.VoiceSession | None = None
@@ -242,6 +243,7 @@ class VoiceService:
             self.speech.stop()
         except Exception:  # noqa: BLE001
             pass
+        end = time.monotonic() + max(0.0, timeout)
         t = self._thread
         if t is not None and t is not threading.current_thread():
             t.join(timeout)
@@ -251,7 +253,22 @@ class VoiceService:
             self._session = None
             self._rec_loaded = False
             self._preflight_done = False
-        return {"leaked_thread": leaked}
+        # The worker gives up waiting for a reply it asked to stop after 2 s, but the reply's helper thread keeps running until the model and the memory calls inside it return.
+        # Report it, so the caller does not close the assistant's database and engine underneath it.
+        self.wait_turn(max(0.0, end - time.monotonic()))
+        return {"leaked_thread": leaked, "turn_running": self.turn_running()}
+
+    def turn_running(self) -> bool:
+        """True while the helper thread of a spoken reply is still alive (it uses the assistant: its model and its memory database)."""
+        t = self._turn_thread
+        return bool(t is not None and t.is_alive())
+
+    def wait_turn(self, timeout: float) -> bool:
+        """Wait up to `timeout` seconds for that helper thread; True when it is not running (any more)."""
+        t = self._turn_thread
+        if t is not None and t is not threading.current_thread() and t.is_alive():
+            t.join(max(0.0, timeout))
+        return not self.turn_running()
 
     # ---------------- commands (thread-safe; applied by the worker) ----------------
     def mic_mute(self) -> dict:
@@ -450,6 +467,7 @@ class VoiceService:
                 box["err"] = e
 
         t = threading.Thread(target=work, name="jarvis-voice-turn", daemon=True)
+        self._turn_thread = t
         t.start()
         try:
             while t.is_alive():

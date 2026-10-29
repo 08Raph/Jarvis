@@ -181,3 +181,8 @@ First-run checklist: added the missing "install the project" step (python -m jar
 ## Test isolation, second occurrence (CI run 40918820914)
 
 - Test-only. `tests/p10_common.settle_controllers` is now shared by `AppCase` and by p42's `Ctl` (`BrainCase` is not an `AppCase`), so a chat task that outlives `shutdown(2.0)` can no longer leave `memory.sqlite` open at temp-folder cleanup; p42's `wait` patience limit is 30 s instead of 5 s (all callers are `assertTrue(self.wait(...))`). Tests in `test_p72_cleanup_isolation.py` with a negative control. The root cause of the slow Windows runs remains unexplained.
+
+## Voice reply still running at shutdown (CI run 40922037937)
+
+- Product fix, found while investigating a third Windows cleanup failure (the original P17 test, normal-speed run). `VoiceService` keeps the reply helper thread (`turn_running()`, `wait_turn()`, and `shutdown()` now also returns `turn_running`); `AppController.shutdown()` lists `voice reply` in `still_running` and does not close the assistant's database while that thread is alive. Before, it returned `still_running: []` and closed the database under a reply still being produced (shown with a fake model and fake audio on Linux). The test safety net (`settle_controllers`, P17 `Rig._close`) waits for the reply too. Tests: `AVoiceReplyInFlightAtShutdown` in `test_p72_cleanup_isolation.py`, negative control confirmed.
+- NOT established: that this causes the Windows `WinError 32`, nor why some hosted Windows runs stall. Do not call the flake fixed until several consecutive Windows runs are green. Real inference is unchanged: still not run.

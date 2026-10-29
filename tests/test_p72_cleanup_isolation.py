@@ -7,13 +7,15 @@ WHAT IT CAN NOT PROVE: the Windows symptom itself. Linux lets you delete an open
 its timeout on that runner (whose unit-test step took 661 s against 268-359 s in every other run) was not captured and is not explained by these tests."""
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from p10_common import AppCase, fake_engine_factory  # noqa: E402
+from p10_common import AppCase, FakeLlama, fake_engine_factory  # noqa: E402
+from p17_common import Rig  # noqa: E402
 from jarvis.app.controller import AppController  # noqa: E402
 from jarvis.assistant import LocalAssistant as Assistant  # noqa: E402
 
@@ -120,6 +122,41 @@ class SafetyNetCoversTheBrainCaseBase(unittest.TestCase):
         text = "\n".join(t for _, t in result.errors + result.failures)
         self.assertIn("still running", text)
         self.assertIn("stuck", text)
+
+
+class AVoiceReplyInFlightAtShutdown(AppCase):
+    """Product defect found from CI run 76eb1cc (the original P17 test failed again, on a normal-speed run, with the safety net active): a spoken reply runs on its own helper
+    thread, 'jarvis-voice-turn'. The voice worker gives up waiting for it after 2 s, and controller.shutdown() did not know about it, so it reported {'still_running': []} and
+    CLOSED the assistant's memory database while that thread was still inside the model. (FAKE audio, FAKE model: this shows the ordering fault, not a Windows lock.)"""
+
+    def test_shutdown_does_not_close_the_database_under_a_reply_that_is_still_being_produced(self):
+        gate = threading.Event()
+
+        def slow(self_, messages, max_tokens, temperature, stream=False):
+            gate.wait(20)
+            return iter([{"choices": [{"delta": {"content": "late answer"}}]}])
+        self.addCleanup(gate.set)                                      # runs before the Rig's own cleanup (last-in-first-out): the fake model is always released
+        with mock.patch.object(FakeLlama, "create_chat_completion", slow):
+            r = Rig(self)
+            r.c.voice_autostart()
+            self.assertTrue(r.wait_state("Listening"))
+            r.ask("a question that takes a while")
+            self.assertTrue(r.wait_state("Processing"))
+            time.sleep(0.2)
+            self.assertTrue(r.c.voice.turn_running())
+            asst = r.c.assistant
+            res = r.c.shutdown(1.0)
+            self.assertIn("voice reply", res["still_running"])         # it used to be [] while the helper was still alive
+            self.assertTrue(r.c.voice.turn_running())
+            asst.memory.list()                                         # the database was NOT closed under it (a closed one raises ProgrammingError)
+            gate.set()
+            self.assertTrue(r.c.voice.wait_turn(15), "the reply's helper thread never ended after the model was released")
+            self.assertFalse(r.c.voice.turn_running())
+
+    def test_an_idle_voice_service_reports_no_reply_running(self):
+        r = Rig(self)
+        self.assertFalse(r.c.voice_state() is None)
+        self.assertEqual(r.c.shutdown(1.0), {"still_running": []})
 
 
 if __name__ == "__main__":

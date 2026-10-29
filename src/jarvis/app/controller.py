@@ -1275,15 +1275,19 @@ class AppController:
             self.speech.voices.close()
         except Exception:  # noqa: BLE001
             pass
-        leaked_voice = False
+        leaked_voice = reply_running = False
         if self.voice is not None:
             self.voice.retire()                      # a restart queued earlier (microphone / wake-phrase change) must not start a new worker after this point
-            leaked_voice = bool(self.voice.shutdown(timeout).get("leaked_thread"))      # closes the microphone and the recognizer
+            vres = self.voice.shutdown(timeout)                                            # closes the microphone and the recognizer
+            leaked_voice = bool(vres.get("leaked_thread"))
+            reply_running = bool(vres.get("turn_running"))
         with self._plock:
             for ev, box in self._pending:
                 box["ok"] = False
                 ev.set()
         still = self.tasks.shutdown(timeout)
+        if reply_running:
+            still = still + ["voice reply"]                    # a spoken reply is still being produced from the assistant: its database and engine stay open until it ends
         try:
             if self.assistant is not None and not still:      # never close a database a stuck worker may still be using
                 self.assistant.close()

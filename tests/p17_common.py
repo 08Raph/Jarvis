@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from p10_common import AppCase, FakeLlama, fake_engine_factory  # noqa: E402,F401
+from p10_common import AppCase, FakeLlama, fake_engine_factory, settle_controllers  # noqa: E402,F401
 from test_p10_controller import settle  # noqa: E402,F401
 from jarvis.app.controller import AppController  # noqa: E402
 from jarvis.voice import session as S  # noqa: E402
@@ -144,11 +144,7 @@ class Rig:
         left = self.c.shutdown(first).get("still_running")
         if not left:
             return
-        left = self.c.tasks.shutdown(extra)
-        if left:
-            raise AssertionError(f"background task(s) still running {first + extra:.0f} s after shutdown: {left}")
-        if self.c.assistant is not None:
-            self.c.assistant.close()
+        settle_controllers([self.c], extra)          # waits (bounded) for tasks AND for a spoken reply's helper thread, then closes the database; or raises NAMING what never ended
 
     def voice_threads(self, prefix: str = "jarvis-voice") -> list:
         """Live voice threads that were started after this Rig was created (i.e. by this test's own controller)."""

@@ -80,7 +80,9 @@ def settle_controllers(controllers, wait: float = 30.0) -> None:
     memory.sqlite open and the temp-folder cleanup then fails with PermissionError [WinError 32] on Windows (CI runs 40795644979 and 40918820914)."""
     stuck = []
     for ctl in controllers:
-        left = ctl.tasks.shutdown(wait)
+        voice = getattr(ctl, "voice", None)
+        reply_ended = True if voice is None else voice.wait_turn(wait)       # a spoken reply runs on its own helper thread, which tasks.shutdown() does not know about
+        left = ctl.tasks.shutdown(wait) + ([] if reply_ended else ["voice reply"])
         if left:
             stuck.append(left)
         elif ctl.assistant is not None:
