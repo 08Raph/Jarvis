@@ -63,7 +63,12 @@ def engine_for_gguf_file(case, gguf_path):
     d = Path(tempfile.mkdtemp(prefix="jarvis-real-"))
     case.addCleanup(lambda: __import__("shutil").rmtree(d, ignore_errors=True))
     meta = {"linked": {"path": str(gguf_path)}}
-    if "qwen" in Path(gguf_path).name.lower():
+    from jarvis.models import gguf as _gguf
+    try:                                               # decide from what the file SAYS it is, not from its name: a Qwen3 file called model.gguf must still get /no_think
+        arch = str(_gguf.summarize(_gguf.read_header(gguf_path)).get("architecture") or "")
+    except Exception:  # noqa: BLE001 - an unreadable header is reported by the engine, not here
+        arch = ""
+    if arch.lower().startswith("qwen3") or (not arch and "qwen3" in Path(gguf_path).name.lower()):
         meta["no_think_suffix"] = True                 # Qwen3 only; other models are left as they are
     (d / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     return ge.GGUFEngine(d)

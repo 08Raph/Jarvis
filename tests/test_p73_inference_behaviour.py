@@ -198,6 +198,15 @@ class OptInHelper(AppCase):
         with self.assertRaises(ge.RuntimeUnavailable):
             ge.GGUFEngine(f, llama_factory=Scripted)                         # the old call shape (the file itself) is what the opt-in tests used to do
 
+    def test_the_no_think_suffix_follows_the_architecture_in_the_file_not_its_name(self):
+        qwen = self.d / "model.gguf"                                         # a Qwen3 file with an unhelpful name
+        make_gguf(qwen)
+        other = self.d / "qwen3-but-actually-llama.gguf"                     # a misleading name on a different architecture (same length as "qwen3")
+        other.write_bytes(qwen.read_bytes().replace(b"qwen3", b"llama"))
+        with mock.patch.dict(sys.modules, {"llama_cpp": types.SimpleNamespace(Llama=Scripted)}):
+            self.assertTrue(engine_for_gguf_file(self, qwen).no_think)
+            self.assertFalse(engine_for_gguf_file(self, other).no_think)
+
 
 HAVE_RUNTIME = importlib.util.find_spec("llama_cpp") is not None
 REAL = os.environ.get("JARVIS_REAL_MODEL_TEST") == "1" and bool(os.environ.get("JARVIS_REAL_MODEL_PATH")) and HAVE_RUNTIME
@@ -205,36 +214,58 @@ REAL = os.environ.get("JARVIS_REAL_MODEL_TEST") == "1" and bool(os.environ.get("
 
 @unittest.skipUnless(REAL, "REAL-RUNTIME TEST NOT RUN: needs llama-cpp-python, JARVIS_REAL_MODEL_TEST=1 and JARVIS_REAL_MODEL_PATH=<a .gguf>. A skip is NOT a pass.")
 class RealRuntime(AppCase):
-    """GENUINE llama.cpp + a GENUINE model file. Proves load, reply, streaming and stop on THIS machine with THIS model; says nothing about answer quality.
-    Set JARVIS_REAL_MODEL_REPORT=<file.json> to record the model, runtime version and timings."""
+    """GENUINE llama.cpp + a GENUINE model file. Proves load, reply, streaming (stopped and to the end) and reuse after a stop on THIS machine with THIS model; says nothing
+    about answer quality. Set JARVIS_REAL_MODEL_REPORT=<file.json> to record the model identity, runtime version and timings. See docs/REAL_INFERENCE_CHECKLIST.md."""
 
     def test_load_reply_stream_stop_and_reuse(self):
+        import ctypes
+        import hashlib
         import llama_cpp
+        from jarvis.models import gguf as G
         path = Path(os.environ["JARVIS_REAL_MODEL_PATH"])
+        self.assertTrue(path.is_file(), f"JARVIS_REAL_MODEL_PATH is not an existing file: {path}")
+        info = G.summarize(G.read_header(path))
+        self.assertGreater(info["tensor_count"], 0, "this file has no weight tensors (a vocabulary-only or synthetic file cannot generate text)")
         eng = engine_for_gguf_file(self, path)
         self.addCleanup(eng.close)
+        # the runtime behind the engine must be the genuine llama.cpp binding: a loaded shared library and a real Llama object, not a stand-in module
+        self.assertIsInstance(getattr(llama_cpp.llama_cpp, "_lib", None), ctypes.CDLL, "llama_cpp is not backed by a loaded llama.cpp shared library")
+        self.assertIsInstance(eng.llm, llama_cpp.Llama)
         ask = [{"role": "user", "content": "Reply with one short sentence about the sea."}]
         t0 = time.perf_counter()
         text = eng.chat(ask, max_tokens=48, temperature=0.0)
         t_chat = time.perf_counter() - t0
         self.assertIsInstance(text, str)
         self.assertTrue(text.strip(), "the real model returned no text")
-        pieces = []
+        # streaming, stopped: close the generator after the first piece; the engine's lock must be released
+        pieces, t1 = [], time.perf_counter()
         stream = eng.stream(ask, max_tokens=48, temperature=0.0)
+        t_first = None
         for piece in stream:
+            t_first = t_first or (time.perf_counter() - t1)
             pieces.append(piece)
             if len("".join(pieces)) > 3:
                 break
-        stream.close()                                                      # Stop: the generator is closed, the model must be usable again
-        self.assertTrue(pieces)
+        stream.close()
+        self.assertTrue(pieces, "the real model streamed nothing")
         again = eng.chat(ask, max_tokens=16, temperature=0.0)
         self.assertTrue(again.strip(), "the model could not answer after a stopped stream")
+        # streaming, to the end
+        full = "".join(eng.stream(ask, max_tokens=16, temperature=0.0))
+        self.assertTrue(full.strip(), "a stream run to the end produced no text")
         report = os.environ.get("JARVIS_REAL_MODEL_REPORT")
         if report:
+            sha = hashlib.sha256()
+            with open(path, "rb") as fh:
+                for block in iter(lambda: fh.read(1 << 20), b""):
+                    sha.update(block)
             Path(report).write_text(json.dumps({
-                "model_file": path.name, "model_bytes": path.stat().st_size, "llama_cpp_version": getattr(llama_cpp, "__version__", "unknown"),
-                "load_seconds": round(eng.load_seconds, 2), "chat_seconds": round(t_chat, 2), "reply_chars": len(text), "first_stream_piece": pieces[0][:40],
-                "reply_after_stop_chars": len(again)}, indent=1), encoding="utf-8")
+                "model_file": path.name, "model_bytes": path.stat().st_size, "model_sha256": sha.hexdigest(),
+                "gguf": {k: info[k] for k in ("name", "architecture", "quantization", "context_length", "tensor_count", "block_count")},
+                "llama_cpp_version": getattr(llama_cpp, "__version__", "unknown"), "gpu_offload_supported": ge.runtime_info().get("gpu_offload_supported"),
+                "n_ctx": eng.n_ctx, "n_gpu_layers_requested": eng.gpu_layers_requested,
+                "load_seconds": round(eng.load_seconds, 2), "chat_seconds": round(t_chat, 2), "first_stream_piece_seconds": round(t_first or 0.0, 2),
+                "reply_chars": len(text), "first_stream_piece": pieces[0][:40], "reply_after_stop_chars": len(again), "full_stream_chars": len(full)}, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":
