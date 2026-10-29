@@ -178,13 +178,36 @@ class WorkflowShape(unittest.TestCase):
 
     def test_results_stay_visible_in_the_run_log_and_summary(self):
         t = self.text
-        self.assertGreaterEqual(t.count("ci_summarize_unittest.py"), 2)          # Linux and Windows counts
+        self.assertEqual(t.count("scripts/ci_run_tests.py") + t.count("scripts\\ci_run_tests.py"), 2)   # Linux and Windows both go through the hard-timeout runner
         self.assertGreaterEqual(t.count("GITHUB_STEP_SUMMARY"), 5)
-        self.assertIn("tee ci-logs/unittest-linux.log", t)                       # Linux output is shown, not only saved
-        self.assertIn("Get-Content ci-logs\\unittest-windows.log", t)             # Windows output is printed into the log
+        self.assertIn("ci-logs/unittest-linux.log", t)
+        self.assertIn("ci-logs\\unittest-windows.log", t)
         self.assertIn("PASS / FAIL / NOT RUN / PARTIAL", t)
         self.assertIn("ci_check_selftest_report.py", t)                          # PASS / FAIL / BLOCKED for the optional real-model step
         self.assertIn("Final gate", t)
+
+    @unittest.skipUnless(__import__("importlib").util.find_spec("yaml"), "PyYAML is not installed")
+    def test_runner_limits_nest_inside_step_and_job_limits_and_failures_stay_visible(self):
+        import yaml
+        d = yaml.safe_load(self.text)
+        for job, step_id, name in (("linux-tests", None, "Full unit suite"), ("windows-package", "unit", None)):
+            steps = d["jobs"][job]["steps"]
+            st = next(x for x in steps if (x.get("id") == step_id if step_id else x.get("name") == name))
+            m = re.search(r"--timeout (\d+)", st["run"])
+            self.assertTrue(m, job)
+            self.assertLess(int(m.group(1)), st["timeout-minutes"] * 60, job)          # the runner times out (and reports) before GitHub kills the step
+            self.assertLessEqual(st["timeout-minutes"], d["jobs"][job]["timeout-minutes"])
+            self.assertNotIn("|| true", st["run"])
+            self.assertNotIn("set +e", st["run"])
+        win = d["jobs"]["windows-package"]["steps"]
+        self.assertIn("$LASTEXITCODE", next(x for x in win if x.get("id") == "unit")["run"])
+        final = win[-1]
+        self.assertIn("steps.unit.outcome == 'failure'", final["if"])
+        # the masked steps must state their verdict in an annotation, not only in a (masked) conclusion
+        self.assertIn("Packaged worker gate: PASS", next(x for x in win if x.get("id") == "gate")["run"])
+        self.assertIn("Silent install check: PASS", next(x for x in win if x.get("id") == "install")["run"])
+        linux = d["jobs"]["linux-tests"]["steps"]
+        self.assertEqual(linux[-1].get("if"), "always()")
 
     @unittest.skipUnless(__import__("importlib").util.find_spec("yaml"), "PyYAML is not installed")
     def test_parsed_structure(self):

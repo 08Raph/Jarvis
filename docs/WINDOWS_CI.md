@@ -45,3 +45,9 @@ Hosted runners only. Repository visibility decides whether runner minutes and ar
 
 ## Still needs your own Windows PC
 Interactive GUI use (looks, scaling, dark mode, focus), microphone/speaker/wake-word voice, computer-control prompts, a genuinely clean-PC install and upgrade, antivirus/SmartScreen behaviour, other CPUs, real timeouts and crashes of the worker, model quality, and final release acceptance. See your Windows acceptance runbook and `docs/WINDOWS_TEST_CHECKLIST.md`.
+
+## When a run fails and the log is not at hand (diagnostics)
+
+Both unit-test steps (Linux and Windows) go through `scripts/ci_run_tests.py`. It runs `unittest discover -v` with a **hard 1200 s limit** (below each step's own timeout, so it always gets to report), arms `faulthandler` to dump every thread's stack, and on a timeout kills the whole **process tree** (`taskkill /F /T` on Windows) before reporting. It writes the counts, the failing/error test names, skipped tests, the last output lines and the running test (best effort) into the log, the job summary and run **annotations** (`::error` / `::notice`, visible on the run page and readable through the check-run annotations API). Exit codes: 0 pass, 1 failures, 2 not run / inconsistent result (never success), 3 timeout, 4 not started. A reporting problem is printed and ignored; it can never change the code.
+
+The worker gate and the silent-install steps are `continue-on-error`, so their step conclusion reads "success" even when they fail. They therefore print their own verdict as an annotation (`Packaged worker gate: PASS|FAIL`, `Silent install check: PASS|FAIL`), and an always-run step annotates the key `build.log` lines and the installer's size and SHA-256. Judge those steps by the annotations, not by the step conclusion. Nothing is uploaded or cached.

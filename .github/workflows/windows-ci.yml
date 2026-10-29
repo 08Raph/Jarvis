@@ -41,7 +41,7 @@ jobs:
   linux-tests:
     name: Linux unit tests (fast lane)
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,23 +50,19 @@ jobs:
       - name: Install the project and the extras the tests use (no PySide6, no llama.cpp, no PyInstaller)
         run: python -m pip install -e ".[docs,monitor]"
       - name: Full unit suite
-        timeout-minutes: 20
+        timeout-minutes: 25
         run: |
           mkdir -p ci-logs
-          set +e
-          echo "::group::unittest output"
-          python -m unittest discover -s tests 2>&1 | tee ci-logs/unittest-linux.log
-          echo "unittest exit code: ${PIPESTATUS[0]}"
-          echo "::endgroup::"
-          python scripts/ci_summarize_unittest.py ci-logs/unittest-linux.log --json ci-logs/unittest-linux.json --summary "$GITHUB_STEP_SUMMARY" --title "Linux unit tests"
-          exit $?
+          # Hard limit 1200 s, verbose output, thread dump near the limit, annotations with failing test names. Exit code: 0 pass, 1 failures, 2 not run, 3 timeout, 4 not started.
+          python scripts/ci_run_tests.py --title "Linux unit tests" --log ci-logs/unittest-linux.log --json ci-logs/unittest-linux.json --summary "$GITHUB_STEP_SUMMARY" --timeout 1200
       - name: Release-asset checks on the source tree
+        if: always()
         run: python scripts/check_release_assets.py --source
 
   windows-package:
     name: Windows build, frozen worker gate, install check
     runs-on: windows-2022
-    timeout-minutes: 100
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,9 +91,8 @@ jobs:
           $ErrorActionPreference = "Continue"
           $env:PYTHONUTF8 = "1"   # many tests read source files without an encoding; Windows defaults to cp1252 (a test-side issue; the app passes encodings explicitly)
           New-Item -ItemType Directory -Force ci-logs | Out-Null
-          .\.venv\Scripts\python.exe -m unittest discover -s tests *> ci-logs\unittest-windows.log
-          Write-Host "::group::unittest output"; Get-Content ci-logs\unittest-windows.log | ForEach-Object { Write-Host $_ }; Write-Host "::endgroup::"
-          .\.venv\Scripts\python.exe scripts\ci_summarize_unittest.py ci-logs\unittest-windows.log --json ci-logs\unittest-windows.json --summary $env:GITHUB_STEP_SUMMARY --title "Windows unit tests"
+          # Hard limit 1200 s (the step limit above is larger, so the runner always gets to report). A timed-out process TREE is killed with taskkill /T.
+          .\.venv\Scripts\python.exe scripts\ci_run_tests.py --title "Windows unit tests" --log ci-logs\unittest-windows.log --json ci-logs\unittest-windows.json --summary $env:GITHUB_STEP_SUMMARY --timeout 1200
           exit $LASTEXITCODE
       - id: gate
         name: Packaged worker gate against the REAL built jarvis.exe (readiness, no-model exit, worker dispatch, supervised selftest on a synthetic header-only file)
@@ -112,6 +107,8 @@ jobs:
           $code = $LASTEXITCODE
           $t = Get-Content ci-logs\frozen_worker_gate.log
           $t | ForEach-Object { Write-Host $_ }
+          $verdicts = ($t | Where-Object { $_ -match '^(PASS|FAIL|WORKER SMOKE)' }) -join "`n"
+          if ($code -eq 0) { Write-Host "::notice title=Packaged worker gate: PASS (exit 0)::$($verdicts -replace "`n",'%0A')" } else { Write-Host "::error title=Packaged worker gate: FAIL (exit $code)::$((($t | Select-Object -Last 25) -join "`n") -replace "`n",'%0A')" }
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Value (@("### Packaged worker gate (real jarvis.exe): exit code $code", '```') + $t + @('```', ''))
           exit $code
       - id: install
@@ -124,8 +121,13 @@ jobs:
           $i = (Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" | Select-Object -First 1).FullName
           New-Item -ItemType Directory -Force ci-logs | Out-Null
           $global:LASTEXITCODE = 0
+          Remove-Item "$env:TEMP\jarvis-clean-install-results.json" -ErrorAction SilentlyContinue
           & { .\scripts\clean_install_test.ps1 -Installer $i } *>&1 | Tee-Object -FilePath ci-logs\clean_install.log
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $code = $LASTEXITCODE
+          $r = "$env:TEMP\jarvis-clean-install-results.json"
+          $detail = if (Test-Path $r) { ((Get-Content $r -Raw) -replace "`r","" -replace "`n",'%0A') } else { "no results file was written (the check did not reach its end)" }
+          if ($code -eq 0 -and (Test-Path $r)) { Write-Host "::notice title=Silent install check: PASS (exit 0)::$detail" } else { Write-Host "::error title=Silent install check: FAIL (exit $code)::$detail" }
+          exit $code
       - id: real
         name: "OPTIONAL real-model test of the packaged selftest (runs only when the consent value was typed on a manual run)"
         if: always() && github.event_name == 'workflow_dispatch' && inputs.real_inference_consent == 'yes-download-qwen3-1.7b-q4_k_m' && hashFiles('dist/ProjectJarvis/jarvis.exe') != ''
@@ -155,6 +157,18 @@ jobs:
           $verdict = $LASTEXITCODE
           Remove-Item $D -Recurse -Force -ErrorAction SilentlyContinue
           exit $verdict
+      - name: Evidence annotations (build log markers, installer file) - visible without opening any log
+        if: always()
+        shell: powershell
+        run: |
+          $b = "ci-logs\build.log"
+          if (Test-Path $b) {
+            $keys = Select-String -Path $b -Pattern 'WORKER SMOKE|Done\. Output|^\s*FAIL|TERMINATING ERROR|SKIP|runtime --require' | Select-Object -Last 15 | ForEach-Object { $_.Line.Trim() }
+            Write-Host "::notice title=Build log markers::$(($keys -join "`n") -replace "`n",'%0A')"
+          } else { Write-Host "::warning title=Build log::ci-logs\build.log does not exist" }
+          $f = Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($f) { Write-Host "::notice title=Installer built::$($f.Name) $($f.Length) bytes sha256=$((Get-FileHash $f.FullName -Algorithm SHA256).Hash)" } else { Write-Host "::error title=Installer::no installer file in dist\installer" }
+          exit 0
       - name: Cleanup (stray processes; uninstall left by the install check)
         if: always()
         shell: powershell
