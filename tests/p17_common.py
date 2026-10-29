@@ -133,11 +133,32 @@ class Rig:
         case.install_model()
         self.c = AppController(case.cfg, engine_factory=fake_engine_factory if engine else None, speaker_factory=lambda: self.spk,
                                mic_factory=lambda: self.mic, recognizer_factory=lambda vs_: self.rec, **kw)
-        case.addCleanup(self.c.shutdown, 2.0)
+        case.addCleanup(self._close)
+
+    def _close(self, first: float = 2.0, extra: float = 30.0) -> None:
+        """Shut the controller down and make sure its worker threads are really gone before the test's temp folder is deleted.
+
+        controller.shutdown() returns early WITHOUT closing the database when a task is still running after `first` seconds. On a slow Windows runner that left
+        memory.sqlite open, and the temp-folder cleanup then failed with `PermissionError: [WinError 32]` (CI run 40795644979: three P17 tests, body passed).
+        Wait, bounded and by condition (not by sleeping), for the tasks to finish; if one never does, fail NAMING it instead of an opaque PermissionError."""
+        left = self.c.shutdown(first).get("still_running")
+        if not left:
+            return
+        left = self.c.tasks.shutdown(extra)
+        if left:
+            raise AssertionError(f"background task(s) still running {first + extra:.0f} s after shutdown: {left}")
+        if self.c.assistant is not None:
+            self.c.assistant.close()
 
     def voice_threads(self, prefix: str = "jarvis-voice") -> list:
         """Live voice threads that were started after this Rig was created (i.e. by this test's own controller)."""
         return [t for t in threading.enumerate() if t.name.startswith(prefix) and t.is_alive() and t not in self._voice_threads_before]
+
+    def voice_threads_after_exit(self, timeout: float = 3.0, prefix: str = "jarvis-voice") -> list:
+        """Like voice_threads(), after waiting (bounded, by condition) for this test's voice threads to finish. The state flips to "Unavailable"/"Off"
+        a moment BEFORE the worker thread returns, so asserting "no thread" at that instant is a race (seen: 2 of 15 runs of test_no_microphone_device)."""
+        wait_for(lambda: not self.voice_threads(prefix), timeout)
+        return self.voice_threads(prefix)
 
     def state(self):
         return self.c.voice_state()

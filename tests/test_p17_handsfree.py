@@ -252,7 +252,7 @@ class Controls(AppCase):
         r = self.listening()
         r.c.voice_disable()
         self.assertTrue(wait_for(lambda: not r.mic.is_open, 3))
-        self.assertEqual([t.name for t in r.voice_threads() if t.name == "jarvis-voice"], [])
+        self.assertEqual([t.name for t in r.voice_threads_after_exit() if t.name == "jarvis-voice"], [])
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
         self.assertEqual(r.state()["state"], "Off")
         self.assertEqual(VoiceSettings.load(self.cfg.profile_dir / "voice.json").input_mode, "off")
@@ -270,7 +270,7 @@ class Controls(AppCase):
         r.c.shutdown(3.0)
         self.assertFalse(r.c.voice_thread_leaked)
         self.assertFalse(r.mic.is_open)
-        self.assertEqual([t.name for t in r.voice_threads()], [])
+        self.assertEqual([t.name for t in r.voice_threads_after_exit()], [])
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
 
     def test_cancel_stops_speech_immediately_and_returns_to_listening(self):
@@ -361,7 +361,7 @@ class Failures(AppCase):
         st = r.state()
         self.assertIn("No microphone", st["detail"])
         self.assertTrue(st["can_retry"] and not st["mic_open"])
-        self.assertEqual([t.name for t in r.voice_threads() if t.name == "jarvis-voice"], [])
+        self.assertEqual([t.name for t in r.voice_threads_after_exit() if t.name == "jarvis-voice"], [])
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
 
     def test_missing_speech_model_files(self):
@@ -937,7 +937,7 @@ class ControllerLifecycle(AppCase):
             self.assertTrue(r.wait_state("Listening"))
             r.c.voice_disable()
             self.assertEqual(r.state()["state"], "Off")
-        self.assertEqual([t.name for t in r.voice_threads() if t.name == "jarvis-voice"], [])
+        self.assertEqual([t.name for t in r.voice_threads_after_exit() if t.name == "jarvis-voice"], [])
         self.assertEqual(r.mic.opens, r.mic.closes)
         self.assertFalse((self.cfg.profile_dir / "mic.lock").exists())
 

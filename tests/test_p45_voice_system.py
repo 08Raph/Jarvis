@@ -670,7 +670,7 @@ class ControllerIntegration(AppCase):
         time.sleep(0.2)
         self.assertFalse(svc.alive())
         self.assertFalse(mic.is_open)
-        self.assertEqual([t.name for t in rig.voice_threads() if t.name == "jarvis-voice"], [])
+        self.assertEqual([t.name for t in rig.voice_threads_after_exit() if t.name == "jarvis-voice"], [])
 
     def test_voice_cancel_stops_speech_and_returns_to_listening(self):
         spk = ThreadSpk(duration=30)

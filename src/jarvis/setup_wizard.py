@@ -74,6 +74,13 @@ def _gguf_file_flow(store, path, ask, say) -> None:
 
 
 def run_wizard(cfg: Config, ask: Callable[[str], str] = input, say: Callable[[str], None] = print) -> int:
+    raw_ask = ask
+
+    def ask(prompt: str) -> str:
+        # Windows PowerShell can put a UTF-8 byte-order mark in front of text piped into a program (`'' | jarvis.exe setup`). U+FEFF is not whitespace,
+        # so an otherwise empty answer was taken as a file name ("File not found: <BOM>"). Drop a leading mark; nothing else is changed.
+        return raw_ask(prompt).lstrip("\ufeff")
+
     say(f"PROJECT JARVIS {__version__} - setup guide")
     say("Everything runs on this computer. No account, no subscription, no paid service.\n")
     rep = first_run(cfg)

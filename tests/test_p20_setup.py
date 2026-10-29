@@ -378,3 +378,27 @@ class AccelFile(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ByteOrderMarkInAnswers(unittest.TestCase):
+    """Windows PowerShell can prepend a UTF-8 BOM to text piped into a program. The CI log showed `File not found: <BOM>` for an empty answer."""
+    def run_with(self, answer):
+        import tempfile
+        from jarvis.config import Config
+        from jarvis.setup_wizard import run_wizard
+        said, asked = [], []
+        with tempfile.TemporaryDirectory() as d:
+            def ask(prompt):
+                asked.append(prompt)
+                return answer
+            run_wizard(Config(data_dir=Path(d)), ask=ask, say=said.append)
+        return "\n".join(said), asked
+
+    def test_a_lone_bom_is_an_empty_answer_not_a_file_name(self):
+        text, asked = self.run_with("﻿")
+        self.assertNotIn("File not found", text)
+        self.assertTrue(any("press Enter to skip" in a for a in asked))
+
+    def test_a_real_path_after_a_bom_is_still_looked_up_and_reported(self):
+        text, _ = self.run_with("﻿no-such-model-file.gguf")
+        self.assertIn("File not found: no-such-model-file.gguf", text)
