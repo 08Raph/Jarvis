@@ -663,9 +663,24 @@ class HomeGlue(unittest.TestCase):
         patcher = mock.patch.dict(sys.modules, _stub_qt())
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Importing a submodule also binds it as an ATTRIBUTE of the `jarvis.ui` package, and `from jarvis.ui import window` (as test_p71_hud_qt does) prefers that
+        # attribute over sys.modules. mock.patch.dict restores sys.modules only, so without restoring the attributes too, a later real-Qt test would receive THIS
+        # stand-in window module (CI run 40814195606: "'Stub' object is not callable"). Remember and restore both.
+        import jarvis.ui as _pkg
+        _missing = object()
+        _before = {m: getattr(_pkg, m, _missing) for m in ("window", "hud")}
+
+        def _restore_package_attributes():
+            for name, val in _before.items():
+                if val is _missing:
+                    if name in vars(_pkg):
+                        delattr(_pkg, name)
+                else:
+                    setattr(_pkg, name, val)
         for m in ("jarvis.ui.window", "jarvis.ui.hud"):
             sys.modules.pop(m, None)
         self.W = importlib.import_module("jarvis.ui.window")
+        self.addCleanup(_restore_package_attributes)
         self.addCleanup(lambda: [sys.modules.pop(m, None) for m in ("jarvis.ui.window", "jarvis.ui.hud")])
         w = self.win = object.__new__(self.W.MainWindow)
         self.ctl = mock.Mock()
@@ -845,6 +860,20 @@ class StaticChecks(unittest.TestCase):
             self.assertIn(needle, src if needle != "MIC OFF" else (SRC / "ui" / "hud_model.py").read_text(encoding="utf-8"), needle)
         app = (SRC / "ui" / "app.py").read_text(encoding="utf-8")
         self.assertIn("ctl.voice_autostart()", app)                      # enabled voice starts by itself when the window opens
+
+
+class StandInsDoNotLeak(unittest.TestCase):
+    """Regression for the CI failure of run 40814195606: the stand-in window module must not stay reachable through the `jarvis.ui` package after HomeGlue."""
+
+    def test_the_stand_in_window_module_is_not_left_on_the_package(self):
+        import jarvis.ui as pkg
+        missing = object()
+        before = vars(pkg).get("window", missing)
+        case = HomeGlue("run")                                       # only its setUp / cleanups are used
+        case.setUp()
+        self.assertIsNot(vars(pkg).get("window", missing), before)   # the stand-in really was bound while the case was active
+        case.doCleanups()
+        self.assertIs(vars(pkg).get("window", missing), before)
 
 
 if __name__ == "__main__":
