@@ -82,6 +82,37 @@ def _guard_stream(chunks):
         raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
 
 
+def _reply_text(r) -> str:
+    """The text of a non-streaming reply. A reply that is not shaped like a chat completion is a runtime failure (InferenceError), never a raw
+    KeyError/IndexError/TypeError from our own parsing. A missing or null content is an empty reply; callers already treat that as a failed answer."""
+    try:
+        content = r["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise InferenceError("The local model returned a reply in an unexpected format.") from None
+    if content is None:
+        return ""
+    if not isinstance(content, str):
+        raise InferenceError("The local model returned a reply in an unexpected format.")
+    return content
+
+
+def _chunk_text(chunk) -> str:
+    """The text piece of one streamed chunk. A chunk with no choices (some servers send a final usage-only chunk) or no/null delta content carries no text."""
+    try:
+        choices = chunk["choices"]
+        if not choices:
+            return ""
+        delta = choices[0].get("delta") or {}
+        piece = delta.get("content")
+    except (KeyError, IndexError, TypeError, AttributeError):
+        raise InferenceError("The local model returned a reply in an unexpected format.") from None
+    if piece is None:
+        return ""
+    if not isinstance(piece, str):
+        raise InferenceError("The local model returned a reply in an unexpected format.")
+    return piece
+
+
 class GGUFEngine:
     def __init__(self, model_dir: str | Path, n_ctx: int | None = None, n_threads: int | None = None,
                  llama_factory: Callable | None = None, no_think_suffix: bool | None = None,
@@ -244,7 +275,7 @@ class GGUFEngine:
                                                temperature=temperature, **self._gen_kwargs(temperature))
             except Exception as e:  # noqa: BLE001
                 raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
-            out = strip_thinking(r["choices"][0]["message"]["content"] or "")
+            out = strip_thinking(_reply_text(r))
             self._note(r, out)
             return out
 
@@ -259,8 +290,7 @@ class GGUFEngine:
             except Exception as e:  # noqa: BLE001
                 raise InferenceError(f"The local model failed while generating ({type(e).__name__}).") from None
             for chunk in _guard_stream(chunks):
-                piece = chunk["choices"][0].get("delta", {}).get("content") or ""
-                buf += piece
+                buf += _chunk_text(chunk)
                 # hide any <think>...</think> block even if the model ignores /no_think
                 while True:
                     if in_think:

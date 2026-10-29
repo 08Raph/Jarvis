@@ -69,3 +69,20 @@ Only AT-01 (on Linux/Windows hosted runners), AT-13's silent install and AT-15 r
 ## 6. Recommended order on your PC
 
 AT-02 -> AT-03/04 -> **AT-05** (the single most informative test) -> AT-06 -> AT-07 -> AT-08 -> AT-09/10 -> AT-11 -> AT-12 -> AT-13/14. Stop at the first failure and send the evidence.
+
+## 7. What was actually executed without a model (Linux, 2026-10-28)
+
+The authoring environment has **no llama-cpp-python, no real model weights, and no approval to download any**. The only `.gguf` files on it are synthetic test fixtures and llama.cpp's vocabulary-only files (0 tensors); none can generate text. So AT-05, AT-06, AT-07, AT-10 (and everything else marked MODEL) were **not run**.
+
+These steps were run with the real CLI against a synthetic one-tensor GGUF, on a machine without the runtime. They show the failure handling around inference, **not** inference:
+
+| Step | Observed |
+|---|---|
+| plan test 02: `jarvis runtime --require` | prints `"available": false` with the import error, exit **3**; `diagnostics` says `loads: null ... (nothing was measured)` |
+| plan test 03: `jarvis models add-gguf "<path>" --id test --license MIT --license-url <url> --accept-unverified`, then `jarvis models verify <id>` | installed (a verified copy); verify `{"ok": true}`, exit 0 |
+| plan test 05: `jarvis selftest`, no runtime | `SELFTEST FAILED ... [stage: runtime_check, exit code 3]`; `selftest.json`: `status: failed`, `passed: false`, kind `runtime_unavailable` |
+| plan test 04: one byte flipped in the installed copy | `jarvis models verify <id>`: `model.gguf: hash mismatch`, exit **3**; `selftest`: `Model failed its integrity check`, exit 3, no worker started, no report written |
+| plan test 04: model file renamed away | `jarvis chat hello`: `failed its integrity check: ['model.gguf: missing']`, exit 3, no reply text |
+| `jarvis chat hello` with the runtime absent | plain message naming the missing runtime, exit 2 |
+
+Deterministic tests with a **fake** runtime (they prove our handling, not llama.cpp): `tests/test_p69_engine_malformed_replies.py` (a reply that is not a chat completion becomes `InferenceError`, never a raw `KeyError`; the engine lock is released; shutdown while a reply is streaming does not free the model underneath it), `test_p62` (serialization), `test_p63` (worker crash, hang, cancel, bad reply), `test_local_model` (load failure, damaged `meta.json`).
