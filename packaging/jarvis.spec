@@ -49,6 +49,7 @@ for mod in manifest.OPTIONAL_PACKAGES + ["PySide6"]:
     except Exception as e:   # a hook failure must be visible, not silent
         print(f"WARNING: could not collect {mod}: {e}")
 hidden += collect_submodules("jarvis")
+binaries = [b for b in binaries if not any(part in os.path.basename(b[0]).lower() for part in manifest.EXCLUDED_BINARY_NAME_PARTS)]
 hidden = [h for h in hidden if not any(h == x or h.startswith(x + ".") for x in manifest.QT_EXCLUDES)]
 
 # The local sign-in server (jarvis local-server) lives in server/; freeze it so the exe can run it.

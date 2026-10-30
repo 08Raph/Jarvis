@@ -176,7 +176,7 @@ jobs:
         run: |
           $b = "ci-logs\build.log"
           if (Test-Path $b) {
-            $keys = Select-String -Path $b -Pattern 'WORKER SMOKE|Done\. Output|^\s*FAIL|TERMINATING ERROR|SKIP|runtime --require|BUILD BLOCKED|^\s+- ' | Select-Object -Last 40 | ForEach-Object { $_.Line.Trim() }
+            $keys = Select-String -Path $b -Pattern 'WORKER SMOKE|Done\. Output|^\s*FAIL|TERMINATING ERROR|SKIP|runtime --require|BUILD BLOCKED|^\s+- |^ERROR|VC\+\+ runtime' | Select-Object -Last 40 | ForEach-Object { $_.Line.Trim() }
             Write-Host "::notice title=Build log markers::$(($keys -join "`n") -replace "`n",'%0A')"
           } else { Write-Host "::warning title=Build log::ci-logs\build.log does not exist" }
           $f = Get-ChildItem dist\installer -Filter "ProjectJarvis-Setup-*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1

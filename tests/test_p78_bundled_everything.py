@@ -259,6 +259,12 @@ class WiringTests(unittest.TestCase):
             if dest == "jarvis_server":
                 self.assertTrue((ROOT / src).is_file(), src)
 
+    def test_32_bit_third_party_binaries_are_left_out_of_the_64_bit_app(self):
+        spec = (ROOT / "packaging" / "jarvis.spec").read_text(encoding="utf-8")
+        self.assertIn("manifest.EXCLUDED_BINARY_NAME_PARTS", spec)
+        self.assertIn("32bit", MF.EXCLUDED_BINARY_NAME_PARTS)
+        self.assertLess(spec.index("manifest.EXCLUDED_BINARY_NAME_PARTS"), spec.index("_common = dict("))
+
     def test_the_installer_notice_no_longer_says_no_model_is_included(self):
         n = (ROOT / "docs" / "INSTALLER_NOTICE.txt").read_text(encoding="utf-8")
         self.assertNotIn("No AI model is included", n)
