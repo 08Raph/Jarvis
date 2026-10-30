@@ -61,3 +61,17 @@ Run 40961294760 (6d2aedd, after the test fix): both jobs green, no `WinError 32`
 * `windows-ci` run 40982262440 (dbd1e95): both jobs green. Windows unit job: ran=3146 passed=3034 failed=0 errors=0 skipped=112. The skipped list visible in the annotations (its tail) names no account-page or DPAPI test, and the earlier run showed the Qt page tests running, so I take them as executed; the annotation is truncated, so this is inference, not a per-test log.
 * What this does NOT show: a person using the Account page on a real PC (looks, focus order, DPI, screen reader), DPAPI behaviour on a consumer machine, TLS to a real service, or any hosted service (none exists).
 * Windows cleanup flake: no `WinError 32` in 40980671363 or 40982262440, but the first run failed for a different reason (the DB-connection bug above, which is a `WinError 32` of the same family on the new test only). Counting only runs with no `WinError 32` anywhere, the streak restarted at 1 at 40982262440; fully clean runs since the fix: 2 (40961294760 and 40982262440). Still far below the 20-run bar.
+
+## 8. Everything-in-the-installer build (2026-10-30)
+
+| Check | Result | Evidence |
+|---|---|---|
+| Default CI build (voice libraries and local server inside, no model) | PASS | run 40996287739 (and 40990714874 before the last fixes) |
+| Full installer with the model inside: build, pinned size and SHA-256 check, installer 1,453,504,221 bytes | PASS | workflow_dispatch run 40997760878 |
+| Windows unit suite on that run | PASS 3068 passed, 0 failed, 112 skipped | same run |
+| Silent install, bundled model installed into the profile on first run (1,282,439,264 bytes, active, no network), only the pinned weights in the install folder, silent uninstall keeps data | PASS | same run, clean-install results |
+| Real inference with the bundled copy | NOT RUN in that check (by design); same file answered in run 40955846622 | |
+| Physical Windows 11 PC | NOT RUN | |
+
+Disclosure: the first full-build attempt (run 40994599839) downloaded the model, built the installer, then failed in the manifest step; its clean-install check incidentally ran one `chat "hello"` with the real model (exit 0, output not captured). Fixed; the check no longer does that. Model downloads for the full builds: two, both approved.
+

@@ -1,6 +1,6 @@
 # What is inside the installer (the "everything in the exe" build)
 
-Status: implemented and tested with FAKES on Linux. Not yet built on Windows with the model inside; see "What is verified" at the end.
+Status: implemented; built and install-tested on a hosted Windows runner with the model inside (run 40997760878). Not yet run by a person on a physical Windows 11 PC.
 
 ## What ships
 
@@ -44,5 +44,13 @@ Needs about 1.3 GB free for the copy (the installer's own copy stays in the prog
 | The build refuses any other weights file and a bundled file with the wrong size or hash | F: tests on a synthetic dist folder |
 | Local server binds 127.0.0.1 only, has no host option, serves health and terms over real HTTP | F/R: loopback test |
 | Installer script, build script and CI wiring contain the right flags | S: text checks in the tests |
-| The 1.28 GB file really builds into an installer, installs silently, seeds on first start and answers | **N: not yet run** until one full build is done on Windows |
+| The real 1.28 GB file builds into an installer, installs silently, is installed into the profile on first run (exact size, active brain, no network), the install folder holds only that pinned file, and a silent uninstall keeps your data | **R: hosted Windows runner, run 40997760878 at main after 185f680; installer 1,453,504,221 bytes, SHA-256 E0E024FB6B2009C0050AD38D68F699D92B9546004342CEB18574B903912F4EDB** (CI does not upload it, so this exact file is not downloadable) |
+| The bundled model then answers in the installed app | **N for this build.** The earlier real-model run (40955846622) proved the same pinned file answers through the packaged worker; the full-installer check deliberately does not run inference |
 | It works on a physical Windows 11 PC | **N** |
+
+## Honest notes about the build runs
+
+* Two full builds were made, both with your approval: the first reached a 1.45 GB installer and then stopped on a bug in my build-manifest step (fixed). During that run the old clean-install check also ran `chat "hello"` after the first run had installed the model, so that run incidentally did one real chat reply (exit 0; the text was not captured). The check is now model-aware and never runs inference on a full installer.
+* Three build problems only the voice libraries exposed were fixed: certifi's public certificate list (allowed at one exact path, only if it holds no private key) and 32-bit / ARM64 DLLs from sounddevice (left out of the 64-bit app).
+* Licences of the newly bundled voice libraries and their dependencies (sounddevice, vosk, requests, certifi and others) have not been legally reviewed.
+* The installer is still unsigned.
