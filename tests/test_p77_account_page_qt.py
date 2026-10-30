@@ -194,7 +194,7 @@ class RealQt(unittest.TestCase):
         self.fill_signup(pg, pw2=PW + "x")
         pg.su_btn.click()
         self.assertIn("do not match", pg.su_err["password2"].text())
-        self.fill_signup(pg, pw="password1")
+        self.fill_signup(pg, pw="letmein123")
         pg.su_btn.click()
         self.assertIn("easy to guess", pg.su_err["password"].text())
 

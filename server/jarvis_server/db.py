@@ -40,6 +40,13 @@ class DB:
         self.lock = threading.RLock()
         self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        try:
+            self._open_and_migrate()
+        except BaseException:
+            self.conn.close()                  # a refused or failed open must not leave the file locked (Windows cannot delete an open database)
+            raise
+
+    def _open_and_migrate(self) -> None:
         self.conn.execute("PRAGMA foreign_keys = ON")
         ver = self.conn.execute("PRAGMA user_version").fetchone()[0]
         if ver > SCHEMA_VERSION:

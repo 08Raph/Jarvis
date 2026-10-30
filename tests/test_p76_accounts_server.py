@@ -393,8 +393,18 @@ class Migration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "new.db"
             c = sqlite3.connect(p); c.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}"); c.commit(); c.close()
-            with self.assertRaises(RuntimeError):
+            made = []
+            real_connect = sqlite3.connect
+
+            def spy(*a, **k):
+                made.append(real_connect(*a, **k))
+                return made[-1]
+            from unittest import mock
+            with mock.patch("sqlite3.connect", spy), self.assertRaises(RuntimeError):
                 DB(p)
+            with self.assertRaises(sqlite3.ProgrammingError):                             # the connection opened for the refused database was closed
+                made[0].execute("SELECT 1")
+            p.unlink()                                                                    # the refused open left no connection behind: the file can be deleted (Windows would refuse otherwise)
             self.assertFalse(Path(str(p) + f".v{SCHEMA_VERSION + 1}.bak").exists())
 
     def test_a_fresh_database_gets_the_current_version_and_no_backup(self):

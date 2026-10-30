@@ -323,7 +323,10 @@ class LiveHttpAndClientTests(unittest.TestCase):
         c = OnlineClient(self.policy, "http://127.0.0.1:9", self.tokens, timeout=2)
         with self.assertRaises(ServiceError) as cm:
             c.health()
-        self.assertEqual(cm.exception.code, "unreachable")
+        # Linux/macOS refuse a closed port at once ("unreachable"); Windows retries a refused connection for about 2 s, so with a 2 s limit the same situation arrives
+        # as a timeout (seen on the Windows CI job). Both are clean errors with status 0 and a plain message; the exact code depends on the operating system.
+        self.assertIn(cm.exception.code, ("unreachable", "timeout"))
+        self.assertEqual(cm.exception.status, 0)
 
     def test_audit_log_records_host_not_content(self):
         self.client.health()
