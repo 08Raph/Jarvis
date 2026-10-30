@@ -72,7 +72,7 @@ class ManifestAndChecker(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             shutil.copytree(ROOT / "src", root / "src")
-            for sub in ("packaging", "scripts", "docs"):
+            for sub in ("packaging", "scripts", "docs", "server"):
                 shutil.copytree(ROOT / sub, root / sub)
             for f in ("pyproject.toml", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "config.sample.toml"):
                 shutil.copy(ROOT / f, root / f)
