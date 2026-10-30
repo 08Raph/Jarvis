@@ -182,6 +182,14 @@ def check_dist(dist: Path, machine_tokens: list[str] | None = None, require_bund
                 if not (dist / r).exists() and (r.endswith(".exe") or not (dist / "_internal" / r).exists())]
     for p in dist.rglob("*"):
         rel = p.relative_to(dist)
+        if rel.as_posix() in MF.ALLOWED_PUBLIC_PEM:
+            try:
+                body = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                body = "PRIVATE KEY"
+            if "PRIVATE KEY" in body.upper() or "BEGIN CERTIFICATE" not in body:
+                problems.append(f"{rel.as_posix()} is not a plain public certificate bundle (it holds a private key or is not a certificate list)")
+            continue
         if rel.as_posix() == MF.BUNDLED_MODEL_RELPATH:       # the single allowed weights file; validated (size and SHA-256) below
             continue
         for pat in MF.FORBIDDEN_PATTERNS:

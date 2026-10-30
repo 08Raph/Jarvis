@@ -196,6 +196,22 @@ class DistCheckTests(Base):
         self.assertIn("w.safetensors", probs)
         self.assertIn("extra.txt", probs)
 
+    def test_certifis_public_certificate_list_is_allowed_only_at_its_exact_path_and_without_a_key(self):
+        d = self.make_dist()
+        pem = d / "_internal" / "certifi" / "cacert.pem"
+        pem.parent.mkdir(parents=True)
+        pem.write_text("# Mozilla roots\n-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n", encoding="utf-8")
+        self.assertEqual(CRA.check_dist(d, require_bundled_model=True), [])
+        pem.write_text("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n", encoding="utf-8")
+        self.assertTrue(any("cacert.pem" in p for p in CRA.check_dist(d)))
+        pem.write_text("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n-----BEGIN PRIVATE KEY-----\nBBBB\n", encoding="utf-8")
+        self.assertTrue(any("cacert.pem" in p for p in CRA.check_dist(d)))
+        other = d / "_internal" / "elsewhere" / "cacert.pem"
+        other.parent.mkdir(parents=True)
+        other.write_text("-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n", encoding="utf-8")
+        pem.unlink()
+        self.assertTrue(any("elsewhere" in p and "forbidden" in p for p in CRA.check_dist(d)))
+
     def test_the_same_file_name_somewhere_else_is_forbidden(self):
         d = self.make_dist(with_model=False)
         (d / "model.gguf").write_bytes(b"x")

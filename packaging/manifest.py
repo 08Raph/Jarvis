@@ -28,6 +28,9 @@ REQUIRED_IN_DIST = ["jarvis.exe", "jarvis-gui.exe", "LICENSE", "THIRD_PARTY_NOTI
 # Names/patterns that must NEVER appear in the built folder or the installer (secrets, user data, development leftovers)
 FORBIDDEN_PATTERNS = ["*.pem", "*.key", "*_private.*", "*private_key*", "*signing_private*", "*.sqlite", "*.sqlite-wal", ".env", ".env.*", "*.pt", "*.gguf", "*.safetensors", "jarvis_data",
                       "crash.log", "STOP", "desktop_audit*.jsonl", "*.pyc.bak", "requirements-lock.txt"]
+# Public data that merely matches a forbidden pattern. certifi (a dependency of the voice library vosk, via requests) ships Mozilla's list of PUBLIC root
+# certificates as cacert.pem. It is allowed ONLY at this exact path and ONLY while it contains no private key (check_release_assets verifies that).
+ALLOWED_PUBLIC_PEM = ["_internal/certifi/cacert.pem", "certifi/cacert.pem"]
 FORBIDDEN_TOP_LEVEL = ["tests", "server", ".github", "scripts", "src", ".venv", "build"]
 
 # Python modules the frozen app needs although PyInstaller cannot see them statically (dynamic imports); optional ones are included only if installed
