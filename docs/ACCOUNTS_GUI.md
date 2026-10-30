@@ -1,6 +1,6 @@
 # Accounts in the Jarvis window (sign up, sign in, manage)
 
-Written 2026-10-29 on branch work/gui-auth. **Status: implemented and tested with a real service over localhost and, for the window, with real Qt on a headless platform in CI. Nobody has used it on a real Windows PC. No hosted service exists.**
+Written 2026-10-29 on branch work/gui-auth. **Status: implemented. Logic tested against a real service over localhost; the page and the Windows token encryption were executed by real Qt (headless) and real DPAPI on the hosted Windows CI runner (run 40982262440, green; see VERIFICATION_LEDGER.md section 7). Nobody has used it on a real Windows PC. No hosted service exists.**
 
 ## 1. Three things that stay separate
 1. **Local application access.** Jarvis never asks for an account to start, chat, remember, speak or use tools. There is no local login to lose.
