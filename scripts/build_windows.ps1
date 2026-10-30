@@ -13,6 +13,7 @@ param(
     [switch]$SkipTests,
     [switch]$WithVoice,
     [switch]$BundleModel,
+    [switch]$BundleVoiceModel,
     [switch]$SkipGuiSelfTest,
     [string]$TelemetryUrl = "",
     [switch]$SkipLocalRuntime,
@@ -212,6 +213,17 @@ if ($BundleModel) {
     Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis$requireModel"      # exact pinned size and SHA-256, at the one allowed path, nothing else
 }
 
+# 4d. -BundleVoiceModel: put the small English speech-recognition model (Vosk, about 40 MB) INSIDE the installer so voice works out of the box. ONE download from the
+#     model's publisher; the zip (size, SHA-256) and the unpacked folder (digest, file count) are compared with the pins compiled into the program, and the build stops
+#     if they differ or if no pin exists yet. Nothing is bundled unless this switch is given.
+$requireVoice = ""
+if ($BundleVoiceModel) {
+    if (-not $WithVoice) { throw "-BundleVoiceModel needs -WithVoice (the speech model is useless without the voice libraries)" }
+    Run "$py scripts\fetch_vosk_model.py --out dist\ProjectJarvis\bundled_models"
+    $requireVoice = " --require-bundled-voice-model"
+    Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis$requireModel$requireVoice"
+}
+
 # 5. Installer.
 $ver = (& $py -c "from jarvis.version import __version__; print(__version__)").Trim()   # the one authoritative version
 # Inno Setup older than 6.3 does not know the "x64compatible" architecture name; use "x64" there.
@@ -227,7 +239,7 @@ if (-not (Test-Path "dist\installer\ProjectJarvis-Setup-$ver.exe")) { throw "ins
 # 6. Checksums (publish SHA256SUMS.txt next to the installer) and the build manifest (versions, every file's SHA-256, the installer's SHA-256).
 Run "$py scripts\release_tools.py sha256sums dist\installer dist\installer\SHA256SUMS.txt"
 Run "$py scripts\release_tools.py build-manifest --dist dist\ProjectJarvis --installer-dir dist\installer --out dist\build_manifest.json"
-Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis$requireModel --manifest dist\build_manifest.json"      # again, after the smoke tests: nothing was added or changed meanwhile
+Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis$requireModel$requireVoice --manifest dist\build_manifest.json"      # again, after the smoke tests: nothing was added or changed meanwhile
 Write-Host "NOTE: this build was made on this PC only. It is not a clean-machine test; follow docs\WINDOWS_TEST_CHECKLIST.md section 10-11." -ForegroundColor Yellow
 
 # 7. Optional: sign an update manifest. The private key stays offline; nothing is uploaded by this script.

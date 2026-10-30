@@ -30,7 +30,7 @@ class VoiceSettings:
     silence_end_seconds: float = 0.9
     sleep_after_seconds: float = 0.0        # 0 = keep listening while enabled; >0 closes the mic after this much idle time
     pronunciations: dict[str, str] = field(default_factory=dict)
-    vosk_model: str | None = None           # folder of a Vosk model the USER installed; never downloaded by Jarvis
+    vosk_model: str | None = None           # folder of a Vosk model: one the USER installed, or the small English model copied from the installer on first start (jarvis.voice.bundled_vosk); never downloaded by Jarvis
     speaker_muted: bool = False             # speaker mute (nothing is spoken; text still shown). Separate from the microphone mute `muted`
     post_speech_guard_seconds: float = 0.6  # after Jarvis finishes speaking, frames are ignored this long so its own echo is not heard as the user
     speak_in_window: bool = False           # the window reads replies aloud (Windows SAPI) only when this is turned on

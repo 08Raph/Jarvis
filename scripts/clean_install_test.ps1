@@ -56,7 +56,8 @@ Check "first_run_offline_defaults" {
     "all online features off; data dir $($r.data_dir)"
 }
 # A full installer (built with -BundleModel) contains bundled_models: the first run above then installs that model, from the installer's own file.
-$bundled = Test-Path "$app\bundled_models"
+$bundled = Test-Path "$app\bundled_models\qwen3-1.7b-q4_k_m\model.gguf"
+$bundledVoice = Test-Path "$app\bundled_models\vosk-model-small-en-us-0.15"
 Check "bundled_model_installed_from_installer" {
     if (-not $bundled) { return "not applicable: this installer has no bundled model" }
     $m = Join-Path $data "models\qwen3-1.7b-q4_k_m\model.gguf"
@@ -66,6 +67,13 @@ Check "bundled_model_installed_from_installer" {
     $a = Get-Content (Join-Path $data "models\active.json") -Raw | ConvertFrom-Json
     if ($a.id -ne "qwen3-1.7b-q4_k_m") { throw "the installed model was not made the active brain: $($a.id)" }
     "installed ($len bytes) and active; no network was needed"
+}
+Check "bundled_speech_model_set_up_from_installer" {
+    if (-not $bundledVoice) { return "not applicable: this installer has no bundled speech model" }
+    $v = Get-Content (Join-Path $data "voice.json") -Raw | ConvertFrom-Json
+    if (-not $v.vosk_model) { throw "voice.json has no vosk_model after the first run" }
+    if (-not (Test-Path (Join-Path $v.vosk_model "am"))) { throw "the speech model folder was not copied: $($v.vosk_model)" }
+    "speech model copied to $($v.vosk_model) and set; no network was needed"
 }
 Check "chat_without_model_is_honest" {
     if ($bundled) { return "skipped on purpose: this installer carries a model, so chat would run real inference, which this check must not do" }

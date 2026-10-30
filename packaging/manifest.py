@@ -16,6 +16,8 @@ DATAS = [
 ]
 # The ONE model file that may ship in the folder/installer (see src/jarvis/models/bundled.py for its size and SHA-256 pins; check_release_assets verifies them).
 BUNDLED_MODEL_RELPATH = "bundled_models/qwen3-1.7b-q4_k_m/model.gguf"
+# The ONE speech-model folder that may ship (src/jarvis/voice/bundled_vosk.py holds its pinned folder digest; check_release_assets verifies it).
+BUNDLED_VOSK_RELDIR = "bundled_models/vosk-model-small-en-us-0.15"
 SERVER_PACKAGE = "jarvis_server"        # lives in server/, frozen into the app so `jarvis local-server` works; the spec adds server/ to the module search path
 # user-facing documentation shipped with the app (maintainer review notes and test checklists stay in the source repository)
 DOCS = ["RELEASE_NOTES.md", "TROUBLESHOOTING.md", "MODEL_DISTRIBUTION.md", "PRIVACY_AND_NETWORK.md", "LOCAL_MODEL.md", "DESKTOP_CONTROL.md",

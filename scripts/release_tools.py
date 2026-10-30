@@ -178,15 +178,25 @@ def build_manifest(root: Path, dist: Path, installer_dir: Path | None = None, en
     lock = root / "requirements-lock.txt"
     allowed = CRA.MF.BUNDLED_MODEL_RELPATH          # the one pinned model of a full installer; check_release_assets verifies its exact size and SHA-256
     weights = sorted(k for k in files if k.lower().endswith((".gguf", ".safetensors", ".pt", ".onnx", ".bin")) and (dist / k).stat().st_size > 50_000_000
-                     and k.replace("\\", "/") != allowed)
+                     and k.replace("\\", "/") != allowed
+                     and not k.replace("\\", "/").startswith(CRA.MF.BUNDLED_VOSK_RELDIR + "/"))
     return {"schema": 1, "version": bi["version"], "channel": bi["channel"], "built_utc": bi["built_utc"], "git_commit": bi["git_commit"],
             "python": bi["python"], "build_platform": platform.system() + " " + platform.release(), "dependencies": vers,
             "requirements_lock_sha256": CRA.sha256_of(lock) if lock.is_file() else "unknown",
             "torch_bundled": bool(vers.get("torch")) and any(k.startswith(("torch/", "_internal/torch/")) for k in files),
             "model_weights_in_build": weights, "bundled_model": ({"path": allowed, "sha256": files[allowed], "bytes": (dist / allowed).stat().st_size} if allowed in {k.replace("\\", "/") for k in files} else None),
-            "executables": exes, "installer": arts, "file_count": len(files), "tree_sha256": tree, "files": files,
+            "bundled_voice_model": _voice_model_record(dist), "executables": exes, "installer": arts, "file_count": len(files), "tree_sha256": tree, "files": files,
             "machine_paths_in_text_files": CRA.scan_machine_paths(dist, [str(root), str(Path.home())]),
             "note": "A record of what this build contained. Not a signature. It does not say the build was tested or that the installer works."}
+
+
+def _voice_model_record(dist: Path):
+    d = Path(dist) / CRA.MF.BUNDLED_VOSK_RELDIR
+    if not d.is_dir():
+        return None
+    from jarvis.voice import bundled_vosk as VB
+    digest, count = VB.tree_digest(d)
+    return {"path": CRA.MF.BUNDLED_VOSK_RELDIR, "tree_sha256": digest, "file_count": count}
 
 
 def main(argv=None) -> int:

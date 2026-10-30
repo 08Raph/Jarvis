@@ -14,7 +14,7 @@ Status: implemented; built and install-tested on a hosted Windows runner with th
 
 ## What is deliberately NOT inside
 
-* The speech-recognition (Vosk) model: its licence has not been checked for redistribution.
+* The speech-recognition (Vosk) model is inside only when the build was made with `-BundleVoiceModel` (the default for `build_installer.bat`); see "Speech model" below. Its licence line is recorded from the publisher's page in `docs/VERIFICATION_LEDGER.md`, not assumed.
 * Any model other than the one above. Qwen3-8B stays a choice you make yourself.
 * A public Jarvis Online service. None exists; the local server makes accounts that exist on this PC only.
 
@@ -54,3 +54,11 @@ Needs about 1.3 GB free for the copy (the installer's own copy stays in the prog
 * Three build problems only the voice libraries exposed were fixed: certifi's public certificate list (allowed at one exact path, only if it holds no private key) and 32-bit / ARM64 DLLs from sounddevice (left out of the 64-bit app).
 * Licences of the newly bundled voice libraries and their dependencies (sounddevice, vosk, requests, certifi and others) have not been legally reviewed.
 * The installer is still unsigned.
+
+## Speech model (small English Vosk model, about 40 MB)
+
+* **What:** the folder `vosk-model-small-en-us-0.15` from its publisher (alphacephei.com), shipped at `bundled_models/vosk-model-small-en-us-0.15`.
+* **First start:** the folder is copied to `%LOCALAPPDATA%\ProjectJarvis\voice_models\` and, only if no speech model is set yet, `vosk_model` in your voice settings points at that copy. Nothing else in the voice settings changes. It is done once per profile and is not put back if you clear the setting. A speech model you set yourself is never replaced.
+* **Check:** the whole folder is compared with a digest and file count compiled into the program (`src/jarvis/voice/bundled_vosk.py`). The build stops on a mismatch, and while the pin is empty the program refuses to install the folder.
+* **What this changes on a fresh profile:** with a speech model present, the window's first start can now actually turn wake-word listening on (it was already the default on a fresh profile, but it had no model to use). The microphone still opens only if a sound device exists, the mute switch and status stay honest, and raw audio is not kept.
+* **Not claimed:** voice quality, accuracy and microphone behaviour on a real PC are not verified by CI. The pin is an observed value from a genuine download; the publisher does not sign the model.

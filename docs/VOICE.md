@@ -61,7 +61,7 @@ indicator says so. Saying "stop" or pressing `c` interrupts speech right away. A
 
 ## Voice licences (read before packaging anything)
 
-Nothing in this repository bundles a speech model or voice.
+The repository does not contain a speech model. A Windows installer built with `-BundleVoiceModel` carries the small English Vosk model inside it (docs/BUNDLED_EVERYTHING.md); the program itself never downloads one.
 
 - **Windows voices** (System.Speech): use what the user's Windows already has. They are not redistributed by Jarvis. Good for dev and personal use.
 - **Vosk library**: Apache-2.0. **Vosk models**: each has its own licence; `vosk-model-small-en-us` was listed as Apache-2.0 on a mirror

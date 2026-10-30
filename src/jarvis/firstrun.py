@@ -21,6 +21,8 @@ def first_run(cfg: Config) -> dict:
         policy.save(cfg.settings_path)  # all online features off
     from jarvis.models import bundled
     seed = bundled.seed(cfg)            # no-op unless a bundled model is present and this profile has none; local file copy only
+    from jarvis.voice import bundled_vosk
+    voice_seed = bundled_vosk.seed(cfg)  # same idea for the small English speech model: local copy, sets vosk_model only if none is set
     store = ModelStore(cfg.models_dir, policy)
     installed = [m["id"] for m in store.installed()]
     marker = cfg.data_dir / "first_run.json"
@@ -29,7 +31,7 @@ def first_run(cfg: Config) -> dict:
     report = {
         "app_version": __version__, "created_at": created, "data_dir": str(cfg.data_dir.resolve()),
         "network": {f: policy.is_enabled(f) for f in FEATURES},
-        "bundled_model": seed, "installed_models": installed, "active_model": store.active(),
+        "bundled_model": seed, "bundled_voice_model": voice_seed, "installed_models": installed, "active_model": store.active(),
         "hardware": recommend(detect_hardware(cfg.data_dir)),
         "next_steps": ([] if installed else
                        ["No chat model is installed, so the assistant cannot answer yet. Run `jarvis setup` (guided), or "

@@ -155,7 +155,8 @@ def _check_bundled_model(dist: Path, require: bool) -> list[str]:
     root = dist / B.BUNDLE_DIRNAME
     if root.exists():
         for p in root.rglob("*"):
-            if p.is_file() and p.relative_to(dist).as_posix() != MF.BUNDLED_MODEL_RELPATH:
+            rel_p = p.relative_to(dist).as_posix()
+            if p.is_file() and rel_p != MF.BUNDLED_MODEL_RELPATH and not rel_p.startswith(MF.BUNDLED_VOSK_RELDIR + "/"):
                 problems.append(f"unexpected file in {B.BUNDLE_DIRNAME}: {p.relative_to(dist).as_posix()} (only {MF.BUNDLED_MODEL_RELPATH} may ship)")
     if not f.is_file():
         if require:
@@ -173,7 +174,21 @@ def _check_bundled_model(dist: Path, require: bool) -> list[str]:
     return problems
 
 
-def check_dist(dist: Path, machine_tokens: list[str] | None = None, require_bundled_model: bool = False) -> list[str]:
+def _check_bundled_voice_model(dist: Path, require: bool) -> list[str]:
+    """The only speech-model folder allowed is the pinned one: its whole-folder digest and file count must match the pin compiled into the program."""
+    from jarvis.voice import bundled_vosk as VB
+    d = dist / MF.BUNDLED_VOSK_RELDIR
+    if not d.is_dir():
+        return [f"the bundled speech model is required but missing: {MF.BUNDLED_VOSK_RELDIR}"] if require else []
+    if not VB.pinned():
+        return [f"{MF.BUNDLED_VOSK_RELDIR} is in the build but the program has no pinned checksum for it"]
+    digest, count = VB.tree_digest(d)
+    if digest != VB.PIN_TREE_SHA256 or count != VB.PIN_FILE_COUNT:
+        return [f"the bundled speech model folder ({count} files, {digest}) does not match the pin ({VB.PIN_FILE_COUNT} files, {VB.PIN_TREE_SHA256})"]
+    return []
+
+
+def check_dist(dist: Path, machine_tokens: list[str] | None = None, require_bundled_model: bool = False, require_bundled_voice_model: bool = False) -> list[str]:
     dist = Path(dist)
     if not dist.is_dir():
         return [f"built folder not found: {dist}"]
@@ -190,6 +205,8 @@ def check_dist(dist: Path, machine_tokens: list[str] | None = None, require_bund
             if "PRIVATE KEY" in body.upper() or "BEGIN CERTIFICATE" not in body:
                 problems.append(f"{rel.as_posix()} is not a plain public certificate bundle (it holds a private key or is not a certificate list)")
             continue
+        if rel.as_posix().startswith(MF.BUNDLED_VOSK_RELDIR + "/"):      # the single allowed speech-model folder; validated as a whole (digest) below
+            continue
         if rel.as_posix() == MF.BUNDLED_MODEL_RELPATH:       # the single allowed weights file; validated (size and SHA-256) below
             continue
         for pat in MF.FORBIDDEN_PATTERNS:
@@ -197,6 +214,7 @@ def check_dist(dist: Path, machine_tokens: list[str] | None = None, require_bund
                 problems.append(f"forbidden file in the build: {rel} (matches {pat})")
                 break
     problems += _check_bundled_model(dist, require_bundled_model)
+    problems += _check_bundled_voice_model(dist, require_bundled_voice_model)
     for name in MF.FORBIDDEN_TOP_LEVEL:                      # project folders that must not be shipped (third-party packages may have their own tests/)
         if (dist / name).exists():
             problems.append(f"forbidden item at the top of the build: {name}")
@@ -215,6 +233,7 @@ def main(argv=None) -> int:
     ap.add_argument("--packages", action="store_true")
     ap.add_argument("--dist")
     ap.add_argument("--require-bundled-model", action="store_true", help="with --dist: the pinned model file must be in the build")
+    ap.add_argument("--require-bundled-voice-model", action="store_true", help="with --dist: the pinned speech-model folder must be in the build")
     ap.add_argument("--manifest", help="with --dist: also verify every file against this build_manifest.json")
     a = ap.parse_args(argv)
     if not (a.source or a.packages or a.dist):
@@ -225,7 +244,7 @@ def main(argv=None) -> int:
     if a.packages:
         problems += [f"required Python package not installed: {n} (pip install -e \".[ui,build,desktop]\")" for n in missing_packages()]
     if a.dist:
-        problems += check_dist(Path(a.dist), [str(ROOT), str(Path.home())], require_bundled_model=a.require_bundled_model)
+        problems += check_dist(Path(a.dist), [str(ROOT), str(Path.home())], require_bundled_model=a.require_bundled_model, require_bundled_voice_model=a.require_bundled_voice_model)
         if a.manifest:
             problems += verify_build_manifest(Path(a.manifest), Path(a.dist))
     if problems:

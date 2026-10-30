@@ -228,3 +228,5 @@ First-run checklist: added the missing "install the project" step (python -m jar
 - Updated installer notice, third-party notices text and MODEL_DISTRIBUTION; new docs/BUNDLED_EVERYTHING.md. Tests: tests/test_p78_bundled_everything.py.
 - Full-installer verification on Windows CI (run 40997760878): installer 1,453,504,221 bytes, model installed on first run, uninstall keeps data. Fixes found on the way: certifi public certificate list allowed at one path, 32-bit/ARM64 sounddevice DLLs left out, build manifest records the pinned model instead of rejecting it, clean-install check is model-aware, source-tree weights test ignores build folders, CI passes `-BundleModel` as a named switch. See docs/BUNDLED_EVERYTHING.md and docs/VERIFICATION_LEDGER.md section 8.
 
+## Speech model in the installer (unreleased)
+The small English Vosk model can ship inside the installer (`-BundleVoiceModel`, default in `build_installer.bat`); copied on first start, sets `vosk_model` only if none is set. Pin filled from one genuine download (see docs/VERIFICATION_LEDGER.md section 10). `docs/BUNDLED_EVERYTHING.md`.

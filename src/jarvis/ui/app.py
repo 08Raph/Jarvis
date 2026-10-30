@@ -30,7 +30,8 @@ def _install_bundled_model(app, cfg) -> None:
     then offers the usual ways to get a model."""
     try:
         from jarvis.models import bundled
-        if not bundled.pending(cfg):
+        from jarvis.voice import bundled_vosk
+        if not (bundled.pending(cfg) or bundled_vosk.pending(cfg)):
             return
     except Exception:  # noqa: BLE001 - never block the window on this check
         return
@@ -39,7 +40,7 @@ def _install_bundled_model(app, cfg) -> None:
     from PySide6.QtWidgets import QProgressDialog
     result: dict = {}
     t = threading.Thread(target=lambda: result.update(_run_seed(cfg)), daemon=True)
-    dlg = QProgressDialog("Setting up the AI model that came with Jarvis. This stays on this PC and takes about a minute, only once.", "", 0, 0)
+    dlg = QProgressDialog("Setting up the AI model and speech recognition that came with Jarvis. This stays on this PC and takes about a minute, only once.", "", 0, 0)
     dlg.setWindowTitle(V.APP_NAME)
     dlg.setCancelButton(None)
     dlg.setMinimumDuration(0)
@@ -54,7 +55,10 @@ def _install_bundled_model(app, cfg) -> None:
 def _run_seed(cfg) -> dict:
     try:
         from jarvis.models import bundled
-        return bundled.seed(cfg)
+        from jarvis.voice import bundled_vosk
+        out = bundled.seed(cfg)
+        out["voice_model"] = bundled_vosk.seed(cfg)
+        return out
     except Exception as e:  # noqa: BLE001
         return {"state": "refused", "detail": f"{type(e).__name__}"}
 

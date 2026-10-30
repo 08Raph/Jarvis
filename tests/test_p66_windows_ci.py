@@ -218,7 +218,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(on["push"]["branches"], ["main"])
         self.assertEqual(on["pull_request"]["paths"], on["push"]["paths"])
         self.assertEqual(d["permissions"], {"contents": "read"})
-        self.assertEqual(set(d["jobs"]), {"linux-tests", "windows-package"})
+        self.assertEqual(set(d["jobs"]), {"linux-tests", "windows-package", "vosk-probe"})
         for job in d["jobs"].values():
             for step in job["steps"]:
                 self.assertTrue(set(step.get("uses", "x")) and "upload" not in str(step.get("uses", "")) and "cache" not in str(step.get("uses", "")))

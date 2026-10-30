@@ -6,7 +6,7 @@ Does NOT start Project JARVIS at login, add a service or scheduled task, change 
 The full installer includes the free Qwen3-1.7B chat model (4-bit, about 1.3 GB, Apache-2.0, by the Qwen team / Alibaba Cloud) so Jarvis can answer right after installing.
 On first start it is copied from the installer's files into your own model folder (no internet is used) after its size and checksum are verified.
 Other models are downloaded later, only if you ask, with a size and licence shown first.
-Also included: voice libraries (the speech-recognition model is not) and an optional sign-in server that runs on this PC only (Start menu entry; it does nothing until you start it).
+Also included: voice libraries and a small English speech-recognition model (about 40 MB, copied to your user folder on first start; it stays on this PC) and an optional sign-in server that runs on this PC only (Start menu entry; it does nothing until you start it).
 
 Your data (models, memory, missions, schedules, logs, settings) lives in %LOCALAPPDATA%\ProjectJarvis, outside the program folder.
 Upgrading keeps it. Uninstalling asks before deleting it and removes nothing outside that folder and the program folder.
