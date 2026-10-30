@@ -85,7 +85,7 @@ jobs:
           # -SkipTests only because the unit suite runs in its own step below, so a Windows-only test failure cannot hide the packaging result. -SkipTorch: Qwen-only build.
           # -WithVoice: the voice libraries (sounddevice, vosk) are part of the app. -BundleModel only when a person typed the consent value on a manual run (one download).
           $bundle = "${{ github.event_name == 'workflow_dispatch' && inputs.bundle_model_consent == 'yes-bundle-qwen3-1.7b-q4_k_m' }}"
-          $extra = @(); if ($bundle -eq "true") { $extra += "-BundleModel" }
+          $extra = @{}; if ($bundle -eq "true") { $extra["BundleModel"] = $true }      # a hashtable splat passes a NAMED switch (an array splat would pass it as a positional value)
           try { & { .\scripts\build_windows.ps1 -SkipTorch -SkipTests -WithVoice @extra } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - id: unit

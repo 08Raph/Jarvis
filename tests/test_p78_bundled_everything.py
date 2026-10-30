@@ -249,6 +249,8 @@ class WiringTests(unittest.TestCase):
         self.assertIn("yes-bundle-qwen3-1.7b-q4_k_m", wf)
         build = wf.split("name: Build with scripts/build_windows.ps1")[1].split("- id: unit")[0]
         self.assertIn("-BundleModel", build)
+        self.assertIn('$extra["BundleModel"] = $true', build)       # named splat; an array splat bound the switch to -TelemetryUrl in the first attempt
+        self.assertNotIn('$extra += "-BundleModel"', build)
         self.assertRegex(build, r"inputs\.bundle_model_consent == 'yes-bundle-qwen3-1\.7b-q4_k_m'")
 
     def test_the_spec_freezes_the_server_and_sees_server_folder(self):
