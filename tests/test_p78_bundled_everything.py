@@ -264,6 +264,33 @@ class WiringTests(unittest.TestCase):
         self.assertIn("--require-bundled-model", ps)
         self.assertEqual(len(re.findall(r"models fetch", ps)), 1, "exactly one download in the build")
 
+    def test_the_window_self_test_cannot_hang_a_build_forever(self):
+        ps = (ROOT / "scripts" / "build_windows.ps1").read_text(encoding="utf-8")
+        self.assertIn("[switch]$SkipGuiSelfTest", ps)
+        self.assertIn("WaitForExit(300000)", ps)
+        self.assertNotIn("-ArgumentList \"--selftest\" -Wait", ps)         # the old unbounded wait
+        app = (ROOT / "src" / "jarvis" / "ui" / "app.py").read_text(encoding="utf-8")
+        self.assertIn("faulthandler.dump_traceback_later(HANG_DUMP_S, exit=True", app)
+        self.assertIn("faulthandler.cancel_dump_traceback_later()", app)
+        self.assertLess(app.index("HANG_DUMP_S = 240.0"), app.index("def selftest"))
+
+    def test_the_hang_dump_is_cancelled_and_cleaned_up_when_the_self_test_finishes(self):
+        import faulthandler
+        from jarvis.ui import app as A
+        out = Path(tempfile.mkdtemp(prefix="jarvis-p78h-"))
+        self.addCleanup(shutil.rmtree, out, True)
+        with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "offscreen"}):
+            with mock.patch("jarvis.ui.app._qt_checks"), mock.patch.object(faulthandler, "dump_traceback_later") as arm, \
+                 mock.patch.object(faulthandler, "cancel_dump_traceback_later") as cancel:
+                try:
+                    A.selftest(out)
+                except Exception:
+                    pass
+        arm.assert_called_once()
+        self.assertTrue(arm.call_args.kwargs["exit"])
+        cancel.assert_called_once()
+        self.assertFalse((out / "jarvis-gui-selftest-hang.txt").exists())
+
     def test_the_one_click_bat_builds_everything(self):
         bat = (ROOT / "build_installer.bat").read_text(encoding="utf-8")
         for flag in ("-WithVoice", "-BundleModel"):

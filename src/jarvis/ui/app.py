@@ -125,6 +125,7 @@ def gui_main() -> int:
 
 
 SELFTEST_TIMEOUT_S = 180.0
+HANG_DUMP_S = 240.0       # longer than the preflight wait above, shorter than the build script's own limit (300 s)
 
 
 def _qt_checks(rep, cfg) -> None:
@@ -182,6 +183,15 @@ def selftest(out_dir=None) -> int:
     out = Path(out_dir) if out_dir else Path(tempfile.gettempdir())
     rep = S.Report()
     S.mark_running(out)
+    # If the window code ever blocks (a driver, a dialog nobody can see on the offscreen platform), say WHERE instead of hanging silently: after
+    # HANG_DUMP_S seconds every thread's stack is written to jarvis-gui-selftest-hang.txt and the process exits with code 9.
+    import faulthandler
+    hang_file = None
+    try:
+        hang_file = open(out / "jarvis-gui-selftest-hang.txt", "w", encoding="utf-8")
+        faulthandler.dump_traceback_later(HANG_DUMP_S, exit=True, file=hang_file)
+    except (OSError, ValueError, RuntimeError):
+        hang_file = None
     try:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         qt_ok = True
@@ -200,6 +210,13 @@ def selftest(out_dir=None) -> int:
                 _qt_checks(rep, Config(data_dir=Path(d) / "data"))
     except BaseException as e:  # noqa: BLE001 - the report must say what happened, never just disappear
         rep.add("selftest_crash", "Self-test ran to the end", S.FAIL, S.GENUINE, f"{type(e).__name__}: {e}")
+    faulthandler.cancel_dump_traceback_later()       # finished in time: no dump, and the empty hang file is removed again
+    if hang_file is not None:
+        try:
+            hang_file.close()
+            (out / "jarvis-gui-selftest-hang.txt").unlink(missing_ok=True)
+        except OSError:
+            pass
     code = rep.exit_code()
     try:
         S.write(rep, out)

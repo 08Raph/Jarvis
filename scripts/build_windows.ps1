@@ -1,6 +1,6 @@
 # Build pipeline for Windows 10/11. NOT YET RUN (the authoring sandbox has no Windows, PyInstaller or Inno Setup).
 # Prerequisites: 64-bit Python 3.11-3.13 (python.org installer, "py launcher" ticked) and Inno Setup 6 (jrsoftware.org).
-# Usage: .\scripts\build_windows.ps1 [-CheckOnly] [-Clean] [-SkipTorch] [-SkipTests] [-WithVoice] [-BundleModel] [-TelemetryUrl https://your-server] [-SkipLocalRuntime] [-RuntimeFromSource] [-LockFile requirements-lock.txt] [-SigningKeyFile C:\offline\jarvis_signing_private.hex]
+# Usage: .\scripts\build_windows.ps1 [-CheckOnly] [-Clean] [-SkipTorch] [-SkipTests] [-WithVoice] [-BundleModel] [-SkipGuiSelfTest] [-TelemetryUrl https://your-server] [-SkipLocalRuntime] [-RuntimeFromSource] [-LockFile requirements-lock.txt] [-SigningKeyFile C:\offline\jarvis_signing_private.hex]
 #   -CheckOnly  report what was found (Python, build environment, Inno Setup) and stop; changes nothing
 #   -Clean      ALSO delete the .venv build environment (build\ and dist\ are always emptied first, so no file of an older build can be shipped)
 #   -LockFile   install exactly the package versions of an earlier build (pip -c FILE) to reproduce it; the file is the requirements-lock.txt that build wrote
@@ -13,6 +13,7 @@ param(
     [switch]$SkipTests,
     [switch]$WithVoice,
     [switch]$BundleModel,
+    [switch]$SkipGuiSelfTest,
     [string]$TelemetryUrl = "",
     [switch]$SkipLocalRuntime,
     [switch]$RuntimeFromSource,
@@ -156,10 +157,23 @@ if (-not (Test-Path .\dist\ProjectJarvis\jarvis-gui.exe)) { throw "PyInstaller d
 # The window is started in Qt's offscreen mode, builds every page, closes, and writes PASS/FAIL to %TEMP%\jarvis-gui-selftest.txt.
 # This proves the Qt plugins were frozen correctly; it does NOT prove the window looks right: open it yourself (docs\WINDOWS_TEST_CHECKLIST.md).
 Remove-Item "$env:TEMP\jarvis-gui-selftest.txt" -ErrorAction SilentlyContinue
-$g = Start-Process -FilePath .\dist\ProjectJarvis\jarvis-gui.exe -ArgumentList "--selftest" -Wait -PassThru
-if ($g.ExitCode -ne 0 -or -not (Test-Path "$env:TEMP\jarvis-gui-selftest.txt") -or -not ((Get-Content "$env:TEMP\jarvis-gui-selftest.txt" -Raw).StartsWith("PASS"))) {
-    if (Test-Path "$env:TEMP\jarvis-gui-selftest.txt") { Get-Content "$env:TEMP\jarvis-gui-selftest.txt" | Write-Host }      # the per-check report: which check failed and why
-    throw "jarvis-gui.exe --selftest failed: exit code $($g.ExitCode) (0 = pass, 1 = a check failed, 3 = Qt could not load); full report in $env:TEMP\jarvis-gui-selftest.txt and .json"
+Remove-Item "$env:TEMP\jarvis-gui-selftest-hang.txt" -ErrorAction SilentlyContinue
+if ($SkipGuiSelfTest) {
+    Write-Host "WARNING: -SkipGuiSelfTest given. The window self-test was NOT run on this PC; the packaged window is unchecked here." -ForegroundColor Yellow
+} else {
+    $g = Start-Process -FilePath .\dist\ProjectJarvis\jarvis-gui.exe -ArgumentList "--selftest" -PassThru
+    # The self-test normally takes seconds. It writes its own stack dump after 240 s if it is blocked; this wait is the backstop (300 s) so a build never hangs forever.
+    if (-not $g.WaitForExit(300000)) {
+        try { $g.Kill() } catch { }
+        $hang = "$env:TEMP\jarvis-gui-selftest-hang.txt"
+        if (Test-Path $hang) { Get-Content $hang | Select-Object -First 80 | Write-Host }
+        throw "jarvis-gui.exe --selftest did not finish within 5 minutes and was stopped. If you only want the installer, run the build again with -SkipGuiSelfTest and send the text above to the maintainer."
+    }
+    $null = $g.Handle
+    if ($g.ExitCode -ne 0 -or -not (Test-Path "$env:TEMP\jarvis-gui-selftest.txt") -or -not ((Get-Content "$env:TEMP\jarvis-gui-selftest.txt" -Raw).StartsWith("PASS"))) {
+        foreach ($f in @("$env:TEMP\jarvis-gui-selftest.txt", "$env:TEMP\jarvis-gui-selftest-hang.txt")) { if (Test-Path $f) { Get-Content $f | Select-Object -First 80 | Write-Host } }      # the per-check report, or the stack of a blocked run
+        throw "jarvis-gui.exe --selftest failed: exit code $($g.ExitCode) (0 = pass, 1 = a check failed or it was blocked and wrote a stack dump, 3 = Qt could not load); full report in $env:TEMP\jarvis-gui-selftest.txt and .json"
+    }
 }
 if (-not $SkipLocalRuntime) { Run ".\dist\ProjectJarvis\jarvis.exe runtime --require" }   # the frozen exe must contain the runtime
 # The packaged selftest worker is this same exe started again. This starts it with NO model (readiness lists jarvis.selftest_core, `selftest` without a model
