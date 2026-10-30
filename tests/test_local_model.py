@@ -387,7 +387,7 @@ class CatalogFactsTests(unittest.TestCase):
         for m in catalog.BUILTIN:
             self.assertIn(m.license_spdx, ("Apache-2.0", "MIT"))
             self.assertTrue(m.license_url.startswith("https://"))
-        self.assertFalse(list(ROOT.rglob("*.gguf")))
+        self.assertFalse([p for p in ROOT.rglob("*.gguf") if not ({"dist", "build", ".venv", ".git"} & set(p.relative_to(ROOT).parts))])      # the SOURCE tree; a build folder may hold the one pinned bundled model
         self.assertNotIn(".gguf", (ROOT / "packaging" / "installer.iss").read_text())
 
 

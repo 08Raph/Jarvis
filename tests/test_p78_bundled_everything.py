@@ -212,6 +212,23 @@ class DistCheckTests(Base):
         pem.unlink()
         self.assertTrue(any("elsewhere" in p and "forbidden" in p for p in CRA.check_dist(d)))
 
+    def test_the_build_manifest_records_the_bundled_model_instead_of_calling_it_unexpected_weights(self):
+        import release_tools as RT
+        d = self.make_dist()
+        # a second, unlisted weights file is still reported; the pinned one is recorded separately
+        big = d / "_internal" / "w.bin"
+        big.parent.mkdir(parents=True)
+        with open(big, "wb") as f:
+            f.seek(50_000_001)
+            f.write(b"x")
+        m = RT.build_manifest(ROOT, d, None, env={}, versions={})
+        self.assertEqual(m["model_weights_in_build"], ["_internal/w.bin"])
+        self.assertEqual(m["bundled_model"]["path"], MF.BUNDLED_MODEL_RELPATH)
+        self.assertEqual(m["bundled_model"]["sha256"], B.PIN_SHA256)
+        big.unlink()
+        m = RT.build_manifest(ROOT, d, None, env={}, versions={})
+        self.assertEqual(m["model_weights_in_build"], [])
+
     def test_the_same_file_name_somewhere_else_is_forbidden(self):
         d = self.make_dist(with_model=False)
         (d / "model.gguf").write_bytes(b"x")
@@ -219,6 +236,15 @@ class DistCheckTests(Base):
 
 
 class WiringTests(unittest.TestCase):
+    def test_the_clean_install_script_knows_about_a_full_installer(self):
+        ps = (ROOT / "scripts" / "clean_install_test.ps1").read_text(encoding="utf-8")
+        real = (ROOT / "src" / "jarvis" / "models" / "bundled.py").read_text(encoding="utf-8")
+        self.assertIn("$pinBytes = 1282439264", ps)
+        self.assertIn("PIN_BYTES = 1282439264", real)
+        self.assertIn("bundled_model_installed_from_installer", ps)
+        self.assertIn("this check must not do", ps)               # a full installer's check never runs real inference
+
+
     def test_source_checks_still_pass(self):
         self.assertEqual(CRA.check_source(), [])
 

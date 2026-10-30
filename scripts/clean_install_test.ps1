@@ -11,6 +11,7 @@ function Check($name, $block) {
 }
 $app = Join-Path $env:LOCALAPPDATA "Programs\ProjectJarvis"
 $data = Join-Path $env:LOCALAPPDATA "ProjectJarvis"
+$pinBytes = 1282439264      # keep in step with PIN_BYTES in src/jarvis/models/bundled.py (a test compares them)
 
 Check "silent_install" {
     $log = "$env:TEMP\jarvis-install.log"
@@ -54,7 +55,20 @@ Check "first_run_offline_defaults" {
     if ($r.network.PSObject.Properties.Value -contains $true) { throw "an online feature is enabled by default" }
     "all online features off; data dir $($r.data_dir)"
 }
+# A full installer (built with -BundleModel) contains bundled_models: the first run above then installs that model, from the installer's own file.
+$bundled = Test-Path "$app\bundled_models"
+Check "bundled_model_installed_from_installer" {
+    if (-not $bundled) { return "not applicable: this installer has no bundled model" }
+    $m = Join-Path $data "models\qwen3-1.7b-q4_k_m\model.gguf"
+    if (-not (Test-Path $m)) { throw "the bundled model was not installed into $data\models by the first run" }
+    $len = (Get-Item $m).Length
+    if ($len -ne $pinBytes) { throw "installed model is $len bytes, expected $pinBytes" }
+    $a = Get-Content (Join-Path $data "models\active.json") -Raw | ConvertFrom-Json
+    if ($a.id -ne "qwen3-1.7b-q4_k_m") { throw "the installed model was not made the active brain: $($a.id)" }
+    "installed ($len bytes) and active; no network was needed"
+}
 Check "chat_without_model_is_honest" {
+    if ($bundled) { return "skipped on purpose: this installer carries a model, so chat would run real inference, which this check must not do" }
     # Windows PowerShell 5.1 turns native stderr into a terminating error under "Stop"; relax it for this call only.
     $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
     $null = & "$app\jarvis.exe" chat "hello" 2>&1 | Out-String
@@ -63,7 +77,17 @@ Check "chat_without_model_is_honest" {
     if ($code -ne 2) { throw "expected exit code 2, got $code" }
     "refused cleanly"
 }
-Check "no_model_bundled" { $big = Get-ChildItem $app -Recurse -Include model.pt,*.jarvismodel,*.gguf; if ($big) { throw "weights found in install dir" }; "none" }
+Check "no_model_bundled" {
+    $big = @(Get-ChildItem $app -Recurse -Include model.pt,*.jarvismodel,*.gguf)
+    if ($bundled) {
+        $ok = Join-Path $app "bundled_models\qwen3-1.7b-q4_k_m\model.gguf"
+        $extra = @($big | Where-Object { $_.FullName -ne $ok })
+        if ($extra.Count -gt 0) { throw "unexpected weights in install dir: $($extra.FullName -join ', ')" }
+        if (-not (Test-Path $ok) -or (Get-Item $ok).Length -ne $pinBytes) { throw "the bundled model file is missing or has the wrong size" }
+        return "only the pinned bundled model"
+    }
+    if ($big) { throw "weights found in install dir" }; "none"
+}
 Check "silent_uninstall_keeps_data" {
     $u = Get-ChildItem $app -Filter "unins*.exe" | Select-Object -First 1
     Start-Process $u.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES" -Wait
