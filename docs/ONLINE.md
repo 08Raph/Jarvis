@@ -5,6 +5,7 @@
 |---|---|
 | Server (accounts, sign-in, sessions, consent records, rate limits, chat endpoint, export, delete, recovery) | Implemented in `server/jarvis_server`, standard library only. **Tested** on localhost over plain HTTP in this project's test suite |
 | Windows client commands (`jarvis online ...`), sign-in required before any online chat | Implemented, **tested** against a real local server |
+| **Account page in the window** (connect, create account, sign in/out, display name, change password, renew, delete) | Implemented; logic **tested** against a real local server; the page is tested with real Qt on a headless platform in CI only; **never used on a real PC**. See `ACCOUNTS_GUI.md` |
 | Learning from conversations: **OFF by default**; ON only after you read the learning notice and type exactly `I consent`; one command to turn off (earlier messages withdrawn); `delete-chats` / `delete-account` | Implemented, **tested** (fake/localhost only) |
 | Offline export of opted-in, scrubbed conversations for training | Implemented, **tested**. It does **not** train anything |
 | **An AI model behind the service** | **Does not exist.** No model has been trained. With no model the service answers `503 no model connected` and saves nothing; the client says so. **Nothing in this project may be described as a working AI until a real trained model is connected and evaluated.** |

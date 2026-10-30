@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import socket
 
 from jarvis.net.policy import NetworkDisabled, NetworkPolicy
 from jarvis.online.tokenstore import TokenStore
@@ -45,7 +44,7 @@ class OnlineClient:
                 except (ValueError, UnicodeDecodeError):
                     raise ServiceError(code, "error", f"The server returned HTTP {code}.")
             reason = getattr(e, "reason", e)
-            if isinstance(e, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)):
+            if isinstance(e, TimeoutError) or isinstance(reason, TimeoutError):       # socket.timeout is TimeoutError on Python 3.10+
                 raise ServiceError(0, "timeout", "The service did not answer in time.")
             raise ServiceError(0, "unreachable", f"Could not reach the service: {type(e).__name__}")
         if len(body) > MAX_RESPONSE:

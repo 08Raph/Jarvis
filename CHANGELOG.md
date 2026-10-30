@@ -212,3 +212,9 @@ First-run checklist: added the missing "install the project" step (python -m jar
 
 - Memory, mission and window exports are now written owner-only (POSIX) via `jarvis.security.private_file`; regression tests added (test_p75).
 - Added `docs/FINAL_ACCEPTANCE_REPORT.md` (evidence-level matrix, security review, release checklist, short Windows sequence). Recorded that an optional Jarvis Online client and server exist (CLI only, no GUI sign-in, no admin or ban features).
+
+## Unreleased: sign-up and sign-in in the window (branch work/gui-auth)
+
+- New Account page (src/jarvis/ui/account_page.py) over a Qt-free controller (src/jarvis/online/account.py). Optional, opt-in; local AI never depends on it.
+- Server: scrypt raised to N=2^16,r=8,p=2 with upgrade at sign-in; display name; change password (revokes other sessions); session renewal (90-day cap) and sign-out-everywhere; `status` column for future suspensions; a lock no longer reveals that an account exists; schema v2 with an automatic `.v1.bak` copy.
+- Tests: test_p76_accounts_server, test_p77_account_controller, test_p77_account_page_qt (real Qt, Windows CI only), test_p77_dpapi_windows (Windows only). Docs: docs/ACCOUNTS_GUI.md.
