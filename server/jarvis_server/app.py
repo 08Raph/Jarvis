@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import threading
 import time
 import uuid
@@ -14,6 +15,7 @@ from jarvis_server.db import DB
 from jarvis.telemetry.schema import SchemaError, validate_event
 
 SESSION_DAYS = 30
+MAX_SESSION_DAYS = 90            # a session can be renewed, but never lives longer than this from the original sign-in
 MAX_BODY = 64 * 1024
 MAX_MESSAGES, MAX_MSG_CHARS, MAX_TOTAL_CHARS = 40, 8000, 32000
 LOCK_AFTER, LOCK_SECONDS = 5, 15 * 60
@@ -84,12 +86,19 @@ class Service:
                           (sec.token_digest(auth[7:]),))
         if row is None or row["expires_at"] < self.clock():
             raise ApiError(401, "auth_required", "Your session is not valid. Sign in again.")
+        if row["status"] != "active":
+            raise ApiError(403, "account_unavailable", "This account is not available.")
         return row
 
-    def _session(self, uid: int) -> str:
+    @staticmethod
+    def _bearer(headers: dict) -> str:
+        return (headers.get("authorization") or headers.get("Authorization") or "")[7:]
+
+    def _session(self, uid: int, origin_at: float | None = None) -> str:
         t = sec.new_token()
-        self.db.q("INSERT INTO sessions(token_digest, user_id, created_at, expires_at) VALUES(?,?,?,?)",
-                  (sec.token_digest(t), uid, self.clock(), self.clock() + SESSION_DAYS * 86400))
+        now = self.clock()
+        self.db.q("INSERT INTO sessions(token_digest, user_id, created_at, expires_at, origin_at) VALUES(?,?,?,?,?)",
+                  (sec.token_digest(t), uid, now, now + SESSION_DAYS * 86400, origin_at if origin_at is not None else now))
         return t
 
     @staticmethod
@@ -135,16 +144,21 @@ class Service:
         if learning and not self._consent_ok(d):
             raise ApiError(400, "learning_consent_required",
                            "Learning stays OFF unless you confirm the current learning notice (learning_consent_sha256).")
+        display = d.get("display_name", username)
+        problem = sec.display_name_problem(display)
+        if problem:
+            raise ApiError(400, "bad_display_name", problem[0].upper() + problem[1:] + ".")
+        display = sec.clean_display_name(display)
         code = sec.new_recovery_code()
         now = self.clock()
         try:
             cur = self.db.q("INSERT INTO users(username, pw_hash, recovery_hash, created_at, terms_sha, terms_accepted_at, "
-                            "age_confirmed, learning_opt_in, learning_changed_at, learning_basis, learning_consent_sha, learning_consent_at) "
-                            "VALUES(?,?,?,?,?,?,1,?,?,?,?,?)",
+                            "age_confirmed, learning_opt_in, learning_changed_at, learning_basis, learning_consent_sha, learning_consent_at, display_name, pw_changed_at) "
+                            "VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?)",
                             (username, sec.hash_password(password), sec.hash_password(code), now, self.terms_sha, now,
                              int(learning), now, "explicit" if learning else "none",
-                             self.learning_notice_sha if learning else None, now if learning else None))
-        except Exception:
+                             self.learning_notice_sha if learning else None, now if learning else None, display, now))
+        except sqlite3.IntegrityError:
             raise ApiError(409, "username_unavailable", "That username is not available.")
         self.db.event("register", cur.lastrowid)
         return {"token": self._session(cur.lastrowid), "recovery_code": code, "learning_opt_in": learning}
@@ -155,31 +169,85 @@ class Service:
         if not (self.limiter.allow(f"login-ip:{ip}", 20, 600) and self.limiter.allow(f"login-user:{username}", 10, 600)):
             raise ApiError(429, "rate_limited", "Too many sign-in attempts. Try again later.")
         row = self.db.one("SELECT * FROM users WHERE username = ?", (username,))
-        generic = ApiError(401, "bad_credentials", "Wrong username or password.")
+        generic = ApiError(401, "bad_credentials", "Wrong username or password. After several wrong attempts sign-in pauses for a while.")
         if row is None:
             sec.verify_password(password, sec.DUMMY_HASH)  # equalize timing
             raise generic
         if row["locked_until"] > self.clock():
             sec.verify_password(password, sec.DUMMY_HASH)
-            raise ApiError(429, "locked", "This account is temporarily locked after repeated failures. Try again later.")
+            raise generic                                   # the same answer as an unknown user or a wrong password: a lock does not reveal that the account exists
         if not sec.verify_password(password, row["pw_hash"]):
             fails = row["failed_logins"] + 1
             lock = self.clock() + LOCK_SECONDS if fails >= LOCK_AFTER else 0
             self.db.q("UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?", (0 if lock else fails, lock, row["id"]))
             self.db.event("login_failed", row["id"])
             raise generic
+        if row["status"] != "active":                       # only someone who knows the password learns the account is unavailable
+            self.db.event("login_refused_status", row["id"])
+            raise ApiError(403, "account_unavailable", "This account is not available.")
         self.db.q("UPDATE users SET failed_logins = 0, locked_until = 0 WHERE id = ?", (row["id"],))
+        if sec.needs_rehash(row["pw_hash"]):
+            self.db.q("UPDATE users SET pw_hash = ? WHERE id = ?", (sec.hash_password(password), row["id"]))
         self.db.purge_expired_sessions()
         return {"token": self._session(row["id"]), "needs_terms_acceptance": row["terms_sha"] != self.terms_sha}
 
     def logout(self, d, h, ip):
-        u = self._user(h)
-        self.db.q("DELETE FROM sessions WHERE token_digest = ?", (sec.token_digest(h.get("authorization", h.get("Authorization", ""))[7:]),))
+        self._user(h)
+        self.db.q("DELETE FROM sessions WHERE token_digest = ?", (sec.token_digest(self._bearer(h)),))
         return {"ok": True}
+
+    def renew(self, d, h, ip):
+        """Swap the current session for a new token with a fresh expiry. The old token stops working at once. A session chain ends
+        MAX_SESSION_DAYS after the original sign-in; after that the person must sign in again."""
+        u = self._user(h)
+        dig = sec.token_digest(self._bearer(h))
+        s = self.db.one("SELECT origin_at, created_at FROM sessions WHERE token_digest = ?", (dig,))
+        origin = (s["origin_at"] if s and s["origin_at"] is not None else (s["created_at"] if s else self.clock()))
+        if self.clock() - origin > MAX_SESSION_DAYS * 86400:
+            self.db.q("DELETE FROM sessions WHERE token_digest = ?", (dig,))
+            raise ApiError(401, "auth_required", "Your session is too old to renew. Sign in again.")
+        self.db.q("DELETE FROM sessions WHERE token_digest = ?", (dig,))
+        return {"token": self._session(u["id"], origin)}
+
+    def revoke_all(self, d, h, ip):
+        """'Sign out everywhere': every session of this account, including the one used for this call, stops working."""
+        u = self._user(h)
+        n = self.db.q("DELETE FROM sessions WHERE user_id = ?", (u["id"],)).rowcount
+        self.db.event("sessions_revoked", u["id"])
+        return {"ok": True, "revoked": n}
+
+    def set_display_name(self, d, h, ip):
+        u = self._user(h)
+        name = d.get("display_name")
+        problem = sec.display_name_problem(name)
+        if problem:
+            raise ApiError(400, "bad_display_name", problem[0].upper() + problem[1:] + ".")
+        self.db.q("UPDATE users SET display_name = ? WHERE id = ?", (sec.clean_display_name(name), u["id"]))
+        return {"display_name": sec.clean_display_name(name)}
+
+    def change_password(self, d, h, ip):
+        """Needs the CURRENT password even though the caller is signed in. Every other session of the account is revoked."""
+        u = self._user(h)
+        if not self.limiter.allow(f"pw:{u['id']}", 5, 600):
+            raise ApiError(429, "rate_limited", "Too many attempts. Try again later.")
+        if not sec.verify_password(self._str(d, "current_password", 400), u["pw_hash"]):
+            raise ApiError(401, "bad_credentials", "Your current password is wrong.")
+        new_pw = self._str(d, "new_password", 400)
+        problem = sec.password_problem(new_pw, u["username"])
+        if problem:
+            raise ApiError(400, "weak_password", problem)
+        if sec.verify_password(new_pw, u["pw_hash"]):
+            raise ApiError(400, "weak_password", "The new password must be different from the current one.")
+        self.db.q("UPDATE users SET pw_hash = ?, pw_changed_at = ?, failed_logins = 0, locked_until = 0 WHERE id = ?",
+                  (sec.hash_password(new_pw), self.clock(), u["id"]))
+        n = self.db.q("DELETE FROM sessions WHERE user_id = ? AND token_digest != ?", (u["id"], sec.token_digest(self._bearer(h)))).rowcount
+        self.db.event("password_changed", u["id"])
+        return {"ok": True, "other_sessions_revoked": n}
 
     def me(self, d, h, ip):
         u = self._user(h)
-        return {"username": u["username"], "learning_opt_in": self._learning_active(u),
+        return {"username": u["username"], "display_name": u["display_name"] or u["username"], "status": u["status"],
+                "created_at": u["created_at"], "session_expires_at": u["expires_at"], "learning_opt_in": self._learning_active(u),
                 "learning_stored_value": bool(u["learning_opt_in"]), "learning_basis": u["learning_basis"],
                 "learning_consent_needed": bool(u["learning_opt_in"]) and not self._learning_active(u),
                 "needs_terms_acceptance": u["terms_sha"] != self.terms_sha, "model_connected": bool(self.backend.available())}
@@ -345,4 +413,6 @@ class Service:
         ("POST", "/v1/me"): me, ("POST", "/v1/accept-terms"): accept_terms, ("POST", "/v1/settings/learning"): set_learning,
         ("POST", "/v1/chat"): chat, ("POST", "/v1/messages/delete"): delete_messages, ("POST", "/v1/account/export"): export,
         ("POST", "/v1/account/delete"): delete_account, ("POST", "/v1/recover"): recover,
+        ("POST", "/v1/session/renew"): renew, ("POST", "/v1/sessions/revoke-all"): revoke_all,
+        ("POST", "/v1/account/display-name"): set_display_name, ("POST", "/v1/account/password"): change_password,
     }

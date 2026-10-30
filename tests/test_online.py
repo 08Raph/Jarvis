@@ -103,7 +103,8 @@ class AccountTests(Base):
         for _ in range(5):
             self.call("POST", "/v1/login", dict(username="alice", password="wrong-password-1"), ip="9.9.9.9")
         s, r = self.call("POST", "/v1/login", dict(username="alice", password=PW), ip="8.8.8.8")
-        self.assertEqual(s, 429)                                             # locked even with the right password
+        self.assertEqual(s, 401)                                             # locked even with the right password ...
+        self.assertEqual((s, r), self.call("POST", "/v1/login", dict(username="nobody", password=PW), ip="8.8.8.8"))   # ... and a lock looks exactly like an unknown user
         self.svc.clock = lambda: time.time() + 3600
         self.svc.limiter = sec.RateLimiter()
         self.assertEqual(self.call("POST", "/v1/login", dict(username="alice", password=PW))[0], 200)

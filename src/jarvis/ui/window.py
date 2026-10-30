@@ -19,13 +19,16 @@ from jarvis import version as V
 from jarvis.app.controller import AppController, explain_error
 from jarvis.brains import viewmodel as BVM
 from jarvis.ui import hud_model as HM
+from jarvis.online.account import AccountController
 from jarvis.ui import theme
+from jarvis.ui.account_page import AccountPage
 from jarvis.ui.hud import HudWidget
 from jarvis.voice import viewmodel as VVM
 
 READINESS = "System & Model Readiness"
 IMPORT_BRAIN = "Import Brain"
-PAGES = ["Home", "Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN]
+ACCOUNT = "Account"
+PAGES = ["Home", "Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN, ACCOUNT]
 
 
 def _slug(name: str) -> str:
@@ -116,7 +119,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.pages = {"Home": self._home_page(), "Chat": self._chat_page(), "Missions": self._missions_page(), "Schedules": self._schedules_page(),
                       "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Safety": self._safety_page(), "Status": self._status_page(),
-                      READINESS: self._readiness_page(), IMPORT_BRAIN: self._import_brain_page()}
+                      READINESS: self._readiness_page(), IMPORT_BRAIN: self._import_brain_page(), ACCOUNT: self._account_page()}
         for n in PAGES:
             self.stack.addWidget(self.pages[n])
         lay.addWidget(self.nav)
@@ -150,6 +153,8 @@ class MainWindow(QMainWindow):
         if row >= 0:
             self.stack.setCurrentIndex(row)
             self.refresh(PAGES[row])
+            if PAGES[row] == ACCOUNT:
+                self.account_page.check_session()          # the person opened the page: one request to the service they confirmed, only if a sign-in is saved
             if PAGES[row] == "Home":
                 self.home_timer.start()
             else:
@@ -1782,6 +1787,14 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, V.APP_NAME, "Could not open the folder. It is the 'preflight' folder inside your Jarvis data folder.")
 
     # ------------------------------------------------------------ Import Brain (the logic is in jarvis.brains; this page only shows it and calls the controller)
+    def _account_page(self):
+        self.account_ctl = AccountController.from_config(self.ctl.cfg)
+        self.account_page = AccountPage(self.account_ctl, guest=bool(self.ctl.guest), parent=self)
+        return self.account_page
+
+    def _refresh_account(self):
+        self.account_page.refresh_view()                   # local files only: opening the window never contacts any service
+
     def _import_brain_page(self):
         w = QWidget()
         v = QVBoxLayout(w)

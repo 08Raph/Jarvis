@@ -11,10 +11,11 @@ CREATE TABLE IF NOT EXISTS users(
   created_at REAL NOT NULL, terms_sha TEXT NOT NULL, terms_accepted_at REAL NOT NULL, age_confirmed INTEGER NOT NULL,
   learning_opt_in INTEGER NOT NULL DEFAULT 0, learning_changed_at REAL,
   learning_basis TEXT NOT NULL DEFAULT 'none', learning_consent_sha TEXT, learning_consent_at REAL,
-  failed_logins INTEGER NOT NULL DEFAULT 0, locked_until REAL NOT NULL DEFAULT 0);
+  failed_logins INTEGER NOT NULL DEFAULT 0, locked_until REAL NOT NULL DEFAULT 0,
+  display_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active', pw_changed_at REAL);
 CREATE TABLE IF NOT EXISTS sessions(
   token_digest TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at REAL NOT NULL, expires_at REAL NOT NULL);
+  created_at REAL NOT NULL, expires_at REAL NOT NULL, origin_at REAL);
 CREATE TABLE IF NOT EXISTS messages(
   id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   conversation_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at REAL NOT NULL,
@@ -26,8 +27,10 @@ CREATE TABLE IF NOT EXISTS telemetry(
 CREATE INDEX IF NOT EXISTS ix_tel_install ON telemetry(install_id);
 CREATE INDEX IF NOT EXISTS ix_tel_received ON telemetry(received_at);
 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, at REAL NOT NULL, kind TEXT NOT NULL, user_id INTEGER);
-PRAGMA user_version = 1;
 """
+
+
+SCHEMA_VERSION = 2
 
 
 class DB:
@@ -39,10 +42,54 @@ class DB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         ver = self.conn.execute("PRAGMA user_version").fetchone()[0]
-        if ver > 1:
+        if ver > SCHEMA_VERSION:
             raise RuntimeError(f"database schema {ver} is newer than this server understands")
+        if ver < SCHEMA_VERSION and self._has_users():
+            self._backup(ver)                  # an older database is copied BEFORE any change, so a failed or unwanted upgrade can be undone by restoring the copy
         self._migrate_users()
+        self._migrate_v2()
         self.conn.executescript(SCHEMA)
+        self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        self.conn.commit()
+
+    def _has_users(self) -> bool:
+        return bool(self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").fetchone())
+
+    def _backup(self, ver: int) -> None:
+        if self.path == ":memory:" or not Path(self.path).exists():
+            return
+        self.conn.commit()
+        dest = Path(self.path + f".v{ver}.bak")
+        if dest.exists():
+            return                             # never overwrite an earlier backup
+        bk = sqlite3.connect(str(dest))
+        try:
+            self.conn.backup(bk)
+        finally:
+            bk.close()
+
+    def _migrate_v2(self) -> None:
+        """v1 -> v2: display name, account status (for future suspension; only 'active' is used today), password-change time, session origin time."""
+        if not self._has_users():
+            return
+        ucols = {r[1] for r in self.conn.execute("PRAGMA table_info(users)").fetchall()}
+        try:
+            self.conn.execute("BEGIN")
+            if "display_name" not in ucols:
+                self.conn.execute("ALTER TABLE users ADD COLUMN display_name TEXT NOT NULL DEFAULT ''")
+                self.conn.execute("UPDATE users SET display_name = username WHERE display_name = ''")
+            if "status" not in ucols:
+                self.conn.execute("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'")
+            if "pw_changed_at" not in ucols:
+                self.conn.execute("ALTER TABLE users ADD COLUMN pw_changed_at REAL")
+            scols = {r[1] for r in self.conn.execute("PRAGMA table_info(sessions)").fetchall()}
+            if scols and "origin_at" not in scols:
+                self.conn.execute("ALTER TABLE sessions ADD COLUMN origin_at REAL")
+                self.conn.execute("UPDATE sessions SET origin_at = created_at WHERE origin_at IS NULL")
+            self.conn.execute("COMMIT")
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
 
     def _migrate_users(self) -> None:
         """Databases made before the opt-in redesign had learning ON by default. Their stored value is NOT changed
