@@ -117,6 +117,15 @@ def main(argv=None) -> int:
                     pass
             txt = json.dumps(report, indent=2)
             print(txt)
+            if os.environ.get("GITHUB_ACTIONS"):      # annotations are readable through the checks API even when the raw job log is not
+                esc = lambda s: s.replace("%", "%25").replace("\r", "").replace("\n", "%0A")      # noqa: E731
+                head = {k: report[k] for k in ("url", "zip_bytes", "zip_sha256", "file_count", "tree_sha256", "licence_or_readme_files_in_zip")}
+                print("::notice title=Vosk probe values::" + esc(json.dumps(head, indent=1)))
+                print("::notice title=Vosk probe licence lines::" + esc(json.dumps(report["page_licence_lines"], indent=1))[:3000])
+                print("::notice title=Vosk probe files::" + esc("\n".join(f"{n} {s}" for n, s in files))[:6000])
+                for k, v in report.items():
+                    if k.startswith("text_of_"):
+                        print(f"::notice title=Vosk probe {k[:60]}::" + esc(v)[:1500])
             s = os.environ.get("GITHUB_STEP_SUMMARY")
             if s:
                 with open(s, "a", encoding="utf-8") as fh:
