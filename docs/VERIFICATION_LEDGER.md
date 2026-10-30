@@ -75,3 +75,7 @@ Run 40961294760 (6d2aedd, after the test fix): both jobs green, no `WinError 32`
 
 Disclosure: the first full-build attempt (run 40994599839) downloaded the model, built the installer, then failed in the manifest step; its clean-install check incidentally ran one `chat "hello"` with the real model (exit 0, output not captured). Fixed; the check no longer does that. Model downloads for the full builds: two, both approved.
 
+## 9. Window self-test hang on a physical PC (2026-10-30)
+
+On the owner's Windows 11 PC the build's `jarvis-gui.exe --selftest` hung (idle, 0% CPU) after building every page. The new stack dump (written after 240 s) showed it stuck in `MainWindow.closeEvent`, called from `win.close()` in the self-test: the window asks "Work is still running ... Close anyway?" when a background task is running, and on the offscreen platform nobody can answer a modal box. The hosted CI runner never had a task running at that moment, so it passed there. Fix: the self-test waits up to 20 s for tasks to finish, then closes with the question boxes answered automatically and records what was asked (check `close_prompts`). CI after the fix: run 41140726240 green. Which task was still running on the owner's PC is not yet known. The owner can read it from the `close_prompts` line of the self-test report after the next local build.
+
