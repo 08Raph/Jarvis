@@ -82,9 +82,10 @@ def _license_of(name: str) -> str:
 def generate_notices(out: Path) -> str:
     L = ["# Third-party notices", "",
          f"Project JARVIS {__version__} is released under the MIT License (see LICENSE).", "",
-         "No model weights and no training datasets are bundled in the application or installer. The app can download the "
-         "free chat model Qwen3-1.7B (Apache-2.0, by the Qwen team / Alibaba Cloud; GGUF conversion by the llama.cpp "
-         "organisation) from its publisher on the user's request; the model keeps its own license, shown with the model. "
+         "No training datasets are bundled. Installers built with -BundleModel include one model file, the free chat model Qwen3-1.7B "
+         "Q4_K_M (Apache-2.0, by the Qwen team / Alibaba Cloud; GGUF conversion by the llama.cpp organisation), which keeps its own license "
+         "(shown with the installed model); other builds include no model weights and the app can download that model from its publisher on the "
+         "user's request. "
          "Any model package carries its own LICENSE.txt, which you must read before installing or redistributing it.", "",
          "## Runtime and build dependencies", "",
          "Versions and licenses below were read from the packages installed in the build environment when this "

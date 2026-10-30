@@ -147,7 +147,33 @@ def verify_build_manifest(manifest_path: Path, dist: Path) -> list[str]:
     return problems
 
 
-def check_dist(dist: Path, machine_tokens: list[str] | None = None) -> list[str]:
+def _check_bundled_model(dist: Path, require: bool) -> list[str]:
+    """The only model file allowed in the build is the pinned one, at the one allowed path. Wrong size or hash, an extra file or a missing one (when required) blocks the build."""
+    from jarvis.models import bundled as B
+    problems: list[str] = []
+    f = dist / MF.BUNDLED_MODEL_RELPATH
+    root = dist / B.BUNDLE_DIRNAME
+    if root.exists():
+        for p in root.rglob("*"):
+            if p.is_file() and p.relative_to(dist).as_posix() != MF.BUNDLED_MODEL_RELPATH:
+                problems.append(f"unexpected file in {B.BUNDLE_DIRNAME}: {p.relative_to(dist).as_posix()} (only {MF.BUNDLED_MODEL_RELPATH} may ship)")
+    if not f.is_file():
+        if require:
+            problems.append(f"the bundled model is required but missing: {MF.BUNDLED_MODEL_RELPATH}")
+        return problems
+    size = f.stat().st_size
+    if size != B.PIN_BYTES:
+        return problems + [f"bundled model is {size} bytes; the pinned size is {B.PIN_BYTES}"]
+    h = hashlib.sha256()
+    with open(f, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    if h.hexdigest() != B.PIN_SHA256:
+        problems.append(f"bundled model SHA-256 {h.hexdigest()} does not match the pinned {B.PIN_SHA256}")
+    return problems
+
+
+def check_dist(dist: Path, machine_tokens: list[str] | None = None, require_bundled_model: bool = False) -> list[str]:
     dist = Path(dist)
     if not dist.is_dir():
         return [f"built folder not found: {dist}"]
@@ -156,10 +182,13 @@ def check_dist(dist: Path, machine_tokens: list[str] | None = None) -> list[str]
                 if not (dist / r).exists() and (r.endswith(".exe") or not (dist / "_internal" / r).exists())]
     for p in dist.rglob("*"):
         rel = p.relative_to(dist)
+        if rel.as_posix() == MF.BUNDLED_MODEL_RELPATH:       # the single allowed weights file; validated (size and SHA-256) below
+            continue
         for pat in MF.FORBIDDEN_PATTERNS:
             if fnmatch.fnmatch(p.name.lower(), pat.lower()):
                 problems.append(f"forbidden file in the build: {rel} (matches {pat})")
                 break
+    problems += _check_bundled_model(dist, require_bundled_model)
     for name in MF.FORBIDDEN_TOP_LEVEL:                      # project folders that must not be shipped (third-party packages may have their own tests/)
         if (dist / name).exists():
             problems.append(f"forbidden item at the top of the build: {name}")
@@ -177,6 +206,7 @@ def main(argv=None) -> int:
     ap.add_argument("--source", action="store_true")
     ap.add_argument("--packages", action="store_true")
     ap.add_argument("--dist")
+    ap.add_argument("--require-bundled-model", action="store_true", help="with --dist: the pinned model file must be in the build")
     ap.add_argument("--manifest", help="with --dist: also verify every file against this build_manifest.json")
     a = ap.parse_args(argv)
     if not (a.source or a.packages or a.dist):
@@ -187,7 +217,7 @@ def main(argv=None) -> int:
     if a.packages:
         problems += [f"required Python package not installed: {n} (pip install -e \".[ui,build,desktop]\")" for n in missing_packages()]
     if a.dist:
-        problems += check_dist(Path(a.dist), [str(ROOT), str(Path.home())])
+        problems += check_dist(Path(a.dist), [str(ROOT), str(Path.home())], require_bundled_model=a.require_bundled_model)
         if a.manifest:
             problems += verify_build_manifest(Path(a.manifest), Path(a.dist))
     if problems:

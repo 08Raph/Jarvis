@@ -11,7 +11,12 @@ DATAS = [
     ("THIRD_PARTY_NOTICES.md", "."),
     ("CHANGELOG.md", "."),
     ("build_info.json", "."),                                      # written by scripts/release_tools.py build-info just before the build
+    ("server/jarvis_server/terms_en.md", "jarvis_server"),         # the local sign-in server (jarvis local-server) reads these next to its code
+    ("server/jarvis_server/learning_notice_en.md", "jarvis_server"),
 ]
+# The ONE model file that may ship in the folder/installer (see src/jarvis/models/bundled.py for its size and SHA-256 pins; check_release_assets verifies them).
+BUNDLED_MODEL_RELPATH = "bundled_models/qwen3-1.7b-q4_k_m/model.gguf"
+SERVER_PACKAGE = "jarvis_server"        # lives in server/, frozen into the app so `jarvis local-server` works; the spec adds server/ to the module search path
 # user-facing documentation shipped with the app (maintainer review notes and test checklists stay in the source repository)
 DOCS = ["RELEASE_NOTES.md", "TROUBLESHOOTING.md", "MODEL_DISTRIBUTION.md", "PRIVACY_AND_NETWORK.md", "LOCAL_MODEL.md", "DESKTOP_CONTROL.md",
         "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md", "IN_APP_PREFLIGHT.md"]

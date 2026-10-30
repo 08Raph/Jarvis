@@ -1,6 +1,6 @@
 # Build pipeline for Windows 10/11. NOT YET RUN (the authoring sandbox has no Windows, PyInstaller or Inno Setup).
 # Prerequisites: 64-bit Python 3.11-3.13 (python.org installer, "py launcher" ticked) and Inno Setup 6 (jrsoftware.org).
-# Usage: .\scripts\build_windows.ps1 [-CheckOnly] [-Clean] [-SkipTorch] [-SkipTests] [-WithVoice] [-TelemetryUrl https://your-server] [-SkipLocalRuntime] [-RuntimeFromSource] [-LockFile requirements-lock.txt] [-SigningKeyFile C:\offline\jarvis_signing_private.hex]
+# Usage: .\scripts\build_windows.ps1 [-CheckOnly] [-Clean] [-SkipTorch] [-SkipTests] [-WithVoice] [-BundleModel] [-TelemetryUrl https://your-server] [-SkipLocalRuntime] [-RuntimeFromSource] [-LockFile requirements-lock.txt] [-SigningKeyFile C:\offline\jarvis_signing_private.hex]
 #   -CheckOnly  report what was found (Python, build environment, Inno Setup) and stop; changes nothing
 #   -Clean      ALSO delete the .venv build environment (build\ and dist\ are always emptied first, so no file of an older build can be shipped)
 #   -LockFile   install exactly the package versions of an earlier build (pip -c FILE) to reproduce it; the file is the requirements-lock.txt that build wrote
@@ -12,6 +12,7 @@ param(
     [switch]$SkipTorch,
     [switch]$SkipTests,
     [switch]$WithVoice,
+    [switch]$BundleModel,
     [string]$TelemetryUrl = "",
     [switch]$SkipLocalRuntime,
     [switch]$RuntimeFromSource,
@@ -178,6 +179,25 @@ Remove-Item $smoke -Recurse -Force -ErrorAction SilentlyContinue
 $sys32 = if ([Environment]::Is64BitProcess) { "$env:SystemRoot\System32" } else { "$env:SystemRoot\Sysnative" }   # never copy 32-bit DLLs
 Run "$py scripts\check_vc_runtime.py dist\ProjectJarvis --fix-from `"$sys32`""
 
+# 4c. -BundleModel: put the Qwen3-1.7B model INSIDE the installer. ONE download of the same catalog file, made by the app's own checked download path (publisher
+#     checksum, size limit, GGUF header, architecture), then compared with the size and SHA-256 pinned in the program. Nothing is bundled unless this switch is given.
+$requireModel = ""
+if ($BundleModel) {
+    $stage = Join-Path $env:TEMP ("jarvis-bundle-" + [guid]::NewGuid().ToString("N"))
+    try {
+        Run ".\dist\ProjectJarvis\jarvis.exe --data-dir `"$stage`" models fetch qwen3-1.7b-q4_k_m --yes"
+        $src = Join-Path $stage "models\qwen3-1.7b-q4_k_m\model.gguf"
+        if (-not (Test-Path $src)) { throw "the model was not found after the download: $src" }
+        $dstDir = "dist\ProjectJarvis\bundled_models\qwen3-1.7b-q4_k_m"
+        New-Item -ItemType Directory -Force $dstDir | Out-Null
+        Copy-Item $src (Join-Path $dstDir "model.gguf") -Force
+    } finally {
+        Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $requireModel = " --require-bundled-model"
+    Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis$requireModel"      # exact pinned size and SHA-256, at the one allowed path, nothing else
+}
+
 # 5. Installer.
 $ver = (& $py -c "from jarvis.version import __version__; print(__version__)").Trim()   # the one authoritative version
 # Inno Setup older than 6.3 does not know the "x64compatible" architecture name; use "x64" there.
@@ -193,7 +213,7 @@ if (-not (Test-Path "dist\installer\ProjectJarvis-Setup-$ver.exe")) { throw "ins
 # 6. Checksums (publish SHA256SUMS.txt next to the installer) and the build manifest (versions, every file's SHA-256, the installer's SHA-256).
 Run "$py scripts\release_tools.py sha256sums dist\installer dist\installer\SHA256SUMS.txt"
 Run "$py scripts\release_tools.py build-manifest --dist dist\ProjectJarvis --installer-dir dist\installer --out dist\build_manifest.json"
-Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis --manifest dist\build_manifest.json"      # again, after the smoke tests: nothing was added or changed meanwhile
+Run "$py scripts\check_release_assets.py --dist dist\ProjectJarvis$requireModel --manifest dist\build_manifest.json"      # again, after the smoke tests: nothing was added or changed meanwhile
 Write-Host "NOTE: this build was made on this PC only. It is not a clean-machine test; follow docs\WINDOWS_TEST_CHECKLIST.md section 10-11." -ForegroundColor Yellow
 
 # 7. Optional: sign an update manifest. The private key stays offline; nothing is uploaded by this script.

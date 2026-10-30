@@ -24,6 +24,41 @@ def _report(title: str, text: str) -> None:
             pass
 
 
+def _install_bundled_model(app, cfg) -> None:
+    """First start after installing: copy the model that shipped inside the installer into this profile (local file copy, no network, about a minute).
+    Does nothing when there is no bundled model, when this profile already has one, or when it was done before. Failure is not fatal: the setup wizard
+    then offers the usual ways to get a model."""
+    try:
+        from jarvis.models import bundled
+        if not bundled.pending(cfg):
+            return
+    except Exception:  # noqa: BLE001 - never block the window on this check
+        return
+    import threading
+    import time
+    from PySide6.QtWidgets import QProgressDialog
+    result: dict = {}
+    t = threading.Thread(target=lambda: result.update(_run_seed(cfg)), daemon=True)
+    dlg = QProgressDialog("Setting up the AI model that came with Jarvis. This stays on this PC and takes about a minute, only once.", "", 0, 0)
+    dlg.setWindowTitle(V.APP_NAME)
+    dlg.setCancelButton(None)
+    dlg.setMinimumDuration(0)
+    dlg.show()
+    t.start()
+    while t.is_alive():
+        app.processEvents()
+        time.sleep(0.05)
+    dlg.close()
+
+
+def _run_seed(cfg) -> dict:
+    try:
+        from jarvis.models import bundled
+        return bundled.seed(cfg)
+    except Exception as e:  # noqa: BLE001
+        return {"state": "refused", "detail": f"{type(e).__name__}"}
+
+
 def run_gui(cfg, guest: bool = False, simulate: bool = False) -> int:
     from jarvis.app.lifecycle import StartupError, prepare
     try:
@@ -47,6 +82,8 @@ def run_gui(cfg, guest: bool = False, simulate: bool = False) -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(V.APP_NAME)
     app.setApplicationVersion(V.__version__)
+    if not (guest or simulate):
+        _install_bundled_model(app, cfg)
     bridge = _Bridge()
     ctl = AppController(cfg, guest=guest, simulate=simulate, dispatch=lambda fn: bridge.call.emit(fn))
     if not ctl.start():

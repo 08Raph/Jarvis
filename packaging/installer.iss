@@ -1,6 +1,7 @@
 ; Inno Setup 6.3+ script for Project JARVIS. NOT YET COMPILED OR TESTED (no Windows/Inno in the authoring sandbox).
 ; Build:  iscc /DAppVersion=0.6.0 [/DArchName=x64 for Inno older than 6.3] packaging\installer.iss     (run scripts\build_windows.ps1 first)
-; Model weights and datasets are NOT bundled: they are installed separately by the user.
+; The Qwen3-1.7B model file IS shipped when the build was made with -BundleModel (scripts\build_windows.ps1): it sits in {app}\bundled_models and is copied into the user's own
+; model folder on first start (src/jarvis/models/bundled.py). Training datasets are never bundled. A build made without -BundleModel simply has no bundled_models folder.
 #ifndef ArchName
   ; x64compatible needs Inno Setup 6.3+. build_windows.ps1 passes /DArchName=x64 automatically for older 6.x versions.
   #define ArchName "x64compatible"
@@ -32,7 +33,9 @@ CloseApplications=yes
 InfoBeforeFile=..\docs\INSTALLER_NOTICE.txt
 
 [Files]
-Source: "..\dist\ProjectJarvis\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "..\dist\ProjectJarvis\*"; DestDir: "{app}"; Excludes: "bundled_models\*"; Flags: recursesubdirs ignoreversion
+; The model is already 4-bit compressed: storing it as is keeps the build fast and the installer about the size of the file.
+Source: "..\dist\ProjectJarvis\bundled_models\*"; DestDir: "{app}\bundled_models"; Flags: recursesubdirs ignoreversion nocompression skipifsourcedoesntexist
 Source: "..\docs\INSTALLER_NOTICE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -46,6 +49,7 @@ Name: "{group}\Project JARVIS"; Filename: "{app}\jarvis-gui.exe"; WorkingDir: "{
 Name: "{autodesktop}\Project JARVIS"; Filename: "{app}\jarvis-gui.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{group}\Project JARVIS setup guide (command line)"; Filename: "{cmd}"; Parameters: "/k ""{app}\jarvis.exe"" setup"; WorkingDir: "{app}"
 Name: "{group}\Project JARVIS (command line)"; Filename: "{cmd}"; Parameters: "/k ""{app}\jarvis.exe"" --help"; WorkingDir: "{app}"
+Name: "{group}\Project JARVIS local sign-in server (this PC only)"; Filename: "{cmd}"; Parameters: "/k ""{app}\jarvis.exe"" local-server"; WorkingDir: "{app}"
 Name: "{group}\Uninstall Project JARVIS"; Filename: "{uninstallexe}"
 
 [Run]

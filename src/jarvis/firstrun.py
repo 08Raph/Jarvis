@@ -1,5 +1,5 @@
 """First-run setup. Local only: creates folders, writes privacy-safe defaults, inspects hardware.
-Makes no network connections and installs nothing."""
+Makes no network connections. If the installer shipped a model and this profile has none, it is installed from that local file (jarvis.models.bundled)."""
 from __future__ import annotations
 
 import json
@@ -19,6 +19,8 @@ def first_run(cfg: Config) -> dict:
     policy = NetworkPolicy.load(cfg.settings_path)
     if not cfg.settings_path.exists():
         policy.save(cfg.settings_path)  # all online features off
+    from jarvis.models import bundled
+    seed = bundled.seed(cfg)            # no-op unless a bundled model is present and this profile has none; local file copy only
     store = ModelStore(cfg.models_dir, policy)
     installed = [m["id"] for m in store.installed()]
     marker = cfg.data_dir / "first_run.json"
@@ -27,7 +29,7 @@ def first_run(cfg: Config) -> dict:
     report = {
         "app_version": __version__, "created_at": created, "data_dir": str(cfg.data_dir.resolve()),
         "network": {f: policy.is_enabled(f) for f in FEATURES},
-        "installed_models": installed, "active_model": store.active(),
+        "bundled_model": seed, "installed_models": installed, "active_model": store.active(),
         "hardware": recommend(detect_hardware(cfg.data_dir)),
         "next_steps": ([] if installed else
                        ["No chat model is installed, so the assistant cannot answer yet. Run `jarvis setup` (guided), or "

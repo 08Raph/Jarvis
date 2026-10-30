@@ -1,7 +1,9 @@
 # Model files: identity, source, licence and how to supply them
 
-Model weights are a **separate, user-managed component**. They are NOT in the source archive, the PyInstaller folder or the installer
-(the forbidden-file check in `scripts/check_release_assets.py` fails a build that contains `*.gguf`, `*.pt` or `*.safetensors`).
+Model weights are a **separate, user-managed component**. They are NOT in the source archive. A build made with `-BundleModel` (the default of `build_installer.bat`)
+ships exactly ONE weights file inside the installer, `bundled_models/qwen3-1.7b-q4_k_m/model.gguf`, which is copied into the user's own model folder on first start
+(`src/jarvis/models/bundled.py`). `scripts/check_release_assets.py` fails a build that contains any other `*.gguf`, `*.pt` or `*.safetensors`, or that file with a size or
+SHA-256 different from the pin in the program. The pin is an OBSERVED value, not confirmed by the publisher. See `docs/BUNDLED_EVERYTHING.md`.
 
 ## What model the app uses today
 | | |

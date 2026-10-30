@@ -1,0 +1,48 @@
+# What is inside the installer (the "everything in the exe" build)
+
+Status: implemented and tested with FAKES on Linux. Not yet built on Windows with the model inside; see "What is verified" at the end.
+
+## What ships
+
+| Part | Where it is | How it gets used |
+|---|---|---|
+| Jarvis program, window, all pages, tools, missions, memory, personalities, Import Brain, Account screens | `jarvis.exe`, `jarvis-gui.exe` and `_internal\` | Nothing to install separately; no Python needed |
+| Local AI runtime (llama.cpp via llama-cpp-python 0.3.36) | inside the app folder | Checked in the build with `jarvis.exe runtime --require` |
+| Voice libraries (sounddevice, vosk) | inside the app folder when built with `-WithVoice` (the default for `build_installer.bat` and for CI) | Microphone and speaker use is still your choice; always-listening default is unchanged |
+| **Qwen3-1.7B Q4_K_M model** (1,282,439,264 bytes, Apache-2.0, Qwen team / Alibaba Cloud, GGUF by the llama.cpp organisation) | `bundled_models\qwen3-1.7b-q4_k_m\model.gguf` when built with `-BundleModel` | Copied into `%LOCALAPPDATA%\ProjectJarvis\models` on first start; see below |
+| Local-only sign-in server | frozen into the app; Start-menu entry "local sign-in server (this PC only)" or `jarvis.exe local-server` | Runs only when you start it, on 127.0.0.1, port 8765 |
+
+## What is deliberately NOT inside
+
+* The speech-recognition (Vosk) model: its licence has not been checked for redistribution.
+* Any model other than the one above. Qwen3-8B stays a choice you make yourself.
+* A public Jarvis Online service. None exists; the local server makes accounts that exist on this PC only.
+
+## How the bundled model is installed
+
+1. First start of the window (or `jarvis first-run`, or the setup guide) finds `bundled_models` next to the program.
+2. It acts only if this profile has no installed model and has never been seeded.
+3. Before copying, it checks the file against the size and SHA-256 **pinned inside the program** (not a value stored next to the file), the GGUF header and the `qwen3` architecture. A wrong or damaged file is refused and nothing is installed.
+4. The copy goes into your own model folder (so upgrades and uninstalls of the program never delete it). If no brain is active yet, it becomes the active one. No network is used.
+5. A marker `bundled_seed.json` records that this happened once. If you remove the model later, it is not put back.
+6. The installed record says `origin: bundled-with-installer` and `verified_origin: false`: the SHA-256 is the value observed on a genuine download (run 40955846622), **not** confirmed by the publisher.
+
+Needs about 1.3 GB free for the copy (the installer's own copy stays in the program folder, so about 2.6 GB in total are used until you uninstall).
+
+## How to build it
+
+* `build_installer.bat` on Windows: voice + model + server, one download of the model (about 1.3 GB), then the pinned size and SHA-256 are checked by `scripts\check_release_assets.py --dist ... --require-bundled-model`.
+* Smaller build without the model: `powershell -File scripts\build_windows.ps1 -SkipTorch -WithVoice`.
+* GitHub Actions: pushes build without the model. A manual run with the input `bundle_model_consent` = `yes-bundle-qwen3-1.7b-q4_k_m` builds the full installer (one download). Nothing is uploaded as a workflow artifact.
+* The installer stores the model uncompressed (`nocompression`) so the build stays fast. Inno Setup refuses a single installer above about 2 GB without disk spanning; if the build ever hits that, the build fails loudly rather than shipping something broken.
+
+## What is verified (and what is not)
+
+| Claim | Evidence |
+|---|---|
+| Seeding verifies the pin, refuses a wrong/damaged/swapped file, never overwrites a model you have, never re-installs after you removed it, uses no network | F: 30 tests (tests/test_p78_bundled_everything.py) with a tiny synthetic GGUF; hash enforcement mutation-checked |
+| The build refuses any other weights file and a bundled file with the wrong size or hash | F: tests on a synthetic dist folder |
+| Local server binds 127.0.0.1 only, has no host option, serves health and terms over real HTTP | F/R: loopback test |
+| Installer script, build script and CI wiring contain the right flags | S: text checks in the tests |
+| The 1.28 GB file really builds into an installer, installs silently, seeds on first start and answers | **N: not yet run** until one full build is done on Windows |
+| It works on a physical Windows 11 PC | **N** |

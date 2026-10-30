@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("--confirm", action="store_true", help="required for enable: confirms you want Jarvis to start when you sign in")
     sub.add_parser("diagnostics", help="print a local, redacted diagnostics report as JSON (no conversations or memories; nothing is sent)")
     sub.add_parser("first-run", help="create folders and safe defaults; inspect hardware")
+    ls = sub.add_parser("local-server", help="run the Jarvis Online sign-in server on THIS PC only (127.0.0.1); nothing leaves the PC")
+    ls.add_argument("--port", type=int, default=8765)
     sub.add_parser("setup", help="guided first-run setup (what the Start-menu shortcut runs)")
     sa = sub.add_parser("setup-auto", help="non-interactive version of the setup wizard (used by automated builds): check PC, download, verify, test the model")
     sa.add_argument("--model", help="catalog model id (default: the recommended one)")
@@ -1104,6 +1106,9 @@ def _main(argv: list[str] | None = None) -> int:
     if args.cmd == "first-run":
         _dump(first_run(cfg))
         return 0
+    if args.cmd == "local-server":
+        from jarvis.online.localserver import run_local_server
+        return run_local_server(cfg, port=int(args.port))
     if args.cmd == "setup":
         from jarvis.setup_wizard import run_wizard
         rc = run_wizard(cfg)

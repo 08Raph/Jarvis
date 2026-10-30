@@ -218,3 +218,12 @@ First-run checklist: added the missing "install the project" step (python -m jar
 - New Account page (src/jarvis/ui/account_page.py) over a Qt-free controller (src/jarvis/online/account.py). Optional, opt-in; local AI never depends on it.
 - Server: scrypt raised to N=2^16,r=8,p=2 with upgrade at sign-in; display name; change password (revokes other sessions); session renewal (90-day cap) and sign-out-everywhere; `status` column for future suspensions; a lock no longer reveals that an account exists; schema v2 with an automatic `.v1.bak` copy.
 - Tests: test_p76_accounts_server, test_p77_account_controller, test_p77_account_page_qt (real Qt, Windows CI only), test_p77_dpapi_windows (Windows only). Docs: docs/ACCOUNTS_GUI.md.
+
+## Unreleased: "everything inside the installer" (branch work/bundle-everything)
+
+- New `jarvis.models.bundled`: the Qwen3-1.7B model can ship inside the installer (`-BundleModel`) and is installed on first start after its size and SHA-256 are checked against pins in the program; no network; marked `verified_origin: false` (the pin is an observed value).
+- `check_release_assets.py` now allows exactly that one weights file at one path (pinned size and SHA-256) and still forbids every other `*.gguf`, `*.pt`, `*.safetensors`; `--require-bundled-model` makes it mandatory.
+- `jarvis local-server` (and a Start-menu entry): the Jarvis Online server frozen into the app, bound to 127.0.0.1 only, no host option, telemetry intake off.
+- Voice libraries are part of the default build and of CI; `build_installer.bat` builds the full installer. CI downloads the model only on a manual run with the typed consent value `yes-bundle-qwen3-1.7b-q4_k_m`.
+- Updated installer notice, third-party notices text and MODEL_DISTRIBUTION; new docs/BUNDLED_EVERYTHING.md. Tests: tests/test_p78_bundled_everything.py.
+

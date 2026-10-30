@@ -51,7 +51,9 @@ for mod in manifest.OPTIONAL_PACKAGES + ["PySide6"]:
 hidden += collect_submodules("jarvis")
 hidden = [h for h in hidden if not any(h == x or h.startswith(x + ".") for x in manifest.QT_EXCLUDES)]
 
-_common = dict(pathex=[os.path.join(root, "src")], datas=datas, hiddenimports=hidden, binaries=binaries, excludes=manifest.EXCLUDES)
+# The local sign-in server (jarvis local-server) lives in server/; freeze it so the exe can run it.
+hidden += collect_submodules(manifest.SERVER_PACKAGE, on_error="warn") if os.path.isdir(os.path.join(root, "server", manifest.SERVER_PACKAGE)) else []
+_common = dict(pathex=[os.path.join(root, "src"), os.path.join(root, "server")], datas=datas, hiddenimports=hidden, binaries=binaries, excludes=manifest.EXCLUDES)
 cli = Analysis([os.path.join(here, "entry_cli.py")], **_common)
 gui = Analysis([os.path.join(here, "entry_gui.py")], **_common)
 MERGE((cli, "jarvis", "jarvis"), (gui, "jarvis-gui", "jarvis-gui"))   # share one copy of Python, Qt and the libraries

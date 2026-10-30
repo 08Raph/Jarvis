@@ -82,7 +82,8 @@ class ReleaseToolTests(unittest.TestCase):
         text = rt.generate_notices(self.d / "N.md")
         self.assertIn("numpy", text)
         self.assertIn("cryptography", text)
-        self.assertIn("No model weights and no training datasets are bundled", text)
+        self.assertIn("No training datasets are bundled", text)
+        self.assertIn("-BundleModel", text)
         self.assertIn("LGPL", text)
         doc = rt.requirements_doc()
         for t in TIERS:
