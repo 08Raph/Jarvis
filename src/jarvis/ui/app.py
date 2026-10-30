@@ -168,7 +168,29 @@ def _qt_checks(rep, cfg) -> None:
         S.run_preflight_via_controller(rep, ctl, cfg, app.processEvents, shown=lambda: (win.pf_table.rowCount(), win.pf_verdict.text()), timeout=SELFTEST_TIMEOUT_S)
     S.add_limits(rep)
     rep.add("controller_mode", "Controller mode", S.INFO, S.SIMULATED, "AppController(simulate=True): chat replies are stand-ins; nothing here exercises a model.")
-    win.close()
+    # Closing the window asks "Work is still running. Close anyway?" while a task runs. On the offscreen platform nobody can answer a modal box, so the first
+    # version of this test hung here on a real PC (stack dump: closeEvent). Give running tasks a short time to finish, then close with every question box
+    # answered automatically and RECORD what was asked, so the report says which task was still running instead of the test waiting forever.
+    import time
+    from unittest import mock
+    from PySide6.QtWidgets import QMessageBox
+    wait_until = time.monotonic() + 20.0
+    while ctl.tasks.running() and time.monotonic() < wait_until:
+        app.processEvents()
+        time.sleep(0.05)
+    asked: list[str] = []
+
+    def _answer_question(*a, **k):
+        asked.append("question: " + " ".join(str(x) for x in a[1:3])[:240])
+        return QMessageBox.StandardButton.Yes
+
+    def _answer_info(*a, **k):
+        asked.append("notice: " + " ".join(str(x) for x in a[1:3])[:240])
+        return QMessageBox.StandardButton.Ok
+    with mock.patch.object(QMessageBox, "question", staticmethod(_answer_question)), mock.patch.object(QMessageBox, "information", staticmethod(_answer_info)):
+        win.close()
+    rep.add("close_prompts", "Closing the window", S.PASS if not asked else S.INFO, S.GENUINE,
+            "closed without asking anything" if not asked else "closing asked (answered automatically): " + " | ".join(asked))
     ctl.shutdown(timeout=2.0)
     app.processEvents()
 

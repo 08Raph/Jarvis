@@ -274,6 +274,19 @@ class WiringTests(unittest.TestCase):
         self.assertIn("faulthandler.cancel_dump_traceback_later()", app)
         self.assertLess(app.index("HANG_DUMP_S = 240.0"), app.index("def selftest"))
 
+    def test_the_self_test_answers_the_close_question_instead_of_waiting_for_nobody(self):
+        app = (ROOT / "src" / "jarvis" / "ui" / "app.py").read_text(encoding="utf-8")
+        block = app[app.index("def _qt_checks"):app.index("def selftest")]
+        self.assertIn('mock.patch.object(QMessageBox, "question"', block)
+        self.assertIn('rep.add("close_prompts"', block)
+        self.assertLess(block.index('mock.patch.object(QMessageBox, "question"'), block.index("win.close()"))
+        self.assertEqual(block.count("win.close()"), 1)
+        import ast
+        ast.parse(app)
+        # the question that hung the real PC is still what the window asks a person
+        win = (ROOT / "src" / "jarvis" / "ui" / "window.py").read_text(encoding="utf-8")
+        self.assertIn('"Close Jarvis?"', win)
+
     def test_the_hang_dump_is_cancelled_and_cleaned_up_when_the_self_test_finishes(self):
         import faulthandler
         from jarvis.ui import app as A
