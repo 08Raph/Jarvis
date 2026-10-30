@@ -233,6 +233,20 @@ class FetchScriptTests(Base):
         self.assertEqual(rep["zip_sha256"], FV.sha256_file(z))
 
 
+class RealPinTests(unittest.TestCase):
+    def test_the_real_pins_are_filled_in_and_match_the_ledger(self):
+        src = (ROOT / "src" / "jarvis" / "voice" / "bundled_vosk.py").read_text(encoding="utf-8")      # source text: other classes patch the module values
+        ledger = (ROOT / "docs" / "VERIFICATION_LEDGER.md").read_text(encoding="utf-8")
+        for needle in ("41205931", "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498", "PIN_FILE_COUNT = 14",
+                       "4750b6f6db7fc6e28ac4318db4832305c51fe1a49cb5c7e45bab33bc79dab852"):
+            self.assertIn(needle, src)
+        self.assertIn("4750b6f6db7fc6e28ac4318db4832305c51fe1a49cb5c7e45bab33bc79dab852", ledger)
+        self.assertIn("30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498", ledger)
+
+    def test_the_licence_notice_is_shipped(self):
+        self.assertIn("vosk-model-small-en-us-0.15", (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8"))
+
+
 class WiringTests(unittest.TestCase):
     def test_build_script_and_installer_wiring(self):
         ps = (ROOT / "scripts" / "build_windows.ps1").read_text(encoding="utf-8")

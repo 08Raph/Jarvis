@@ -28,13 +28,15 @@ INSTALL_DIRNAME = "voice_models"
 MARKER = "bundled_vosk_seed.json"
 SOURCE_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 MODELS_PAGE = "https://alphacephei.com/vosk/models"
-LICENSE_NOTE = ("Published by Alpha Cephei (alphacephei.com/vosk/models). The licence shown on that page for this model is recorded in "
-                "docs/VERIFICATION_LEDGER.md; the full text is in the model folder if the publisher included one.")
+LICENSE_SPDX = "Apache-2.0"       # as listed for this model on the publisher's own page (read on CI 2026-10-30, docs/VERIFICATION_LEDGER.md section 10)
+LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
+LICENSE_NOTE = ("Vosk model vosk-model-small-en-us-0.15, Copyright 2020 Alpha Cephei Inc, listed as Apache 2.0 at alphacephei.com/vosk/models. "
+                "Licence text: " + LICENSE_URL)
 # --- pins (filled in from the first genuine download; see scripts/fetch_vosk_model.py --probe) ---
-ZIP_PIN_BYTES = 0
-ZIP_PIN_SHA256 = ""
-PIN_FILE_COUNT = 0
-PIN_TREE_SHA256 = ""
+ZIP_PIN_BYTES = 41205931
+ZIP_PIN_SHA256 = "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498"
+PIN_FILE_COUNT = 14
+PIN_TREE_SHA256 = "4750b6f6db7fc6e28ac4318db4832305c51fe1a49cb5c7e45bab33bc79dab852"
 ENV_OVERRIDE = "JARVIS_BUNDLED_MODELS_DIR"      # shared with jarvis.models.bundled (tests only); the pin is still enforced
 
 
