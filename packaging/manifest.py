@@ -31,9 +31,9 @@ FORBIDDEN_PATTERNS = ["*.pem", "*.key", "*_private.*", "*private_key*", "*signin
 # Public data that merely matches a forbidden pattern. certifi (a dependency of the voice library vosk, via requests) ships Mozilla's list of PUBLIC root
 # certificates as cacert.pem. It is allowed ONLY at this exact path and ONLY while it contains no private key (check_release_assets verifies that).
 ALLOWED_PUBLIC_PEM = ["_internal/certifi/cacert.pem", "certifi/cacert.pem"]
-# Third-party binaries that must not be frozen into the 64-bit app (sounddevice ships libportaudio32bit.dll next to the 64-bit one; the app is 64-bit only,
+# Third-party binaries that must not be frozen into the 64-bit app (sounddevice ships libportaudio32bit*.dll and libportaudioarm64*.dll next to the 64-bit ones; the app is 64-bit only,
 # and scripts/check_vc_runtime.py rejects any non-AMD64 file).
-EXCLUDED_BINARY_NAME_PARTS = ["32bit"]
+EXCLUDED_BINARY_NAME_PARTS = ["32bit", "arm64"]
 FORBIDDEN_TOP_LEVEL = ["tests", "server", ".github", "scripts", "src", ".venv", "build"]
 
 # Python modules the frozen app needs although PyInstaller cannot see them statically (dynamic imports); optional ones are included only if installed

@@ -57,6 +57,13 @@ hidden += collect_submodules(manifest.SERVER_PACKAGE, on_error="warn") if os.pat
 _common = dict(pathex=[os.path.join(root, "src"), os.path.join(root, "server")], datas=datas, hiddenimports=hidden, binaries=binaries, excludes=manifest.EXCLUDES)
 cli = Analysis([os.path.join(here, "entry_cli.py")], **_common)
 gui = Analysis([os.path.join(here, "entry_gui.py")], **_common)
+# Drop 32-bit / ARM64 third-party DLLs from the FINAL lists (they can arrive as data files, not only as binaries, e.g. sounddevice's portaudio-binaries).
+def _keep(entry):
+    name = os.path.basename(str(entry[0])).lower()
+    return not (name.endswith((".dll", ".pyd")) and any(part in name for part in manifest.EXCLUDED_BINARY_NAME_PARTS))
+for _a in (cli, gui):
+    _a.binaries = [e for e in _a.binaries if _keep(e)]
+    _a.datas = [e for e in _a.datas if _keep(e)]
 MERGE((cli, "jarvis", "jarvis"), (gui, "jarvis-gui", "jarvis-gui"))   # share one copy of Python, Qt and the libraries
 
 cli_exe = EXE(PYZ(cli.pure), cli.scripts, [], exclude_binaries=True, name="jarvis", console=True, upx=False)

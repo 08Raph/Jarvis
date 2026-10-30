@@ -263,6 +263,9 @@ class WiringTests(unittest.TestCase):
         spec = (ROOT / "packaging" / "jarvis.spec").read_text(encoding="utf-8")
         self.assertIn("manifest.EXCLUDED_BINARY_NAME_PARTS", spec)
         self.assertIn("32bit", MF.EXCLUDED_BINARY_NAME_PARTS)
+        self.assertIn("arm64", MF.EXCLUDED_BINARY_NAME_PARTS)
+        self.assertIn("_a.datas = [e for e in _a.datas if _keep(e)]", spec)      # the DLLs arrived as data files in the real build
+        self.assertLess(spec.index("_a.datas = [e"), spec.index("MERGE(("))
         self.assertLess(spec.index("manifest.EXCLUDED_BINARY_NAME_PARTS"), spec.index("_common = dict("))
 
     def test_the_installer_notice_no_longer_says_no_model_is_included(self):
