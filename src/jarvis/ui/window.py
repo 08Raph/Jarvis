@@ -12,7 +12,7 @@ import time
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-                               QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
+                               QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
                                QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis import version as V
@@ -29,8 +29,8 @@ from jarvis.voice import viewmodel as VVM
 READINESS = "System & Model Readiness"
 IMPORT_BRAIN = "Import Brain"
 ACCOUNT = "Account"
-SCROLL_PAGES = ("Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN)       # pages that are longer than a small window
-PAGES = ["Home", "Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN, ACCOUNT]
+SCROLL_PAGES = ("Personality", "Voice", "Operator", "Safety", "Status", READINESS, IMPORT_BRAIN)       # pages that are longer than a small window
+PAGES = ["Home", "Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Operator", "Safety", "Status", READINESS, IMPORT_BRAIN, ACCOUNT]
 
 
 def _slug(name: str) -> str:
@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
             self.nav.addItem(n)
         self.stack = QStackedWidget()
         self.pages = {"Home": self._home_page(), "Chat": self._chat_page(), "Missions": self._missions_page(), "Schedules": self._schedules_page(),
-                      "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Safety": self._safety_page(), "Status": self._status_page(),
+                      "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Operator": self._operator_page(), "Safety": self._safety_page(), "Status": self._status_page(),
                       READINESS: self._readiness_page(), IMPORT_BRAIN: self._import_brain_page(), ACCOUNT: self._account_page()}
         for n in PAGES:
             # Long pages scroll instead of squeezing their controls on top of each other when the window is small or the display is scaled.
@@ -139,6 +139,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Ready. Nothing runs in the background except what you start.")
         self.timer = QTimer(self)
         self.timer.setInterval(30_000)
+        self.op_timer = QTimer(self)
+        self.op_timer.setInterval(30000)
+        self.op_timer.timeout.connect(self.ctl.operator_tick)           # does nothing unless computer control is ON; then runs due workflows, event triggers and reminders
+        self.op_timer.start()
         self.timer.timeout.connect(self.ctl.run_due_schedules)           # started ONLY by the checkbox on the Schedules page
         self._apply_theme()
         self.refresh_all()
@@ -975,6 +979,218 @@ class MainWindow(QMainWindow):
         self.ctl.tasks.submit("forget-all", work, done)
 
     # ------------------------------------------------------------ Safety
+    # ------------------------------------------------------------------ Computer Operator page (logic: jarvis.operator, controller.operator_*)
+    def _operator_page(self):
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.addWidget(_label("Computer Operator", heading=True))
+        v.addWidget(_label("Lets Jarvis operate this PC: windows, media, files, backups, system checks, git, documents, games, tasks and workflows. It is OFF until you turn it on, "
+                           "each kind of action has its own permission, risky actions always ask first, and everything is written to the audit log (never passwords or file contents). "
+                           "Typed and spoken commands use exactly the same rules. Nothing here has been tested on a physical Windows PC yet.", muted=True))
+        self.op_status = _label("", wrap=True)
+        self.op_status.setAccessibleName("Computer control status")
+        v.addWidget(self.op_status)
+        row = QHBoxLayout()
+        self.op_power = _btn("Turn computer control ON", self._op_toggle, primary=True, tip="Turns the whole Operator on or off. Off means no action runs.")
+        self.op_pause = _btn("Pause", self._op_pause, tip="Actions wait until you resume.")
+        self.op_cancel = _btn("Cancel current task", lambda: self.ctl.operator_cancel(), tip="Stops the current workflow at its next step.")
+        self.op_estop = _btn("EMERGENCY STOP", self._estop, danger=True, tip="Stops everything immediately (the same stop as on the Safety page).")
+        for b in (self.op_power, self.op_pause, self.op_cancel, self.op_estop):
+            row.addWidget(b)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.op_confirm = QCheckBox("Ask before medium-risk actions (moving files, editing documents, closing programs). High-risk actions always ask.")
+        self.op_confirm.toggled.connect(lambda on: self._op_guard(lambda: self.ctl.operator_confirm_medium(bool(on))))
+        v.addWidget(self.op_confirm)
+        v.addWidget(_label("Permissions (each one can be turned off at any time)", heading=True))
+        self.op_perm_box = QVBoxLayout()
+        v.addLayout(self.op_perm_box)
+        self.op_perm_checks = {}
+        v.addWidget(_btn("Reset permissions to the safe defaults", lambda: self._op_guard(self.ctl.operator_reset)))
+        v.addWidget(_label("Folders Jarvis may read and change (Desktop, Documents, Downloads, Pictures, Videos and Music are always included if they exist)", heading=True))
+        self.op_folders = QListWidget()
+        self.op_folders.setMaximumHeight(110)
+        v.addWidget(self.op_folders)
+        fr = QHBoxLayout()
+        fr.addWidget(_btn("Add folder...", self._op_add_folder))
+        fr.addWidget(_btn("Remove selected extra folder", self._op_remove_folder))
+        fr.addStretch(1)
+        v.addLayout(fr)
+        self.op_tabs = QTabWidget()
+        self.op_activity = _table(["When", "Capability", "Risk", "Decision", "Result", "Note"])
+        self.op_activity.setAccessibleName("Action audit log")
+        self.op_caps = _table(["Capability", "What it does", "Permission", "Risk", "Windows only", "Allowed now"])
+        self.op_caps.setAccessibleName("Supported capabilities")
+        self.op_wf = _table(["Workflow", "Steps", "Needs", "Risk", "State"])
+        self.op_wf.setAccessibleName("Automation library")
+        wfw = QWidget()
+        wl = QVBoxLayout(wfw)
+        wl.addWidget(self.op_wf)
+        wr = QHBoxLayout()
+        wr.addWidget(_btn("Run", lambda: self._op_wf_act("run")))
+        wr.addWidget(_btn("Pause / resume schedule", lambda: self._op_wf_act("pause")))
+        wr.addWidget(_btn("Delete", lambda: self._op_wf_act("delete")))
+        wr.addStretch(1)
+        wl.addLayout(wr)
+        self.op_wf_hist = _label("", muted=True)
+        wl.addWidget(self.op_wf_hist)
+        self.op_task_table = _table(["Task", "Due", "Priority"])
+        self.op_task_table.setAccessibleName("Tasks")
+        tw = QWidget()
+        tl = QVBoxLayout(tw)
+        tl.addWidget(self.op_task_table)
+        tr = QHBoxLayout()
+        self.op_task_in = QLineEdit()
+        self.op_task_in.setPlaceholderText("New task, e.g. Call the dentist")
+        self.op_task_when = QLineEdit()
+        self.op_task_when.setPlaceholderText("When (optional): in 20 minutes / tomorrow at 9am")
+        tr.addWidget(self.op_task_in, 2)
+        tr.addWidget(self.op_task_when, 1)
+        tr.addWidget(_btn("Add", self._op_task_add))
+        tr.addWidget(_btn("Mark selected done", self._op_task_done))
+        tl.addLayout(tr)
+        self.op_task_note = _label("", muted=True)
+        tl.addWidget(self.op_task_note)
+        self.op_tabs.addTab(self.op_activity, "Activity and audit log")
+        self.op_tabs.addTab(self.op_caps, "What Jarvis can do")
+        self.op_tabs.addTab(wfw, "Workflows and automations")
+        self.op_tabs.addTab(tw, "Tasks and reminders")
+        self.op_tabs.setMinimumHeight(320)
+        self.op_tabs.currentChanged.connect(lambda _i: self.refresh("Operator"))
+        v.addWidget(self.op_tabs)
+        return w
+
+    def _op_guard(self, fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+        self.refresh("Operator")
+
+    def _op_toggle(self):
+        on = not self.ctl.operator_state()["enabled"]
+        if on and QMessageBox.question(self, V.APP_NAME, "Let Jarvis operate this PC within the permissions below?\n\nYou can turn it off again here at any time, and the emergency stop always works.",
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return
+        self._op_guard(lambda: self.ctl.operator_power(on))
+
+    def _op_pause(self):
+        self._op_guard(lambda: self.ctl.operator_pause(not self.ctl.operator_state()["paused"]))
+
+    def _op_perm(self, name, on):
+        if getattr(self, "_op_loading", False):
+            return
+        self._op_guard(lambda: self.ctl.operator_permission_set(name, bool(on)))
+
+    def _op_add_folder(self):
+        d = QFileDialog.getExistingDirectory(self, "Choose a folder Jarvis may use")
+        if d:
+            self._op_guard(lambda: self.ctl.operator_folder_add(d))
+
+    def _op_remove_folder(self):
+        it = self.op_folders.currentItem()
+        if it is not None and it.data(Qt.ItemDataRole.UserRole):
+            self._op_guard(lambda: self.ctl.operator_folder_remove(it.data(Qt.ItemDataRole.UserRole)))
+
+    def _op_wf_act(self, what):
+        r = self.op_wf.currentRow()
+        wfs = self.ctl.operator_workflows()
+        if r < 0 or r >= len(wfs):
+            return
+        name = wfs[r]["name"]
+        if what == "run":
+            self.ctl.operator_workflow_run(name)
+        elif what == "pause":
+            self.ctl.operator_workflow_pause(name, not wfs[r]["paused"])
+        elif what == "delete" and QMessageBox.question(self, V.APP_NAME, f"Delete the workflow {name}?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                                       QMessageBox.StandardButton.No) == QMessageBox.StandardButton.Yes:
+            self.ctl.operator_workflow_delete(name)
+        self.refresh("Operator")
+
+    def _op_task_add(self):
+        t = self.op_task_in.text().strip()
+        if t:
+            self.op_task_note.setText(self.ctl.operator_task_add(t, self.op_task_when.text().strip()))
+            self.op_task_in.clear()
+            self.op_task_when.clear()
+        self.refresh("Operator")
+
+    def _op_task_done(self):
+        r = self.op_task_table.currentRow()
+        ts = self.ctl.operator_tasks()
+        if 0 <= r < len(ts):
+            self.op_task_note.setText(self.ctl.operator_task_done(ts[r]["title"]))
+        self.refresh("Operator")
+
+    def _refresh_operator(self):
+        st = self.ctl.operator_state()
+        self._op_loading = True
+        try:
+            parts = ["Computer control is " + ("ON" if st["enabled"] else "OFF")]
+            if st["stop"]:
+                parts.append("EMERGENCY STOP is active: nothing will run")
+            if st["paused"]:
+                parts.append("paused")
+            if st["current"]:
+                parts.append("doing: " + st["current"])
+            if not st["windows"]:
+                parts.append("this is not Windows, so window, power and media actions are unavailable")
+            if st["guest"]:
+                parts.append("not available in a guest session")
+            self.op_status.setText(". ".join(parts) + f". {st['capabilities']} capabilities.")
+            self.op_power.setText("Turn computer control OFF" if st["enabled"] else "Turn computer control ON")
+            self.op_power.setEnabled(not st["guest"])
+            self.op_pause.setText("Resume" if st["paused"] else "Pause")
+            self.op_confirm.setChecked(bool(st["confirm_medium"]))
+            if set(self.op_perm_checks) != {c["id"] for c in st["categories"]}:
+                for c in st["categories"]:
+                    cb = QCheckBox(c["label"])
+                    cb.setAccessibleName("Permission: " + c["label"])
+                    cb.toggled.connect(lambda on, n=c["id"]: self._op_perm(n, on))
+                    self.op_perm_box.addWidget(cb)
+                    self.op_perm_checks[c["id"]] = cb
+            for c in st["categories"]:
+                cb = self.op_perm_checks[c["id"]]
+                cb.setChecked(bool(c["granted"]))
+                cb.setEnabled(not st["guest"])
+            self.op_folders.clear()
+            for f in st["folders"]:
+                it = QListWidgetItem(f)
+                if f in st["extra_folders"]:
+                    it.setData(Qt.ItemDataRole.UserRole, f)
+                self.op_folders.addItem(it)
+        finally:
+            self._op_loading = False
+        if self.op_tabs.currentIndex() == 0:
+            rows = list(reversed(self.ctl.operator_audit(80)))
+            self.op_activity.setRowCount(len(rows))
+            for i, r in enumerate(rows):
+                for j, k in enumerate(("t", "cap", "risk", "decision", "status", "note")):
+                    self.op_activity.setItem(i, j, QTableWidgetItem(str(r.get(k, ""))))
+        elif self.op_tabs.currentIndex() == 1:
+            rows = self.ctl.operator_table()
+            self.op_caps.setRowCount(len(rows))
+            for i, r in enumerate(rows):
+                for j, val in enumerate((r["id"], r["title"], r["category"], r["risk"], "yes" if r["windows_only"] else "", "yes" if r["granted"] else "no")):
+                    self.op_caps.setItem(i, j, QTableWidgetItem(val))
+        elif self.op_tabs.currentIndex() == 2:
+            wfs = self.ctl.operator_workflows()
+            self.op_wf.setRowCount(len(wfs))
+            for i, wf in enumerate(wfs):
+                state = ("paused" if wf["paused"] else "active") + ("" if wf.get("trusted", True) else ", imported (asks every run)")
+                for j, val in enumerate((wf["name"], str(len(wf["steps"])), ", ".join(wf["needs"]["permissions"]), wf["needs"]["highest_risk"], state)):
+                    self.op_wf.setItem(i, j, QTableWidgetItem(val))
+            h = self.ctl.operator_workflow_history(5)
+            self.op_wf_hist.setText("Recent runs: " + ("; ".join(f"{x['t']} {x['workflow']} {'OK' if x['ok'] else 'FAILED'}" for x in h) if h else "none yet."))
+        else:
+            ts = self.ctl.operator_tasks()
+            self.op_task_table.setRowCount(len(ts))
+            import time as _t
+            for i, t in enumerate(ts):
+                due = _t.strftime("%a %b %d %H:%M", _t.localtime(t["due"])) if t["due"] else ""
+                for j, val in enumerate((t["title"], due, {3: "high", 2: "normal", 1: "low"}.get(t["priority"], ""))):
+                    self.op_task_table.setItem(i, j, QTableWidgetItem(val))
+
     def _safety_page(self):
         w = QWidget()
         v = QVBoxLayout(w)
@@ -2411,6 +2627,7 @@ class MainWindow(QMainWindow):
                 e.ignore()
                 return
         self.timer.stop()
+        self.op_timer.stop()
         self.home_timer.stop()
         self.hud.timer.stop()                  # no frame or refresh may run against a controller that is shutting down
         res = self.ctl.shutdown(timeout=3.0)

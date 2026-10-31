@@ -2,6 +2,9 @@
 
 Earlier (p1-p14): untracked.
 
+## Computer Operator (183 capabilities) — NOT run on a real Windows PC
+New `jarvis.operator` package, Operator page, typed + spoken commands, workflows/schedules/events, capability matrix. Off by default; permissions, confirmations, STOP, audit, verification. `docs/OPERATOR.md`, `docs/CAPABILITY_MATRIX.md`. Tests p90-p95 (real files, fake Windows layer). Not implemented: browser automation, software install, email/calendar sync, camera, messaging.
+
 ## p15 Prompts 13-20: retries, styles, models
 `docs/PROMPT13_REVIEW.md` .. `PROMPT20_REVIEW.md`; setup wizard.
 

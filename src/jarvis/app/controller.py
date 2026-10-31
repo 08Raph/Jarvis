@@ -573,7 +573,16 @@ class AppController:
             self.transcript.add("system", "Jarvis is switching or testing a brain right now. Try again in a moment.")
             self.on_update("transcript")
             return False
-        if not _skip_launch and (self._try_desk_assist(text) or self._try_quick_launch(text)):
+        if not _skip_launch:
+            try:
+                from jarvis.operator import security_ops as SEC
+                kinds = SEC.find_secrets(text)
+                if kinds:
+                    text = SEC.mask_secrets(text)                    # the secret is never stored in the chat, the memory or any log
+                    self.transcript.add("system", SEC.warn_text(kinds))
+            except Exception:  # noqa: BLE001
+                pass
+        if not _skip_launch and (self._try_operator(text) or self._try_desk_assist(text) or self._try_quick_launch(text)):
             return True
         ms = self.model_status() if self.assistant is None else None
         if _echo:
@@ -1005,6 +1014,15 @@ class AppController:
         """Runs on a helper thread. The SAME assistant (persona, safety, memory rules) as typed chat. The only thing reachable before it is quick launch
         (open an app, game or website you named; its own switch, off by default, and it asks first unless you turned that off); no desktop tool or executor is."""
         try:
+            from jarvis.operator import commands as OC
+            operated = OC.handle(text, self._operator())
+        except Exception:  # noqa: BLE001 - an operator problem must never stop the normal answer
+            operated = None
+        if operated is not None and operated.reply:
+            return operated.reply, 1.0
+        if operated is not None and operated.model_text:
+            text = operated.model_text
+        try:
             from jarvis.app import desk_assist as DA
             helped = DA.handle(text, self.cfg, guest=self.guest, backend=self.ql_backend)
         except Exception:  # noqa: BLE001 - a screen-helper problem must never stop the normal answer
@@ -1076,6 +1094,162 @@ class AppController:
 
     def voice_state(self) -> dict:
         return self._voice_service().state()
+
+    # ------------------------------------------------------------------ Computer Operator (jarvis.operator): its own switch, permissions and audit log
+    operator_ops = None          # tests may put a fake Windows layer here; None = the real one for this system
+
+    def _operator(self):
+        op = getattr(self, "_op_obj", None)
+        if op is None:
+            from jarvis.operator.core import Operator
+            op = Operator(self.cfg.profile_dir, guest=self.guest, confirm=self.confirm, ops=self.operator_ops)
+            self._op_obj = op
+            self._op_prev = None
+        return op
+
+    def operator_state(self) -> dict:
+        from jarvis.operator.core import CATEGORIES, REGISTRY
+        op = self._operator()
+        st = op.state()
+        return {"enabled": st["enabled"], "guest": self.guest, "stop": op.stop_active(), "paused": op.paused.is_set(), "confirm_medium": st["confirm_medium"],
+                "categories": [{"id": k, "label": v[0], "granted": bool(st["categories"].get(k, v[1]))} for k, v in CATEGORIES.items()],
+                "folders": [str(r) for r in op.roots()], "extra_folders": st["folders"], "windows": bool(op.ops.is_windows), "capabilities": len(REGISTRY),
+                "current": op.current, "game_close_list": st["game_close_list"]}
+
+    def operator_power(self, on: bool) -> dict:
+        op = self._operator()
+        if self.guest:
+            raise ValueError("Computer control is not available in a guest session.")
+        op.turn_on() if on else op.turn_off()
+        return self.operator_state()
+
+    def operator_permission_set(self, name: str, on: bool) -> dict:
+        if self.guest:
+            raise ValueError("Computer control is not available in a guest session.")
+        self._operator().set_category(name, on)
+        return self.operator_state()
+
+    def operator_confirm_medium(self, on: bool) -> dict:
+        self._operator().set_confirm_medium(on)
+        return self.operator_state()
+
+    def operator_folder_add(self, path: str) -> dict:
+        self._operator().add_folder(path)
+        return self.operator_state()
+
+    def operator_folder_remove(self, path: str) -> dict:
+        self._operator().remove_folder(path)
+        return self.operator_state()
+
+    def operator_reset(self) -> dict:
+        self._operator().reset_permissions()
+        return self.operator_state()
+
+    def operator_game_close_list(self, names: list[str]) -> dict:
+        self._operator().set_game_close_list(list(names))
+        return self.operator_state()
+
+    def operator_pause(self, on: bool) -> dict:
+        op = self._operator()
+        op.pause() if on else op.resume()
+        return self.operator_state()
+
+    def operator_cancel(self) -> None:
+        self._operator().cancel_all()
+
+    def operator_table(self) -> list[dict]:
+        return self._operator().table()
+
+    def operator_audit(self, n: int = 100) -> list[dict]:
+        return self._operator().audit_tail(n)
+
+    def operator_workflows(self) -> list[dict]:
+        from jarvis.operator import workflows as WF
+        return WF.load(self._operator())
+
+    def operator_workflow_run(self, name: str) -> None:
+        def work(token):
+            return self._operator().run("workflow.run", name=name)
+
+        def done(res, err):
+            self.transcript.add("system", (res.message if res is not None else explain_error(err)) if not err else explain_error(err))
+            self.on_update("transcript")
+        self.tasks.submit("operator-workflow", work, done)
+
+    def operator_workflow_pause(self, name: str, paused: bool) -> None:
+        self._operator().run("workflow.pause", name=name, paused=paused)
+
+    def operator_workflow_delete(self, name: str) -> None:
+        self._operator().run("workflow.delete", name=name)
+
+    def operator_workflow_history(self, n: int = 30) -> list[dict]:
+        from jarvis.operator import workflows as WF
+        return WF.history(self._operator(), n)
+
+    def operator_tasks(self) -> list[dict]:
+        from jarvis.operator import tasks_ops as T
+        return [t for t in T.load(self._operator())["tasks"] if not t["done"]]
+
+    def operator_task_add(self, title: str, when: str = "") -> str:
+        out = self._operator().run("tasks.add", title=title, when=when, remind=bool(when))
+        return out.message
+
+    def operator_task_done(self, title: str) -> str:
+        return self._operator().run("tasks.complete", title=title).message
+
+    def operator_tick(self) -> None:
+        """Called every half minute by the window: runs due scheduled workflows, event triggers and reminders (only when computer control is on)."""
+        if self.closed or self.guest:
+            return
+        op = self._operator()
+        if not op.is_on():
+            return
+
+        def work(token):
+            from jarvis.operator import workflows as WF
+            cur, notes = WF.tick(op, getattr(self, "_op_prev", None))
+            self._op_prev = cur
+            return notes
+
+        def done(notes, err):
+            for n in (notes or []):
+                self.transcript.add("system", n)
+                if n.startswith("Reminder:"):
+                    self.speech.speak(n, 1.0)
+            if notes:
+                self.on_update("transcript")
+        self.tasks.submit("operator-tick", work, done)
+
+    def _try_operator(self, text: str) -> bool:
+        from jarvis.operator import commands as OC
+        if OC.parse(text) is None:
+            return False
+        self.transcript.add("user", text)
+        self.busy = True
+        self.on_update("transcript")
+        self.on_update("busy")
+
+        def work(token):
+            return OC.handle(text, self._operator())
+
+        def done(result, err):
+            self.busy = False
+            if err:
+                self.transcript.add("error", explain_error(err))
+            elif result is not None and result.model_text:
+                self.on_update("busy")
+                self.send(result.model_text, _echo=False, _skip_launch=True)
+                return
+            elif result is not None and result.reply:
+                self.transcript.add("assistant", result.reply)
+                self.speech.speak(result.reply, 1.0)
+            self.save_chat()
+            self.on_update("transcript")
+            self.on_update("busy")
+        if self.tasks.submit("operator", work, done) is None:
+            self.busy = False
+            return False
+        return True
 
     def background_options(self) -> dict:
         from jarvis.app.background import BackgroundOptions
