@@ -225,10 +225,11 @@ class FetchScriptTests(Base):
 
     def test_probe_prints_the_values_and_enforces_nothing(self):
         z = self.make_zip()
-        with mock.patch.object(FV, "page_licence_lines", return_value=["(test)"]), mock.patch.object(V, "PIN_TREE_SHA256", ""):
+        with mock.patch.object(FV, "page_licence_lines", return_value=["(test)"]), mock.patch.object(V, "PIN_TREE_SHA256", ""), \
+             mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "", "GITHUB_STEP_SUMMARY": ""}):
             code, out, _ = self.run_main("--zip", str(z), "--probe")
         self.assertEqual(code, 0)
-        rep = json.loads(out[out.index("{"):])
+        rep, _ = json.JSONDecoder().raw_decode(out[out.index("{"):])
         self.assertEqual(rep["file_count"], 4)
         self.assertEqual(rep["zip_sha256"], FV.sha256_file(z))
 
