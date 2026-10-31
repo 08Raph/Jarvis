@@ -12,6 +12,20 @@ from jarvis import version as V
 from jarvis.ui.hud import HudWidget
 
 
+def app_icon() -> QIcon:
+    """The Jarvis logo mark (shipped next to this file); a drawn circle if the file is missing."""
+    from pathlib import Path
+    f = Path(__file__).parent / "assets" / "jarvis.png"
+    try:
+        if f.is_file():
+            ic = QIcon(str(f))
+            if not ic.isNull():
+                return ic
+    except Exception:  # noqa: BLE001
+        pass
+    return _icon()
+
+
 def _icon() -> QIcon:
     pm = QPixmap(32, 32)
     pm.fill(Qt.GlobalColor.transparent)
@@ -102,7 +116,7 @@ class BackgroundManager:
         except Exception:  # noqa: BLE001
             ok = False
         if ok:
-            self.tray = QSystemTrayIcon(_icon(), win)
+            self.tray = QSystemTrayIcon(app_icon(), win)
             self.tray.setToolTip(f"{V.APP_NAME} (running)")
             menu = QMenu()
             a_open = QAction("Open Jarvis", menu)

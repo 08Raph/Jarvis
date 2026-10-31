@@ -23,7 +23,7 @@ from jarvis.online.account import AccountController
 from jarvis.ui import theme
 from jarvis.ui.account_page import AccountPage
 from jarvis.ui.hud import HudWidget
-from jarvis.ui.background_ui import BackgroundManager
+from jarvis.ui.background_ui import BackgroundManager, app_icon
 from jarvis.voice import viewmodel as VVM
 
 READINESS = "System & Model Readiness"
@@ -104,6 +104,10 @@ class MainWindow(QMainWindow):
         self.ctl, self.bridge = ctl, bridge
         self.settings = QSettings("ProjectJarvis", "Window")
         self.setWindowTitle(f"{V.APP_NAME} {V.__version__} ({V.RELEASE_CHANNEL})")
+        try:
+            self.setWindowIcon(app_icon())
+        except Exception:  # noqa: BLE001
+            pass
         self.setMinimumSize(960, 640)
         self.resize(1100, 720)
         ctl.on_update = self.on_update

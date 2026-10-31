@@ -125,6 +125,7 @@ def _setup_summary(cfg: Config) -> dict:
 # tests/test_p35_validation.py fails if the two ever differ. The same functions feed the diagnostics report, the preflight "App files" check
 # and `jarvis-gui.exe --selftest`, so there is exactly one implementation.
 PACKAGED_FILES = (
+    "jarvis/ui/assets/jarvis.png",
     "jarvis/telemetry/endpoint.txt", "jarvis/desktop/ocr_winrt.ps1", "config.sample.toml", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "build_info.json",
     "docs/RELEASE_NOTES.md", "docs/TROUBLESHOOTING.md", "docs/MODEL_DISTRIBUTION.md", "docs/PRIVACY_AND_NETWORK.md", "docs/LOCAL_MODEL.md",
     "docs/DESKTOP_CONTROL.md", "docs/MEMORY.md", "docs/VOICE.md", "docs/WINDOWS_DISTRIBUTION.md", "docs/IN_APP_PREFLIGHT.md", "docs/QUICK_LAUNCH.md", "docs/GPL_NOTICE.md",

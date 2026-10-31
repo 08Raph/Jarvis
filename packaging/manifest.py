@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # (source relative to project root, destination folder inside the app folder)
 DATAS = [
+    ("src/jarvis/ui/assets/jarvis.png", "jarvis/ui/assets"),       # the Jarvis logo mark: window and tray icon
     ("src/jarvis/telemetry/endpoint.txt", "jarvis/telemetry"),     # empty unless the build was given a server address; users must still opt in
     ("src/jarvis/desktop/ocr_winrt.ps1", "jarvis/desktop"),        # Windows OCR helper script
     ("config.sample.toml", "."),                                   # configuration template; real settings live in %LOCALAPPDATA%\ProjectJarvis

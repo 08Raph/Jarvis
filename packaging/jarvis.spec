@@ -80,6 +80,6 @@ for _a in (cli, gui):
     _a.datas = [e for e in _a.datas if _keep(e)]
 MERGE((cli, "jarvis", "jarvis"), (gui, "jarvis-gui", "jarvis-gui"))   # share one copy of Python, Qt and the libraries
 
-cli_exe = EXE(PYZ(cli.pure), cli.scripts, [], exclude_binaries=True, name="jarvis", console=True, upx=False)
-gui_exe = EXE(PYZ(gui.pure), gui.scripts, [], exclude_binaries=True, name="jarvis-gui", console=False, upx=False)
+cli_exe = EXE(PYZ(cli.pure), cli.scripts, [], exclude_binaries=True, name="jarvis", console=True, upx=False, icon=os.path.join(root, "packaging", "assets", "jarvis.ico"))
+gui_exe = EXE(PYZ(gui.pure), gui.scripts, [], exclude_binaries=True, name="jarvis-gui", console=False, upx=False, icon=os.path.join(root, "packaging", "assets", "jarvis.ico"))
 coll = COLLECT(cli_exe, cli.binaries, cli.datas, gui_exe, gui.binaries, gui.datas, name="ProjectJarvis", upx=False)
