@@ -1,4 +1,4 @@
-"""Test-only helper. The four adult-only styles are temporarily restricted in the product (styles.ADULT_MODES_RESTRICTED = True). Older test modules exercise the
+"""Test-only helper. The four adult-only styles can be restricted in the product (styles.ADULT_MODES_RESTRICTED; it is False since 2026-10-30, at the owner's request). Older test modules exercise the
 DORMANT adult definitions (opt-in, minor switch-off, memory exclusion, specs, ...), so they import setUpModule/tearDownModule from here to lift the restriction
 for that module only. The restriction itself is tested in test_p55_adult_restriction.py, which never imports this file."""
 from jarvis.personality import styles
@@ -12,4 +12,4 @@ def setUpModule():
 
 
 def tearDownModule():
-    styles.ADULT_MODES_RESTRICTED = _saved.pop() if _saved else True
+    styles.ADULT_MODES_RESTRICTED = _saved.pop() if _saved else False

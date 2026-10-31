@@ -27,6 +27,11 @@ from jarvis.voice.engines import UNSPECIFIED, EngineError, TTSEngine, VoiceInfo,
 from jarvis.models.kokoro_files import FILES, KokoroModelError, KokoroModelStore, approx_total_bytes, human_size
 
 PRESET_VOICES = ("af_heart", "af_aoede", "af_nicole", "am_onyx")      # the voices Jarvis offers first; only those present in the installed voices file are listed
+# More English voices from the same Kokoro v1.0 voices file. They are offered ONLY if the installed file really contains them (a name the file lacks is simply not listed).
+EXTRA_VOICES = ("af_bella", "af_sarah", "af_sky", "af_nova", "af_river", "af_jessica", "af_kore", "af_alloy",
+                "am_adam", "am_michael", "am_echo", "am_eric", "am_liam", "am_fenrir", "am_puck", "am_santa",
+                "bf_emma", "bf_isabella", "bf_alice", "bf_lily", "bm_george", "bm_lewis", "bm_daniel", "bm_fable")
+BRITISH_PREFIXES = ("bf_", "bm_")                                    # the phonemiser needs "en-gb" for these (the naming convention of the Kokoro voices file)
 DEFAULT_LANGUAGE = "en-us"                                           # phonemiser language passed to the model; the four presets are English voices
 APPROX_SIZE = human_size(approx_total_bytes())                      # derived from the file table, so every message agrees
 PACKAGES = (("kokoro_onnx", "kokoro-onnx"), ("sounddevice", "sounddevice"))
@@ -421,7 +426,7 @@ class KokoroSpeaker:
                 if job.cancel.is_set():
                     return
                 with self.engine.runtime.infer_lock:
-                    audio, sr = model.create(c, voice=job.voice, speed=job.speed, lang=self.engine.language)
+                    audio, sr = model.create(c, voice=job.voice, speed=job.speed, lang=self.engine.language_for(job.voice))
                 if job.cancel.is_set():
                     return
                 a = np.asarray(audio, dtype=np.float32).reshape(-1)
@@ -493,6 +498,12 @@ class KokoroEngine(TTSEngine):
         except KokoroModelError as e:
             raise KokoroError(f"The Kokoro voices file cannot be used: {e}.") from e
 
+    def language_for(self, voice: str) -> str:
+        return "en-gb" if str(voice).startswith(BRITISH_PREFIXES) and self.language == DEFAULT_LANGUAGE else self.language
+
+    def offered_ids(self) -> tuple[str, ...]:
+        return self.preset_ids + tuple(v for v in EXTRA_VOICES if v not in self.preset_ids) if self.preset_ids == PRESET_VOICES else self.preset_ids
+
     def default_voice(self) -> str:
         ids = self.voice_ids()
         return next((v for v in self.preset_ids if v in ids), ids[0])
@@ -504,7 +515,7 @@ class KokoroEngine(TTSEngine):
         self.probe()
         ids = self.voice_ids()
         return [VoiceInfo(id=make_id(self.id, v), engine=self.id, name=v, language="", language_label="", category=UNSPECIFIED, gender_reported="", age="")
-                for v in self.preset_ids if v in ids]
+                for v in self.offered_ids() if v in ids]
 
     def probe(self) -> None:
         """Ask ONNX Runtime which execution providers it offers (read-only; may take a moment, so it runs during discovery on a worker)."""

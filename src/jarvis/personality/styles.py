@@ -10,10 +10,12 @@ from dataclasses import dataclass
 
 NORMAL = "normal"
 
-# Temporary, explicit restriction (post-gate safety review). The four adult-only modes keep their definitions, specs and saved settings, but cannot be SELECTED
-# until their behaviour with a real language model has been reviewed (docs/STAGE7_VALIDATION_RUNBOOK.md, review protocol). Lifting it is a deliberate code change:
-# set this to False in a reviewed commit. It is read at call time, and nothing a user, a chat message or a settings file contains can change it.
-ADULT_MODES_RESTRICTED = True
+# Explicit restriction switch (post-gate safety review). While True, the four adult-only modes keep their definitions, specs and saved settings but cannot be SELECTED.
+# 2026-10-30: the PROJECT OWNER asked for it to be lifted so they can test these modes themselves, so it is now False. The real-model safety review
+# (docs/STAGE7_VALIDATION_RUNBOOK.md) has NOT been done: these modes are UNREVIEWED. They are still gated by the explicit 18+ opt-in, are never offered to a profile
+# that is marked as a minor, and the fixed SAFETY block is still appended to every style. Setting this back to True re-locks them. It is read at call time,
+# and nothing a user, a chat message or a settings file contains can change it.
+ADULT_MODES_RESTRICTED = False
 RESTRICTION_REASON = ("Savage, Flirty, Sexy and Romantic are temporarily unavailable: how they behave with a real language model has not been safety-reviewed yet. "
                       "Your saved choices for them are kept. All other styles work as usual.")
 

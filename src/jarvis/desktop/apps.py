@@ -112,7 +112,12 @@ def from_allowlist(allow: dict[str, str]) -> list[dict]:
 
 def discover(allow: dict[str, str]) -> list[dict]:
     seen, out = set(), []
-    for a in from_allowlist(allow) + from_start_menu() + from_store():
+    try:
+        from jarvis.desktop import games
+        found_games = games.discover()          # Epic and Steam games and game shortcuts; read-only file reads
+    except Exception:      # noqa: BLE001 - never let the games scan break the program scan
+        found_games = []
+    for a in from_allowlist(allow) + from_start_menu() + from_store() + found_games:
         if a["id"] not in seen:
             seen.add(a["id"])
             out.append(a)

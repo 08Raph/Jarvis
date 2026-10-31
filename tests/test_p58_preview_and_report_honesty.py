@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from restriction_on import setUpModule, tearDownModule  # noqa: E402,F401  (these tests describe the restricted state)
 from p10_common import AppCase, FakeLlama, fake_engine_factory  # noqa: E402
 from jarvis.app.controller import AppController  # noqa: E402
 from jarvis.assistant import LocalAssistant  # noqa: E402

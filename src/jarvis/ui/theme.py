@@ -76,6 +76,24 @@ QPushButton[danger="true"] {{ background: {p['danger']}; color: {p['danger_text'
 QPushButton:focus, QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QListWidget:focus, QTableWidget:focus, QTextBrowser:focus {{
     border: 2px solid {p['focus']}; }}
 QCheckBox {{ spacing: 8px; }}
+QPushButton:hover:!disabled {{ border-color: {p['accent']}; }}
+QPushButton:pressed {{ background: {p['accent_soft']}; }}
+QPushButton[primary="true"]:hover:!disabled {{ background: {p['accent']}; border: 1px solid {p['focus']}; }}
+QFrame#panel {{ background: {p['surface']}; border: 1px solid {p['border']}; border-radius: 10px; }}
+QFrame#panel QLabel {{ background: transparent; }}
+QLabel[heading="true"] {{ margin-top: 8px; margin-bottom: 2px; }}
+QComboBox {{ min-height: 22px; padding-left: 8px; }}
+QComboBox QAbstractItemView {{ background: {p['surface']}; color: {p['text']}; border: 1px solid {p['border']}; selection-background-color: {p['accent_soft']}; selection-color: {p['text']}; }}
+QLineEdit, QSpinBox {{ min-height: 22px; padding-left: 8px; }}
+QScrollArea {{ background: {p['bg']}; border: none; }}
+QScrollBar:vertical {{ background: transparent; width: 12px; margin: 2px; }}
+QScrollBar::handle:vertical {{ background: {p['border']}; border-radius: 5px; min-height: 28px; }}
+QScrollBar::handle:vertical:hover {{ background: {p['text_muted']}; }}
+QScrollBar:horizontal {{ background: transparent; height: 12px; margin: 2px; }}
+QScrollBar::handle:horizontal {{ background: {p['border']}; border-radius: 5px; min-width: 28px; }}
+QScrollBar::handle:horizontal:hover {{ background: {p['text_muted']}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 QStatusBar {{ background: {p['surface_alt']}; color: {p['text']}; }}
 QToolTip {{ background: {p['surface']}; color: {p['text']}; border: 1px solid {p['border']}; }}
 """

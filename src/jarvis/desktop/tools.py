@@ -164,8 +164,9 @@ def launch_risk(a, env):
 def h_launch_app(a, env):
     app = _resolve_app(env, a)
     r = env.backend.launch(app, a["wait_seconds"])
-    ok = bool(r.get("verified"))
-    return Outcome(ok, (f"{app['name']} is running" if ok else f"could not confirm that {app['name']} started"),
+    ok = bool(r.get("verified")) or bool(r.get("handed_off"))
+    return Outcome(ok, (f"{app['name']} is running" if r.get("verified") else f"asked Windows to open {app['name']} (not confirmed on screen)" if ok
+                        else f"could not confirm that {app['name']} started"),
                    verified=r.get("verified"), evidence=r.get("evidence", ""),
                    data={"app": app["id"], "name": app["name"], **{k: r[k] for k in ("hwnd", "pid", "title") if k in r}})
 

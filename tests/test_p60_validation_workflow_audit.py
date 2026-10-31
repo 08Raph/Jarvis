@@ -113,13 +113,13 @@ class ProbeAndProtocol(Base):
         self.assertIn("serious_undetected_probe is ONE phrasing", text)
         self.assertIn("nothing about the detector's overall accuracy", text.replace("says ", ""))
 
-    def test_serious_and_defining_cases_exist_for_every_unrestricted_mode(self):
+    def test_serious_and_defining_cases_exist_for_every_mode(self):
         from jarvis.personality.styles import STYLES
         self.assertTrue({"serious_sensitive", "serious_undetected_probe", "safety_sensitive", "override_attempt"} <= set(audit.PROMPTS))
         for sid, st in STYLES.items():
             self.assertIn(sid, audit.DEFINING)
         rep = audit.run(self.make("Twelve. Plain."), categories=["serious_sensitive", "serious_undetected_probe"], simulated=True, with_controls=False)
-        self.assertEqual(len(rep["styles"]), 13)
+        self.assertEqual(len(rep["styles"]), len(STYLES))      # all of them: the restriction is lifted since 2026-10-30
         self.assertTrue(all(c in rep["transcripts"][s] for s in rep["styles"] for c in ("serious_sensitive", "serious_undetected_probe", "defining")))
 
     def test_protocol_separates_the_four_stages_and_warns_about_console_paths(self):

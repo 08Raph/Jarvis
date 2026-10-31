@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from restriction_on import setUpModule, tearDownModule  # noqa: E402,F401  (the mechanism under test needs the restriction ON)
 from p10_common import AppCase, FakeLlama, fake_engine_factory  # noqa: E402
 from jarvis.app.controller import AppController  # noqa: E402
 from jarvis.assistant import LocalAssistant  # noqa: E402
@@ -23,8 +24,10 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "jarvis"
 
 
 class Constant(unittest.TestCase):
-    def test_the_shipped_restriction_is_on_and_lifting_it_is_a_deliberate_edit(self):
-        self.assertIs(styles.ADULT_MODES_RESTRICTED, True)       # if this fails, someone lifted the restriction: that needs the real-model safety review first
+    def test_the_shipped_value_is_off_at_the_owners_request_and_the_mechanism_still_works(self):
+        src = (SRC / "personality" / "styles.py").read_text(encoding="utf-8")
+        self.assertRegex(src, r"(?m)^ADULT_MODES_RESTRICTED = False")      # lifted 2026-10-30 by the owner; the modes are still UNREVIEWED
+        self.assertIs(styles.ADULT_MODES_RESTRICTED, True)                 # ... but this module switches it on (restriction_on) to test the mechanism
         self.assertEqual([s for s, st in STYLES.items() if st.adult_only], ADULT)       # the four definitions still exist
 
     def test_reason_names_the_modes_and_says_saved_choices_are_kept(self):

@@ -93,6 +93,9 @@ class _BrainHost:
 
 
 class AppController:
+    ql_backend = None            # tests may put a fake desktop backend here; None = the real one for this system
+    ql_note = ""                 # the last "scan my PC" result shown on the Safety page
+
     def __init__(self, cfg: Config, *, guest: bool = False, engine_factory=None, dispatch: Callable | None = None,
                  on_update: Callable[[str], None] | None = None, ask_user: Callable | None = None, simulate: bool = False,
                  speaker_factory: Callable | None = None, mic_factory: Callable | None = None, recognizer_factory: Callable | None = None, startup_backend=None):
@@ -444,7 +447,69 @@ class AppController:
             self.assistant.persona = self.persona            # one shared persona: the window and the model path always agree
         return self.assistant
 
-    def send(self, text: str) -> bool:
+    # ------------------------------------------------------------------ quick launch ("open Fortnite", "open Instagram", "scan my PC"): its own switch, see jarvis.app.quick_launch
+    def quick_launch_state(self) -> dict:
+        from jarvis.app import quick_launch as QL
+        return {**QL.get_state(self.cfg, self.guest), "note": self.ql_note, "guest": self.guest}
+
+    def quick_launch_set(self, on: bool | None = None, ask_each: bool | None = None) -> dict:
+        from jarvis.app import quick_launch as QL
+        st = QL.set_state(self.cfg, enabled=on, confirm_each=ask_each, guest=self.guest)
+        self.on_update("safety")
+        return st
+
+    def quick_launch_scan(self) -> bool:
+        """Look for apps, games and shortcuts on this PC (read-only) on a worker, then show how many were found on the Safety page."""
+        from jarvis.app import quick_launch as QL
+        if self.closed or self.guest:
+            return False
+        self.ql_note = "Scanning this PC\u2026"
+        self.on_update("safety")
+
+        def work(token):
+            return QL.scan(self.cfg, self.ql_backend)
+
+        def done(result, err):
+            self.ql_note = (f"The last scan found {len(result)} apps and games." if result is not None and not err
+                            else "The scan could not finish" + (f" ({err.split(':')[0]})." if err else "."))
+            self.on_update("safety")
+        return self.tasks.submit("scan", work, done) is not None
+
+    def _try_quick_launch(self, text: str) -> bool:
+        """If the text is a quick-launch command, handle it on a worker and return True. Anything else (or a command the model should answer) returns False."""
+        from jarvis.app import quick_launch as QL
+        cmd = QL.parse(text)
+        if cmd is None:
+            return False
+        if not QL.get_state(self.cfg, self.guest)["enabled"] and not (cmd.strong and not self.guest):
+            return False
+        self.transcript.add("user", text)
+        self.busy = True
+        self.on_update("transcript")
+        self.on_update("busy")
+
+        def work(token):
+            return QL.handle(text, self.cfg, confirm=self.confirm, guest=self.guest, backend=self.ql_backend)
+
+        def done(result, err):
+            self.busy = False
+            if err:
+                self.transcript.add("error", explain_error(err))
+            elif result is None:
+                self.on_update("busy")
+                self.send(text, _echo=False, _skip_launch=True)           # not for quick launch after all: the normal assistant answers
+                return
+            else:
+                self.transcript.add("assistant", result)
+                self.speech.speak(result, 1.0)
+            self.on_update("transcript")
+            self.on_update("busy")
+        if self.tasks.submit("quick-launch", work, done) is None:
+            self.busy = False
+            return False
+        return True
+
+    def send(self, text: str, _echo: bool = True, _skip_launch: bool = False) -> bool:
         """Start a reply. Returns False (with an explanation in the transcript) if it cannot start. Nothing is faked: with no working model,
         the transcript shows the actionable reason and no assistant text."""
         text = (text or "").strip()
@@ -462,8 +527,11 @@ class AppController:
             self.transcript.add("system", "Jarvis is switching or testing a brain right now. Try again in a moment.")
             self.on_update("transcript")
             return False
+        if not _skip_launch and self._try_quick_launch(text):
+            return True
         ms = self.model_status() if self.assistant is None else None
-        self.transcript.add("user", text)
+        if _echo:
+            self.transcript.add("user", text)
         if ms is not None and not ms.ok and self.engine_factory is None:
             self.transcript.add("error", ms.summary + ("  " + ms.action if ms.action else ""))
             self.on_update("transcript")
@@ -803,7 +871,15 @@ class AppController:
         self._notify("busy")
 
     def _voice_respond(self, text: str, cancel) -> tuple[str, float]:
-        """Runs on a helper thread. The SAME assistant (persona, safety, memory rules) as typed chat; no tool or executor is reachable from here."""
+        """Runs on a helper thread. The SAME assistant (persona, safety, memory rules) as typed chat. The only thing reachable before it is quick launch
+        (open an app, game or website you named; its own switch, off by default, and it asks first unless you turned that off); no desktop tool or executor is."""
+        try:
+            from jarvis.app import quick_launch as QL
+            launched = QL.handle(text, self.cfg, confirm=self.confirm, guest=self.guest, backend=self.ql_backend)
+        except Exception:  # noqa: BLE001 - a quick-launch problem must never stop the normal answer
+            launched = None
+        if launched is not None:
+            return launched, 1.0
         if self.assistant is None and self.engine_factory is None:
             ms = self.model_status()
             if not ms.ok:

@@ -230,3 +230,10 @@ First-run checklist: added the missing "install the project" step (python -m jar
 
 ## Speech model in the installer (unreleased)
 The small English Vosk model can ship inside the installer (`-BundleVoiceModel`, default in `build_installer.bat`); copied on first start, sets `vosk_model` only if none is set. Pin filled from one genuine download (see docs/VERIFICATION_LEDGER.md section 10). `docs/BUNDLED_EVERYTHING.md`.
+
+## Quick launch, restricted styles unlocked, more voices, no PowerShell flash (unreleased)
+* Speech helper (Windows built-in voices) no longer flashes a PowerShell window.
+* Quick launch: "open Fortnite / Instagram / Notepad", "scan my PC" (apps, Epic and Steam games, shortcuts, websites); own switch on the Safety page, off by default, asks first. `docs/QUICK_LAUNCH.md`.
+* Savage / Flirty / Sexy / Romantic: the restriction switch is now OFF at the owner's request (still gated by the 18+ opt-in; still UNREVIEWED with a real model).
+* Kokoro offers 24 more English voices when its voices file has them (British voices get the British phonemiser). Kokoro itself still needs its Python packages (not bundled: GPL-licensed espeak components).
+* Long pages scroll instead of overlapping; theme polish.

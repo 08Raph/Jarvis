@@ -21,7 +21,7 @@ BUNDLED_VOSK_RELDIR = "bundled_models/vosk-model-small-en-us-0.15"
 SERVER_PACKAGE = "jarvis_server"        # lives in server/, frozen into the app so `jarvis local-server` works; the spec adds server/ to the module search path
 # user-facing documentation shipped with the app (maintainer review notes and test checklists stay in the source repository)
 DOCS = ["RELEASE_NOTES.md", "TROUBLESHOOTING.md", "MODEL_DISTRIBUTION.md", "PRIVACY_AND_NETWORK.md", "LOCAL_MODEL.md", "DESKTOP_CONTROL.md",
-        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md", "IN_APP_PREFLIGHT.md"]
+        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md", "IN_APP_PREFLIGHT.md", "QUICK_LAUNCH.md"]
 
 # Files that MUST exist in the built folder (relative to dist/ProjectJarvis)
 REQUIRED_IN_DIST = ["jarvis.exe", "jarvis-gui.exe", "LICENSE", "THIRD_PARTY_NOTICES.md", "build_info.json", "config.sample.toml",

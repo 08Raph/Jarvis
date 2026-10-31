@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Callable
 
@@ -19,6 +20,22 @@ from jarvis.voice.session import MicError
 
 SAMPLE_RATE = 16000
 FRAME_SAMPLES = 480  # 30 ms
+def hidden_window_kwargs() -> dict:
+    """Keyword arguments that stop Windows from flashing a console window when a helper program is started from the windowed app.
+    Empty on other systems (and in tests with fake process starters that take no such arguments)."""
+    if sys.platform != "win32":
+        return {}
+    kw: dict = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = 0              # SW_HIDE
+        kw["startupinfo"] = si
+    except AttributeError:
+        pass
+    return kw
+
+
 POWERSHELL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
 
 
@@ -174,7 +191,7 @@ class SapiSpeaker:
 
     def list_voices(self) -> list[dict]:
         out = self._run([self.exe, "-NoProfile", "-NonInteractive", "-Command", self._LIST],
-                        capture_output=True, text=True, timeout=30)
+                        capture_output=True, text=True, timeout=30, **hidden_window_kwargs())
         voices = []
         for line in out.stdout.splitlines():
             line = line.strip()
@@ -192,7 +209,8 @@ class SapiSpeaker:
         env = dict(os.environ, JARVIS_TTS_RATE=str(self.rate_to_sapi(rate)),
                    JARVIS_TTS_VOLUME=str(int(round(max(0.0, min(1.0, volume)) * 100))), JARVIS_TTS_VOICE=voice or "")
         self._proc = self._popen([self.exe, "-NoProfile", "-NonInteractive", "-Command", self._SCRIPT],
-                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+                                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
+                                 **hidden_window_kwargs())
         try:
             self._proc.stdin.write(text.encode("utf-8"))
             self._proc.stdin.close()

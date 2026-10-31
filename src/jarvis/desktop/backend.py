@@ -91,6 +91,18 @@ class WindowsDesktop(DesktopBackend):
         elif app["kind"] == "aumid":
             explorer = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "explorer.exe"
             subprocess.Popen([str(explorer), "shell:AppsFolder\\" + app["aumid"]])
+        elif app["kind"] == "uri":
+            from jarvis.desktop import games
+            if not games.allowed_uri(app.get("uri", "")):
+                raise ValueError("refused: this is not a Steam or Epic Games launcher link")
+            os.startfile(app["uri"])                                        # the launcher's own protocol link, handed to Windows
+        elif app["kind"] == "web":
+            from jarvis.desktop import sites
+            if not sites.is_https(app.get("url", "")):
+                raise ValueError("refused: only https:// addresses are opened")
+            os.startfile(app["url"])                                        # opens in the default browser
+            return {"verified": False, "handed_off": True,
+                    "evidence": "the address was handed to Windows to open in your default browser; Jarvis does not check that the page loaded"}
         else:
             raise ValueError("unknown app kind")
         target = (app.get("target") or "").lower()

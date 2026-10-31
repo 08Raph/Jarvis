@@ -13,7 +13,7 @@ from PySide6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
-                               QSplitter, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
+                               QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
 from jarvis import version as V
 from jarvis.app.controller import AppController, explain_error
@@ -28,6 +28,7 @@ from jarvis.voice import viewmodel as VVM
 READINESS = "System & Model Readiness"
 IMPORT_BRAIN = "Import Brain"
 ACCOUNT = "Account"
+SCROLL_PAGES = ("Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN)       # pages that are longer than a small window
 PAGES = ["Home", "Chat", "Missions", "Schedules", "Memory", "Personality", "Voice", "Safety", "Status", READINESS, IMPORT_BRAIN, ACCOUNT]
 
 
@@ -121,7 +122,8 @@ class MainWindow(QMainWindow):
                       "Memory": self._memory_page(), "Personality": self._personality_page(), "Voice": self._voice_page(), "Safety": self._safety_page(), "Status": self._status_page(),
                       READINESS: self._readiness_page(), IMPORT_BRAIN: self._import_brain_page(), ACCOUNT: self._account_page()}
         for n in PAGES:
-            self.stack.addWidget(self.pages[n])
+            # Long pages scroll instead of squeezing their controls on top of each other when the window is small or the display is scaled.
+            self.stack.addWidget(self._scrolled(self.pages[n]) if n in SCROLL_PAGES else self.pages[n])
         lay.addWidget(self.nav)
         lay.addWidget(self.stack, 1)
         self.setCentralWidget(root)
@@ -135,6 +137,15 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.ctl.run_due_schedules)           # started ONLY by the checkbox on the Schedules page
         self._apply_theme()
         self.refresh_all()
+
+    @staticmethod
+    def _scrolled(page):
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)                 # the page keeps at least its own minimum size and scrolls when there is less room
+        sa.setFrameShape(QFrame.Shape.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sa.setWidget(page)
+        return sa
 
     # ------------------------------------------------------------ theme / scale
     def _apply_theme(self):
@@ -915,6 +926,7 @@ class MainWindow(QMainWindow):
         self.perm_table = _table(["Permission", "What it allows", "State"])
         self.perm_table.setAccessibleName("Permissions (read-only)")
         v.addWidget(self.perm_table, 2)
+        v.addWidget(self._quick_launch_box())
         mrow = QHBoxLayout()
         mrow.addWidget(_label("Mode:", wrap=False))
         self.mode_combo = QComboBox()
@@ -931,7 +943,41 @@ class MainWindow(QMainWindow):
         v.addWidget(self.hist_table, 2)
         return w
 
+    def _quick_launch_box(self):
+        f = QFrame()
+        f.setObjectName("panel")
+        v = QVBoxLayout(f)
+        v.addWidget(_label("Quick launch: open apps, games and websites", heading=True))
+        v.addWidget(_label("Say or type things like \u201copen Fortnite\u201d, \u201copen Instagram\u201d or \u201cscan my PC\u201d. Jarvis only starts things it found on this PC "
+                           "(programs, Epic and Steam games, shortcuts) or well-known websites. It cannot type, click or read anything this way, and installers are never started. "
+                           "This is separate from the advanced desktop permissions above.", muted=True))
+        self.ql_on = QCheckBox("Let Jarvis open apps, games and websites when I ask (chat and voice)")
+        self.ql_on.setAccessibleName("Quick launch on or off")
+        self.ql_on.toggled.connect(lambda on: self.ctl.quick_launch_set(on=on))
+        v.addWidget(self.ql_on)
+        self.ql_ask = QCheckBox("Ask me before each one (recommended; turn off for fully hands-free voice)")
+        self.ql_ask.setAccessibleName("Ask before each launch")
+        self.ql_ask.toggled.connect(lambda on: self.ctl.quick_launch_set(ask_each=on))
+        v.addWidget(self.ql_ask)
+        row = QHBoxLayout()
+        row.addWidget(_btn("Scan my PC now", self.ctl.quick_launch_scan, tip="Looks for installed programs, Store apps, Epic and Steam games and shortcuts. Read-only."))
+        self.ql_note = _label("", muted=True)
+        row.addWidget(self.ql_note, 1)
+        v.addLayout(row)
+        return f
+
+    def _refresh_quick_launch(self):
+        st = self.ctl.quick_launch_state()
+        for box, val in ((self.ql_on, st["enabled"]), (self.ql_ask, st["confirm_each"])):
+            box.blockSignals(True)
+            box.setChecked(bool(val))
+            box.blockSignals(False)
+        self.ql_on.setEnabled(not st["guest"])
+        self.ql_ask.setEnabled(not st["guest"])
+        self.ql_note.setText("Not available in guest mode." if st["guest"] else st["note"])
+
     def _refresh_safety(self):
+        self._refresh_quick_launch()
         p = self.ctl.permissions()
         self.perm_note.setText(p["how_to_change"] + (f"  Allowed folders: {', '.join(p['allowed_folders']) or 'none'}."))
         _fill(self.perm_table, [[r["category"], r["description"], ("ON" if r["enabled"] else "off") + ((" (consent recorded)" if r["consent_recorded"] else " (needs consent)") if r["needs_consent"] and r["enabled"] else "")]
