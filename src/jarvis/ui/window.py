@@ -11,7 +11,7 @@ import time
 
 from PySide6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
                                QInputDialog, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
                                QScrollArea, QSplitter, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
 
@@ -23,6 +23,7 @@ from jarvis.online.account import AccountController
 from jarvis.ui import theme
 from jarvis.ui.account_page import AccountPage
 from jarvis.ui.hud import HudWidget
+from jarvis.ui.background_ui import BackgroundManager
 from jarvis.voice import viewmodel as VVM
 
 READINESS = "System & Model Readiness"
@@ -179,6 +180,8 @@ class MainWindow(QMainWindow):
             self._home_recent_only()
         if topic in ("transcript", "busy"):
             self.render_chat()
+        if topic in ("chats", "busy"):
+            self._refresh_saved_chats()
         if topic in ("missions", "busy"):
             self.refresh("Missions")
         if topic == "schedules":
@@ -285,6 +288,7 @@ class MainWindow(QMainWindow):
         body.setSpacing(14)
         centre = QVBoxLayout()
         self.hud = HudWidget(provider=self._hud_provider)
+        self.bg = BackgroundManager(self)
         self.hud.stateChanged.connect(lambda _s: self.refresh("Home"))
         centre.addWidget(self.hud, 1)
         self.home_label = QLabel("")
@@ -507,7 +511,19 @@ class MainWindow(QMainWindow):
         prow = QHBoxLayout()
         prow.addWidget(self.persona_banner, 1)
         prow.addWidget(self.normal_btn)
+        self.chats_combo = QComboBox()
+        self.chats_combo.setAccessibleName("Saved chats")
+        self.chats_combo.setToolTip("Every chat is saved on this PC by itself. Pick one and press Open to continue it.")
+        self.chats_combo.setMinimumWidth(260)
+        self.chat_open_btn = _btn("Open", self._open_saved_chat, tip="Show the chosen saved chat and continue from it.")
+        self.chat_del_btn = _btn("Delete chat", self._delete_saved_chat, danger=True, tip="Delete the chosen saved chat from this PC.")
+        crow = QHBoxLayout()
+        crow.addWidget(_label("Saved chats:", wrap=False))
+        crow.addWidget(self.chats_combo, 1)
+        crow.addWidget(self.chat_open_btn)
+        crow.addWidget(self.chat_del_btn)
         v.addWidget(self.model_banner)
+        v.addLayout(crow)
         v.addLayout(prow)
         v.addWidget(self.chat_view, 1)
         v.addWidget(self.chat_input)
@@ -522,6 +538,7 @@ class MainWindow(QMainWindow):
         self.persona_banner.setText(st["indicator"] + ("   (roleplay or specialised: wording only, permissions unchanged)" if st["settings"]["style"] != "normal" else ""))
         self.normal_btn.setEnabled(st["settings"]["style"] != "normal")
         self.render_chat()
+        self._refresh_saved_chats()
 
     def _send(self):
         text = self.chat_input.toPlainText()
@@ -530,6 +547,30 @@ class MainWindow(QMainWindow):
 
     def _new_conv(self):
         self.ctl.new_conversation()
+
+    def _refresh_saved_chats(self):
+        if not hasattr(self, "chats_combo"):
+            return
+        rows = self.ctl.chat_list()
+        self.chats_combo.blockSignals(True)
+        self.chats_combo.clear()
+        for r in rows:
+            stamp = time.strftime("%b %d %H:%M", time.localtime(r["updated"])) if r["updated"] else ""
+            self.chats_combo.addItem(f"{r['title']}  ({stamp}, {r['messages']} messages)" + ("  - open now" if r.get("current") else ""), r["id"])
+        self.chats_combo.blockSignals(False)
+        has = bool(rows)
+        self.chat_open_btn.setEnabled(has and not self.ctl.busy)
+        self.chat_del_btn.setEnabled(has)
+
+    def _open_saved_chat(self):
+        cid = self.chats_combo.currentData()
+        if cid:
+            self.ctl.chat_open(cid)
+
+    def _delete_saved_chat(self):
+        cid = self.chats_combo.currentData()
+        if cid and QMessageBox.question(self, V.APP_NAME, "Delete this saved chat from this PC? This cannot be undone.") == QMessageBox.StandardButton.Yes:
+            self.ctl.chat_delete(cid)
 
     def render_chat(self):
         if not hasattr(self, "chat_view"):
@@ -833,6 +874,15 @@ class MainWindow(QMainWindow):
         v.addWidget(self.mem_table, 1)
         self.mem_empty = _label("", muted=True)
         v.addWidget(self.mem_empty)
+        arow = QHBoxLayout()
+        self.mem_new = QLineEdit()
+        self.mem_new.setAccessibleName("New memory")
+        self.mem_new.setPlaceholderText("Type something for Jarvis to remember (for example: I live in Toronto and I prefer metric units)")
+        self.mem_new.returnPressed.connect(self._mem_add)
+        self.mem_add_btn = _btn("Remember this", self._mem_add, primary=True, tip="Saves the note on this PC. Passwords and keys are refused.")
+        arow.addWidget(self.mem_new, 1)
+        arow.addWidget(self.mem_add_btn)
+        v.addLayout(arow)
         row = QHBoxLayout()
         self.mem_edit = _btn("Edit...", self._mem_edit)
         self.mem_del = _btn("Delete", self._mem_delete)
@@ -859,6 +909,18 @@ class MainWindow(QMainWindow):
         _fill(self.mem_table, [[r["id"], r["category"], r["text"], r.get("source", "")] for r in rows])
         self.mem_empty.setText("Nothing saved yet. Tell Jarvis 'remember that ...' in the chat and it appears here.")
         self.mem_empty.setVisible(not rows)
+
+    def _mem_add(self):
+        text = self.mem_new.text().strip()
+        if not text:
+            return
+        try:
+            self.ctl.memory_add(text)
+        except Exception as e:  # noqa: BLE001
+            self.error_box(e)
+            return
+        self.mem_new.clear()
+        self._refresh_memory()
 
     def _sel_mem(self):
         r = self.mem_table.currentRow()
@@ -955,7 +1017,7 @@ class MainWindow(QMainWindow):
         self.ql_on.setAccessibleName("Quick launch on or off")
         self.ql_on.toggled.connect(lambda on: self.ctl.quick_launch_set(on=on))
         v.addWidget(self.ql_on)
-        self.ql_ask = QCheckBox("Ask me before each one (recommended; turn off for fully hands-free voice)")
+        self.ql_ask = QCheckBox("Ask me before each one (off = hands-free: apps open without asking)")
         self.ql_ask.setAccessibleName("Ask before each launch")
         self.ql_ask.toggled.connect(lambda on: self.ctl.quick_launch_set(ask_each=on))
         v.addWidget(self.ql_ask)
@@ -964,6 +1026,12 @@ class MainWindow(QMainWindow):
         self.ql_note = _label("", muted=True)
         row.addWidget(self.ql_note, 1)
         v.addLayout(row)
+        v.addWidget(_label("Screen helper: say \u201cread my screen\u201d, \u201cread what\u2019s highlighted\u201d or \u201cmove my Discord to monitor 2\u201d. It never reads sign-in, password, banking or security "
+                           "windows, withholds anything that looks like a secret, saves nothing it reads, and will not copy while a terminal is in front.", muted=True))
+        self.da_on = QCheckBox("Let Jarvis read my screen and highlighted text, and move windows between screens")
+        self.da_on.setAccessibleName("Screen helper on or off")
+        self.da_on.toggled.connect(lambda on: self.ctl.desk_assist_set(on))
+        v.addWidget(self.da_on)
         return f
 
     def _refresh_quick_launch(self):
@@ -974,6 +1042,11 @@ class MainWindow(QMainWindow):
             box.blockSignals(False)
         self.ql_on.setEnabled(not st["guest"])
         self.ql_ask.setEnabled(not st["guest"])
+        da = self.ctl.desk_assist_state()
+        self.da_on.blockSignals(True)
+        self.da_on.setChecked(bool(da["enabled"]))
+        self.da_on.blockSignals(False)
+        self.da_on.setEnabled(not st["guest"])
         self.ql_note.setText("Not available in guest mode." if st["guest"] else st["note"])
 
     def _refresh_safety(self):
@@ -1167,6 +1240,7 @@ class MainWindow(QMainWindow):
         row3.addWidget(_btn("Stop speaking", self.ctl.stop_speaking, tip="Silences Jarvis now and returns to listening."))
         row3.addStretch(1)
         v.addLayout(row3)
+        self._voice_options_block(v)
         self._voice_selection_block(v)
         self._voice_input_block(v)
         v.addWidget(_label("Personality used for spoken answers:", heading=True))
@@ -1188,6 +1262,119 @@ class MainWindow(QMainWindow):
                            "no audio is saved and none leaves this PC. While the model is thinking, audio is discarded, so a spoken 'stop' is not understood then: use Stop or Mute.", muted=True))
         v.addStretch(1)
         return w
+
+    def _voice_options_block(self, v):
+        """Greeting, pause before answering, interrupting, several wake phrases, and what happens when the window is closed (logic: controller.voice_options*, background_options*)."""
+        v.addWidget(_label("Conversation", heading=True))
+        r1 = QHBoxLayout()
+        self.vo_greet_on = QCheckBox("Say a greeting after the wake phrase")
+        self.vo_greet_on.setAccessibleName("Greeting after wake phrase on or off")
+        self.vo_greet = QLineEdit()
+        self.vo_greet.setAccessibleName("Greeting text")
+        self.vo_greet.setPlaceholderText("Hello sir, how may I assist you?")
+        r1.addWidget(self.vo_greet_on)
+        r1.addWidget(self.vo_greet, 1)
+        v.addLayout(r1)
+        r2 = QHBoxLayout()
+        r2.addWidget(_label("Wait after I stop talking (seconds):", wrap=False))
+        self.vo_wait = QDoubleSpinBox()
+        self.vo_wait.setRange(0.0, 15.0)
+        self.vo_wait.setSingleStep(0.5)
+        self.vo_wait.setAccessibleName("Seconds to wait before answering")
+        r2.addWidget(self.vo_wait)
+        r2.addWidget(_label("Follow-up window (seconds):", wrap=False))
+        self.vo_follow = QDoubleSpinBox()
+        self.vo_follow.setRange(0.0, 60.0)
+        self.vo_follow.setAccessibleName("Follow-up seconds")
+        r2.addWidget(self.vo_follow)
+        r2.addWidget(_label("Interrupting:", wrap=False))
+        self.vo_barge = QComboBox()
+        self.vo_barge.setAccessibleName("Interrupt mode")
+        for key, text in (("smart", "Say stop, or just talk over him"), ("wake_word_only", "Only the wake phrase"), ("speech", "Any speech"), ("off", "Off")):
+            self.vo_barge.addItem(text, key)
+        r2.addWidget(self.vo_barge)
+        r2.addStretch(1)
+        v.addLayout(r2)
+        r3 = QHBoxLayout()
+        r3.addWidget(_label("Wake phrases (separate with commas):", wrap=False))
+        self.vo_wake = QLineEdit()
+        self.vo_wake.setAccessibleName("Wake phrases")
+        r3.addWidget(self.vo_wake, 1)
+        r3.addWidget(_btn("Save wake phrases", self._vo_save_wake, tip="The first one is the main phrase. Hands-free restarts by itself to listen for them."))
+        v.addLayout(r3)
+        self.vo_note = _label("", muted=True)
+        v.addWidget(self.vo_note)
+        v.addWidget(_label("Background", heading=True))
+        r4 = QHBoxLayout()
+        r4.addWidget(_label("When I close Jarvis:", wrap=False))
+        self.bg_close = QComboBox()
+        self.bg_close.setAccessibleName("When Jarvis is closed")
+        self.bg_close.addItem("Keep running in the background (tray icon)", "background")
+        self.bg_close.addItem("Quit completely (end task, stop listening)", "quit")
+        r4.addWidget(self.bg_close)
+        self.bg_wall = QCheckBox("Show the Jarvis display as my desktop wallpaper")
+        self.bg_wall.setAccessibleName("Wallpaper display on or off")
+        r4.addWidget(self.bg_wall)
+        r4.addStretch(1)
+        v.addLayout(r4)
+        self._vo_loading = False
+        self.vo_greet_on.toggled.connect(lambda on: self._vo_set(wake_greeting_on=bool(on)))
+        self.vo_greet.editingFinished.connect(lambda: self._vo_set(wake_greeting=self.vo_greet.text().strip()))
+        self.vo_wait.editingFinished.connect(lambda: self._vo_set(wait_after_speech_seconds=float(self.vo_wait.value())))
+        self.vo_follow.editingFinished.connect(lambda: self._vo_set(follow_up_seconds=float(self.vo_follow.value())))
+        self.vo_barge.activated.connect(lambda _i: self._vo_set(barge_in=self.vo_barge.currentData()))
+        self.bg_close.activated.connect(lambda _i: self.ctl.background_options_set(on_close=self.bg_close.currentData()))
+        self.bg_wall.toggled.connect(self._bg_wall_toggled)
+        self._vo_fill()
+
+    def _vo_fill(self):
+        self._vo_loading = True
+        try:
+            o = self.ctl.voice_options()
+            self.vo_greet_on.setChecked(bool(o["wake_greeting_on"]))
+            if not self.vo_greet.hasFocus():
+                self.vo_greet.setText(o["wake_greeting"])
+            if not self.vo_wait.hasFocus():
+                self.vo_wait.setValue(float(o["wait_after_speech_seconds"]))
+            if not self.vo_follow.hasFocus():
+                self.vo_follow.setValue(float(o["follow_up_seconds"]))
+            i = self.vo_barge.findData(o["barge_in"])
+            self.vo_barge.setCurrentIndex(max(0, i))
+            if not self.vo_wake.hasFocus():
+                self.vo_wake.setText(", ".join(o["wake_phrases"]))
+            b = self.ctl.background_options()
+            self.bg_close.setCurrentIndex(max(0, self.bg_close.findData(b["on_close"])))
+            self.bg_wall.setChecked(bool(b["wallpaper"]))
+            guest = bool(self.ctl.guest)
+            for wdg in (self.vo_greet_on, self.vo_greet, self.vo_wait, self.vo_follow, self.vo_barge, self.vo_wake):
+                wdg.setEnabled(not guest)
+        except Exception:  # noqa: BLE001
+            pass
+        self._vo_loading = False
+
+    def _vo_set(self, **kw):
+        if getattr(self, "_vo_loading", False):
+            return
+        try:
+            self.ctl.voice_options_set(**kw)
+            self.vo_note.setText("Saved. Applied right away.")
+        except Exception as e:  # noqa: BLE001
+            self.vo_note.setText(str(e))
+            self._vo_fill()
+
+    def _vo_save_wake(self):
+        phrases = [p.strip() for p in self.vo_wake.text().split(",") if p.strip()]
+        try:
+            self.ctl.voice_wake_phrases_set(phrases)
+            self.vo_note.setText("Wake phrases saved: " + ", ".join(phrases))
+        except Exception as e:  # noqa: BLE001
+            self.vo_note.setText(str(e))
+
+    def _bg_wall_toggled(self, on):
+        if getattr(self, "_vo_loading", False):
+            return
+        self.ctl.background_options_set(wallpaper=bool(on))
+        self.bg.apply_wallpaper()
 
     # ---- Stage 6: voice selection, preview, microphone and wake phrase (PySide6 NOT available in the authoring sandbox: never run; logic is in jarvis.voice.viewmodel)
     def _voice_selection_block(self, v):
@@ -1541,6 +1728,7 @@ class MainWindow(QMainWindow):
             self.vi_model.setText(rep["model_folder"] or "")
 
     def _refresh_voice(self):
+        self._vo_fill()
         st = self.ctl.voice_state()
         self.voice_state_lbl.setText("State: " + st["state"])
         self.voice_mic_lbl.setText("Microphone: " + ("OPEN (capturing audio)" if st["mic_open"] else "CLOSED (no audio is captured)"))
@@ -2202,6 +2390,13 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ closing
     def closeEvent(self, e):
+        bg = getattr(self, "bg", None)
+        if bg is not None and bg.wants_background():
+            e.ignore()                      # closing hides the window; Jarvis (and hands-free listening, if on) keeps running until "Quit completely"
+            bg.hide_to_tray()
+            return
+        if bg is not None:
+            bg.finish()
         running = self.ctl.tasks.running()
         if running:
             r = QMessageBox.question(self, "Close Jarvis?",
@@ -2219,3 +2414,4 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, V.APP_NAME, "These were still running and could not be interrupted: " + ", ".join(res["still_running"])
                                     + ". They end by themselves; their results are recorded in the mission history.")
         e.accept()
+        QTimer.singleShot(0, QApplication.quit)         # the application no longer quits on its own when the last window closes (tray mode)

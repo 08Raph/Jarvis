@@ -99,14 +99,17 @@ def _state_path(cfg) -> Path:
 
 
 def get_state(cfg, guest: bool = False) -> dict:
-    st = {"enabled": False, "confirm_each": True}
+    # 2026-10-31: the owner asked for apps to open WITHOUT asking, so the defaults are now ON and no per-launch question. A settings file written by an older version
+    # (version 1, when both defaults were the other way) is treated as "never chosen" so the new defaults apply; the choices made from now on (version 2) are kept exactly.
+    # Everything else is unchanged: installers and terminals are refused, the emergency STOP is honoured, guests never launch, every launch is audit-logged.
     if guest:
-        return st
+        return {"enabled": False, "confirm_each": True}
+    st = {"enabled": True, "confirm_each": False}
     try:
         raw = json.loads(_state_path(cfg).read_text(encoding="utf-8"))
-        if isinstance(raw, dict):
-            st["enabled"] = raw.get("enabled") is True
-            st["confirm_each"] = raw.get("confirm_each") is not False
+        if isinstance(raw, dict) and raw.get("version") == 2:
+            st["enabled"] = raw.get("enabled") is not False
+            st["confirm_each"] = raw.get("confirm_each") is True
     except (OSError, ValueError):
         pass
     return st
@@ -123,7 +126,7 @@ def set_state(cfg, *, enabled: bool | None = None, confirm_each: bool | None = N
     p = _state_path(cfg)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps({"version": 1, **st}, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps({"version": 2, **st}, indent=2), encoding="utf-8")
     tmp.replace(p)
     return st
 
@@ -237,7 +240,9 @@ def _launch(app: dict, cfg, guest: bool, confirm, backend, st: dict, spoken: str
     if verified:
         return f"Opened {name}."
     if handed:
-        return f"I asked Windows to open {name} in your browser. I can't check that the page loaded."
+        if app.get("kind") == "web":
+            return f"I asked Windows to open {name} in your browser. I can't check that the page loaded."
+        return f"I asked Windows to open {name}. I can't check that it appeared."
     return f"I asked Windows to start {name}, but I haven't seen its window yet. Launchers and games can take a while."
 
 

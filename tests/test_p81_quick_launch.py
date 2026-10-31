@@ -168,7 +168,8 @@ class Handle(AppCase):
     def turn_on(self, ask=True):
         QL.set_state(self.cfg, enabled=True, confirm_each=ask)
 
-    def test_off_by_default_explains_and_starts_nothing(self):
+    def test_when_switched_off_it_explains_and_starts_nothing(self):
+        QL.set_state(self.cfg, enabled=False)
         self.assertIn("switch is off", self.say("open fortnite"))
         self.assertEqual(self.be.launched, [])
         self.assertIsNone(self.say("play something nice"))           # a weak sentence goes to the model
@@ -253,11 +254,15 @@ class Handle(AppCase):
         self.assertFalse((self.cfg.profile_dir / "desktop_permissions.json").exists())
 
     def test_settings_default_and_round_trip(self):
+        self.assertEqual(QL.get_state(self.cfg), {"enabled": True, "confirm_each": False})       # owner's choice 2026-10-31: on, no question per launch
+        QL.set_state(self.cfg, enabled=False, confirm_each=True)
         self.assertEqual(QL.get_state(self.cfg), {"enabled": False, "confirm_each": True})
         QL.set_state(self.cfg, enabled=True)
         self.assertEqual(QL.get_state(self.cfg), {"enabled": True, "confirm_each": True})
+        (self.cfg.profile_dir / QL.STATE_FILE).write_text(json.dumps({"version": 1, "enabled": False, "confirm_each": True}), encoding="utf-8")
+        self.assertEqual(QL.get_state(self.cfg), {"enabled": True, "confirm_each": False})       # an old-version file counts as never chosen
         (self.cfg.profile_dir / QL.STATE_FILE).write_text("{broken", encoding="utf-8")
-        self.assertEqual(QL.get_state(self.cfg), {"enabled": False, "confirm_each": True})
+        self.assertEqual(QL.get_state(self.cfg), {"enabled": True, "confirm_each": False})
         self.assertEqual(QL.get_state(self.cfg, guest=True), {"enabled": False, "confirm_each": True})
 
 
@@ -276,7 +281,7 @@ class ControllerWiring(AppCase):
 
     def test_typed_command_is_confirmed_launched_and_answered_without_a_model(self):
         c = self.ctl(lambda req, resolve: resolve(True))
-        c.quick_launch_set(on=True)
+        c.quick_launch_set(on=True, ask_each=True)
         self.assertTrue(c.send("open fortnite"))
         self.wait(c)
         self.assertEqual(c.ql_backend.launched, ["epic:fortnite"])
@@ -286,7 +291,7 @@ class ControllerWiring(AppCase):
 
     def test_declined_in_the_window_means_nothing_starts(self):
         c = self.ctl(lambda req, resolve: resolve(False))
-        c.quick_launch_set(on=True)
+        c.quick_launch_set(on=True, ask_each=True)
         c.send("open fortnite")
         self.wait(c)
         self.assertEqual(c.ql_backend.launched, [])

@@ -313,6 +313,7 @@ class PersonalMemory:
         # Always shown (capped): standing preferences, "Avoid:" corrections and current temporary instructions. Everything else must match the request,
         # so an unrelated saved note is never put in front of the model. Pending/superseded/expired rows never appear
         # (list() returns active, unexpired rows only).
+        add("about the user", [r for r in self.list("approved_context") if str(r.get("key") or "").startswith("about.")][-8:])      # plain facts they told me (where they live, what they like): always useful
         add("preference", self.list("explicit_preference")[-10:])
         add("correction", [r for r in self.list("correction") if r["text"].startswith("Avoid:")][-5:])
         add("for now", self.list("temporary_task"))

@@ -96,6 +96,8 @@ def run_gui(cfg, guest: bool = False, simulate: bool = False) -> int:
     try:
         win = MainWindow(ctl, bridge)
         win.show()
+        app.setQuitOnLastWindowClosed(False)       # closing the window may only hide it (tray); quitting is decided in closeEvent / the tray menu
+        win.bg.apply_wallpaper()
         if ctl.needs_setup():          # first run (or the model is missing/damaged): the wizard opens by itself; "Set up later" is always available
             from jarvis.ui.setup_dialog import SetupDialog
             SetupDialog(ctl, win).exec()
@@ -192,6 +194,7 @@ def _qt_checks(rep, cfg) -> None:
         asked.append("notice: " + " ".join(str(x) for x in a[1:3])[:240])
         return QMessageBox.StandardButton.Ok
     with mock.patch.object(QMessageBox, "question", staticmethod(_answer_question)), mock.patch.object(QMessageBox, "information", staticmethod(_answer_info)):
+        win.bg.force_quit = True            # the self-test must really close, not hide to the tray
         win.close()
     rep.add("close_prompts", "Closing the window", S.PASS if not asked else S.INFO, S.GENUINE,
             "closed without asking anything" if not asked else "closing asked (answered automatically): " + " | ".join(asked))

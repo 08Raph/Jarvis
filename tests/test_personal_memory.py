@@ -233,7 +233,7 @@ class InteractionTests(unittest.TestCase):
                   "what is the shorter route to Ottawa?", "be careful with the API", "explain how formal logic works",
                   "use Python for this", "no worries", "stop", "note the time is 5", "explain quantum computing in simple terms",
                   "don't forget the milk", "never gonna give you up", "say that again", "resume writing tips", "continue with my homework",
-                  "I like pizza", "always use tabs in code", "what did you say"):
+                  "always use tabs in code", "what did you say"):
             o = self.a.process(t)
             self.assertEqual((o.handled, o.kind), (False, "pass"), t)
         self.assertEqual(self.mem.list(status=None), [])

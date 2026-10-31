@@ -9,11 +9,14 @@ _PATH = re.compile(r"(?:[A-Za-z]:\\[^\s]+|(?:/[\w.\-]+){2,})")
 _URL = re.compile(r"https?://\S+")
 _SECRET = re.compile(r"\b(?:[A-Fa-f0-9]{32,}|[A-Za-z0-9_\-]{32,})\b")
 _MD = re.compile(r"[*_`#>]+")
+# the program adds labels such as "[Debate mode]" or "[Flirty roleplay]" to the TEXT on screen; they are never read aloud (spoken, they sounded like "roleplay, hello")
+_LABEL = re.compile(r"\[[^\]\n]{2,90}\]")
 
 
 def speakable(text: str) -> str:
     """Strip everything that should not be read aloud; the on-screen text is unchanged by this."""
-    t = _CODE_BLOCK.sub(" (code omitted) ", text)
+    t = _LABEL.sub(" ", text)
+    t = _CODE_BLOCK.sub(" (code omitted) ", t)
     lines = [ln for ln in t.splitlines() if not _LOGLINE.match(ln)]
     t = " ".join(lines)
     t = _URL.sub(" a link ", t)

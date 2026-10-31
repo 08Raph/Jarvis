@@ -128,7 +128,9 @@ class Rig:
         self.mic = mic or ThreadMic()
         self.rec = rec or ScriptRec()
         self.spk = spk or ThreadSpk()
-        vs = VoiceSettings(input_mode=mode, listening_choice_made=True, post_speech_guard_seconds=0.0, follow_up_seconds=0.0, **(settings or {}))      # a saved choice, so the first-start default does not apply
+        base = dict(input_mode=mode, listening_choice_made=True, post_speech_guard_seconds=0.0, follow_up_seconds=0.0,
+                    wait_after_speech_seconds=0.0, wake_greeting_on=False, barge_in="wake_word_only")      # quick tests: no pause before answering, no greeting, wake-word-only interrupting
+        vs = VoiceSettings(**{**base, **(settings or {})})      # a saved choice, so the first-start default does not apply
         vs.save(case.cfg.profile_dir / "voice.json")
         case.install_model()
         self.c = AppController(case.cfg, engine_factory=fake_engine_factory if engine else None, speaker_factory=lambda: self.spk,

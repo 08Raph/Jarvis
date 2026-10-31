@@ -94,22 +94,22 @@ class Sampling(unittest.TestCase):
     def test_default_profile_sends_temperature_only(self):
         e = self.engine()
         e.chat([{"role": "user", "content": "hi"}], 16, 0.7)
-        self.assertEqual(FakeLlm.calls[-1]["extra"], {})
+        self.assertEqual(FakeLlm.calls[-1]["extra"], {"repeat_penalty": 1.12})          # only a gentle repeat penalty; nothing else
 
     def test_publisher_profile_uses_catalog_values_only_when_sampling(self):
         e = self.engine(sampling_profile="publisher")
         e.chat([{"role": "user", "content": "hi"}], 16, 0.7)
-        self.assertEqual(FakeLlm.calls[-1]["extra"], {"top_p": 0.8, "top_k": 20, "min_p": 0.0})
+        self.assertEqual(FakeLlm.calls[-1]["extra"], {"repeat_penalty": 1.12, "top_p": 0.8, "top_k": 20, "min_p": 0.0})
         e.chat([{"role": "user", "content": "hi"}], 16, 0.0)
         self.assertEqual(FakeLlm.calls[-1]["extra"], {})          # greedy decoding is left alone
         list(e.stream([{"role": "user", "content": "hi"}], 16, 0.7))
-        self.assertEqual(FakeLlm.calls[-1]["extra"], {"top_p": 0.8, "top_k": 20, "min_p": 0.0})
+        self.assertEqual(FakeLlm.calls[-1]["extra"], {"repeat_penalty": 1.12, "top_p": 0.8, "top_k": 20, "min_p": 0.0})
 
     def test_unknown_model_has_no_publisher_recommendation(self):
         d = make_model_dir(self.tmp.name, "my-custom-model")
         e = G.GGUFEngine(d, llama_factory=FakeLlm, sampling_profile="publisher")
         e.chat([{"role": "user", "content": "hi"}], 16, 0.7)
-        self.assertEqual(FakeLlm.calls[-1]["extra"], {})
+        self.assertEqual(FakeLlm.calls[-1]["extra"], {"repeat_penalty": 1.12})
 
     def test_bad_profile_rejected(self):
         with self.assertRaises(ValueError):

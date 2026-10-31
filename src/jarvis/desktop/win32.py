@@ -307,3 +307,144 @@ def bgra_to_png(w: int, h: int, bgra: bytes) -> bytes:
     rgb = bytearray(w * h * 3)
     rgb[0::3], rgb[1::3], rgb[2::3] = bgra[2::4], bgra[1::4], bgra[0::4]
     return encode_rgb(w, h, bytes(rgb))
+
+
+# ------------------------------------------------------------------ monitors and moving a window (documented APIs; NOT run on a real PC by the author)
+MONITORINFOF_PRIMARY = 1
+SW_MAXIMIZE, SW_SHOWNORMAL = 3, 1
+SWP_NOZORDER, SWP_NOACTIVATE = 0x4, 0x10
+
+
+class MONITORINFO(ctypes.Structure):          # MONITORINFOEXW: the extra szDevice is "\\.\DISPLAY2", the number Windows shows in Settings > Display
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD), ("szDevice", ctypes.c_wchar * 32)]
+
+
+def monitors() -> list[dict]:
+    """The connected screens: `number` is the one Windows shows in Settings > Display (the DISPLAYn device name), `index` is the position from the left (1 = leftmost), plus whether it is
+    the main one and its usable area (work area) in pixels."""
+    found: list[dict] = []
+    MonitorEnumProc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HANDLE, wintypes.HDC, ctypes.POINTER(wintypes.RECT), wintypes.LPARAM)
+
+    def cb(hmon, _hdc, _rect, _lp):
+        mi = MONITORINFO()
+        mi.cbSize = ctypes.sizeof(MONITORINFO)
+        if user32.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+            w = mi.rcWork
+            digits = "".join(ch for ch in mi.szDevice if ch.isdigit())
+            found.append({"handle": int(hmon) if hmon else 0, "primary": bool(mi.dwFlags & MONITORINFOF_PRIMARY), "number": int(digits) if digits else 0,
+                          "left": w.left, "top": w.top, "right": w.right, "bottom": w.bottom})
+        return True
+    user32.EnumDisplayMonitors(None, None, MonitorEnumProc(cb), 0)
+    found.sort(key=lambda m: (m["left"], m["top"]))
+    for i, m in enumerate(found, 1):
+        m["index"] = i
+        if not m["number"]:
+            m["number"] = i
+    return found
+
+
+def move_window_to_monitor(hwnd: int, index: int) -> dict:
+    """Move a window to the screen with this `number` (see monitors()), keeping its size where it fits and its maximized state. Raises LookupError for an unknown screen."""
+    mons = monitors()
+    target = next((m for m in mons if m["number"] == index), None)
+    if target is None:
+        raise LookupError(f"there is no screen {index} (I see {len(mons)})")
+    if not user32.IsWindow(hwnd):
+        raise LookupError("that window is gone")
+    was_max = bool(user32.IsZoomed(hwnd))
+    if user32.IsIconic(hwnd) or was_max:
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    r = wintypes.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    w, h = r.right - r.left, r.bottom - r.top
+    tw, th = target["right"] - target["left"], target["bottom"] - target["top"]
+    w, h = min(w, tw), min(h, th)
+    x = target["left"] + max(0, (tw - w) // 2)
+    y = target["top"] + max(0, (th - h) // 2)
+    if not user32.SetWindowPos(hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE):
+        raise OSError(f"Windows refused to move the window (error {ctypes.get_last_error()}); it may belong to a program running as administrator")
+    if was_max:
+        user32.ShowWindow(hwnd, SW_MAXIMIZE)
+    return {"screen": index, "maximized": was_max, "rect": [x, y, x + w, y + h]}
+
+
+
+# ------------------------------------------------------------------ clipboard text and "what is highlighted"
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x2
+user32.OpenClipboard.argtypes = [wintypes.HWND]
+user32.GetClipboardData.restype = ctypes.c_void_p
+user32.GetClipboardData.argtypes = [wintypes.UINT]
+user32.SetClipboardData.argtypes = [wintypes.UINT, ctypes.c_void_p]
+user32.SetClipboardData.restype = ctypes.c_void_p
+user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
+kernel32.GlobalLock.restype = ctypes.c_void_p
+kernel32.GlobalLock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+kernel32.GlobalAlloc.restype = ctypes.c_void_p
+kernel32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+
+
+def _open_clipboard(tries: int = 10) -> bool:
+    for _ in range(tries):
+        if user32.OpenClipboard(None):
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def get_clipboard_text() -> str | None:
+    if not _open_clipboard():
+        return None
+    try:
+        h = user32.GetClipboardData(CF_UNICODETEXT)
+        if not h:
+            return None
+        p = kernel32.GlobalLock(h)
+        if not p:
+            return None
+        try:
+            return ctypes.wstring_at(p)
+        finally:
+            kernel32.GlobalUnlock(h)
+    finally:
+        user32.CloseClipboard()
+
+
+def set_clipboard_text(text: str | None) -> bool:
+    """Put text on the clipboard; None or "" empties it."""
+    if not _open_clipboard():
+        return False
+    try:
+        user32.EmptyClipboard()
+        if not text:
+            return True
+        data = ctypes.create_unicode_buffer(text)
+        size = ctypes.sizeof(data)
+        h = kernel32.GlobalAlloc(GMEM_MOVEABLE, size)
+        if not h:
+            return False
+        p = kernel32.GlobalLock(h)
+        ctypes.memmove(p, ctypes.addressof(data), size)
+        kernel32.GlobalUnlock(h)
+        return bool(user32.SetClipboardData(CF_UNICODETEXT, h))
+    finally:
+        user32.CloseClipboard()
+
+
+def selected_text(wait: float = 0.6) -> str | None:
+    """The text currently highlighted in the front window: press Ctrl+C, read what arrives on the clipboard, then put the old clipboard text back. None when nothing was highlighted
+    (or the program does not support copying). Only the clipboard text is touched; other clipboard formats (images, files) are not restored, so an image on the clipboard is replaced."""
+    before_seq = user32.GetClipboardSequenceNumber()
+    old = get_clipboard_text()
+    send_vk_sequence([(0x11, False), (0x43, False), (0x43, True), (0x11, True)])        # (key, is_release): Ctrl down, C down, C up, Ctrl up
+    end = time.monotonic() + wait
+    got = None
+    while time.monotonic() < end:
+        if user32.GetClipboardSequenceNumber() != before_seq:
+            got = get_clipboard_text()
+            break
+        time.sleep(0.03)
+    if got is not None:
+        set_clipboard_text(old)
+    return got or None

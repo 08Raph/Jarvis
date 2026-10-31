@@ -38,6 +38,23 @@ class SpeechOut:
         vs.save(self.cfg.profile_dir / "voice.json")
         return vs
 
+    OPTION_FIELDS = ("wake_greeting", "wake_greeting_on", "wait_after_speech_seconds", "barge_in", "follow_up_seconds")
+
+    def update_options(self, **kw) -> VoiceSettings:
+        """Greeting after the wake phrase, the pause before answering, interrupting and the follow-up window. Validated before anything is written."""
+        from dataclasses import replace
+        bad = set(kw) - set(self.OPTION_FIELDS)
+        if bad:
+            raise ValueError(f"unknown voice option(s): {sorted(bad)}")
+        vs = replace(self.settings(), **kw).validate()
+        vs.save(self.cfg.profile_dir / "voice.json")
+        return vs
+
+    def update_wake_phrases(self, phrases: list[str]) -> VoiceSettings:
+        vs = self.settings().set_wake_phrases(phrases)
+        vs.save(self.cfg.profile_dir / "voice.json")
+        return vs
+
     def available(self) -> tuple[bool, str]:
         return self.voices.available()
 

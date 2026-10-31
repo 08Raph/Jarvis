@@ -75,6 +75,39 @@ WORKED = re.compile(r"^(?:yes[,! ]+)?(?:that|it) (?:worked|did it|fixed it|is fi
 FAILED = re.compile(r"^(?:no[,! ]+)?(?:that|it) (?:didn'?t work|did not work|failed|is still broken|doesn'?t work)|^still (?:broken|failing|not working)", re.I)
 YES_KEEP = re.compile(r"^(?:yes[,! ]+)?(?:please\s+)?(?:remember (?:that|it|this)|keep (?:that|it)|make (?:that|it) (?:permanent|standing)|save (?:that|it))[.!]?$", re.I)
 CALL_ME = re.compile(r"^(?:please\s+)?(?:call me|my name is)\s+([A-Za-z][A-Za-z'\- ]{0,30})[.!]?$", re.I)
+# Plain facts about the user, saved by themselves when they say them ("I live in Toronto", "I work as a nurse", "I love pizza"). Each save is announced with its memory number, can be
+# deleted, and is skipped for anything sensitive (health, religion, politics, money, identity documents...). Questions and sentences about "it/that/this" are never saved.
+_SENSITIVE = re.compile(r"\b(health|sick|ill(?:ness)?|disease|diagnos\w*|medic\w*|pills?|therap\w*|depress\w*|anxi\w*|cancer|pregnan\w*|religio\w*|church|mosque|muslim|christian|jewish|hindu|"
+                        r"atheist|politic\w*|vote|democrat|republican|gay|lesbian|bisexual|transgender|salary|paid|debt|loan|owe|password|passcode|ssn|social security|credit|immigra\w*|visa|"
+                        r"arrest\w*|police|prison|abus\w*|suicid\w*|drugs?|alcohol)\b", re.I)
+_ABOUT_NOT = re.compile(r"^(?:it|that|this|those|these|you|when|how|to|the way|what|if|being|doing|not)\b", re.I)
+ABOUT_RULES: list[tuple[str, re.Pattern, str]] = [
+    ("about.location", re.compile(r"^(?:i live in|i(?:'m| am) living in|i(?:'m| am) from|i(?:'m| am) based in)\s+([A-Za-z][A-Za-z ,.'\-]{1,38}?)[.!]?$", re.I), "Lives in {}."),
+    ("about.job", re.compile(r"^i work (?:as|at|for)\s+(?:an? |the )?([A-Za-z][A-Za-z0-9 &'\-]{1,38}?)[.!]?$", re.I), "Works as/at {}."),
+    ("about.likes", re.compile(r"^i (?:really |absolutely )?(?:love|like|enjoy)\s+([A-Za-z][A-Za-z0-9 &'\-]{1,38}?)[.!]?$", re.I), "Likes {}."),
+    ("about.dislikes", re.compile(r"^i (?:really )?(?:hate|dislike|can'?t stand)\s+([A-Za-z][A-Za-z0-9 &'\-]{1,38}?)[.!]?$", re.I), "Dislikes {}."),
+    ("about.favorite", re.compile(r"^my (?:favou?rite [a-z ]{2,20}) is\s+(.{2,38}?)[.!]?$", re.I), None),
+]
+
+
+def _about_fact(t: str) -> tuple[str, str] | None:
+    if "?" in t or len(t.split()) > 12 or _SENSITIVE.search(t):
+        return None
+    for key, rx, tmpl in ABOUT_RULES:
+        m = rx.match(t)
+        if not m:
+            continue
+        val = " ".join(m.group(1).split()).strip(" ,.")
+        if not val or _ABOUT_NOT.match(val) or len(val.split()) > 6:
+            return None
+        if tmpl is None:                                  # "my favorite colour is blue" -> "Favorite colour: blue."
+            what = re.sub(r"^my\s+", "", t[: t.lower().rindex(" is ")], flags=re.I).strip().capitalize()
+            return key + "." + re.sub(r"\W+", "_", what.lower())[:30], f"{what}: {val}."
+        slug = re.sub(r"\W+", "_", val.lower())[:30]
+        return (key if key in ("about.location", "about.job") else f"{key}.{slug}"), tmpl.format(val)
+    return None
+
+
 PROJECT_IN = re.compile(r"\b(?:for|on|in|about)\s+(?:my |the |our )?([A-Za-z0-9][A-Za-z0-9 _\-]{1,38}?)\s+project\b", re.I)
 
 
@@ -202,6 +235,14 @@ class MemoryAgent:
             name = " ".join(m.group(1).split())[:30]
             row, err = self._safe_add("explicit_preference", f"Address the user as {name}.", key="address.name", source="user_said")
             return err or Outcome(True, self._saved_notice(row, "a standing preference"), saved=[row["id"]], kind="preference_saved")
+
+        fact = _about_fact(t)
+        if fact:
+            key, ftext = fact
+            row, err = self._safe_add("approved_context", ftext, key=key, source="user_said", confidence=0.8)
+            if row is not None:
+                return Outcome(False, notice=f"I'll remember that (memory #{row['id']}: \"{ftext}\"). Delete it any time on the Memory page.", saved=[row["id"]], kind="about_saved")
+            return Outcome()
 
         if AVOID_BARE.match(t):
             self.awaiting = "avoid_rule"

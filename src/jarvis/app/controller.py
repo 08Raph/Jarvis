@@ -123,6 +123,8 @@ class AppController:
         self._kokoro_task = None
         self.voice = None                           # hands-free VoiceService, created on first use
         self.busy = False                           # a chat reply is being produced
+        self.chat_id: str | None = None             # the saved chat on screen (see save_chat); None until the first message
+        self._restore_history: list | None = None   # earlier messages of a re-opened chat, handed to the model when it loads
         self.loading = False
         self.lock = InstanceLock.for_profile(cfg)
         self.closed = False
@@ -445,6 +447,9 @@ class AppController:
                 mem.close()                                  # model missing/corrupt: do not leave the database open
                 raise
             self.assistant.persona = self.persona            # one shared persona: the window and the model path always agree
+            if self._restore_history:
+                self.assistant.history = list(self._restore_history)
+                self._restore_history = None
         return self.assistant
 
     # ------------------------------------------------------------------ quick launch ("open Fortnite", "open Instagram", "scan my PC"): its own switch, see jarvis.app.quick_launch
@@ -475,6 +480,46 @@ class AppController:
             self.on_update("safety")
         return self.tasks.submit("scan", work, done) is not None
 
+    # ------------------------------------------------------------------ screen helper ("read my screen", "read what I highlighted", "move my Discord to monitor 2"): see jarvis.app.desk_assist
+    def desk_assist_state(self) -> dict:
+        from jarvis.app import desk_assist as DA
+        return DA.get_state(self.cfg, self.guest)
+
+    def desk_assist_set(self, on: bool) -> dict:
+        from jarvis.app import desk_assist as DA
+        return DA.set_state(self.cfg, enabled=bool(on), guest=self.guest)
+
+    def _try_desk_assist(self, text: str) -> bool:
+        from jarvis.app import desk_assist as DA
+        if DA.parse(text) is None:
+            return False
+        self.transcript.add("user", text)
+        self.busy = True
+        self.on_update("transcript")
+        self.on_update("busy")
+
+        def work(token):
+            return DA.handle(text, self.cfg, guest=self.guest, backend=self.ql_backend)
+
+        def done(result, err):
+            self.busy = False
+            if err:
+                self.transcript.add("error", explain_error(err))
+            elif result is not None and result.model_text:
+                self.on_update("busy")
+                self.send(result.model_text, _echo=False, _skip_launch=True)       # the language model answers, from the quoted screen text
+                return
+            elif result is not None and result.reply:
+                self.transcript.add("assistant", result.reply)
+                self.speech.speak(result.reply, 1.0)
+            self.save_chat()
+            self.on_update("transcript")
+            self.on_update("busy")
+        if self.tasks.submit("desk-assist", work, done) is None:
+            self.busy = False
+            return False
+        return True
+
     def _try_quick_launch(self, text: str) -> bool:
         """If the text is a quick-launch command, handle it on a worker and return True. Anything else (or a command the model should answer) returns False."""
         from jarvis.app import quick_launch as QL
@@ -502,6 +547,7 @@ class AppController:
             else:
                 self.transcript.add("assistant", result)
                 self.speech.speak(result, 1.0)
+            self.save_chat()
             self.on_update("transcript")
             self.on_update("busy")
         if self.tasks.submit("quick-launch", work, done) is None:
@@ -527,7 +573,7 @@ class AppController:
             self.transcript.add("system", "Jarvis is switching or testing a brain right now. Try again in a moment.")
             self.on_update("transcript")
             return False
-        if not _skip_launch and self._try_quick_launch(text):
+        if not _skip_launch and (self._try_desk_assist(text) or self._try_quick_launch(text)):
             return True
         ms = self.model_status() if self.assistant is None else None
         if _echo:
@@ -571,6 +617,7 @@ class AppController:
             if result and result.get("notice"):
                 self.transcript.add("system", result["notice"])
                 self.on_update("persona")
+            self.save_chat()
             self.on_update("transcript")
             self.on_update("busy")
         t = self.tasks.submit("chat", work, done)
@@ -590,10 +637,86 @@ class AppController:
     def new_conversation(self) -> None:
         if self.busy:
             return
+        self.save_chat()                       # the chat you are leaving is already stored; this makes sure its last messages are too
         if self.assistant is not None:
             self.assistant.reset()
+        self._restore_history = None
+        self.chat_id = None
         self.transcript.clear()
         self.on_update("transcript")
+        self.on_update("chats")
+
+    # ------------------------------------------------------------------ saved chats (stored on this PC by themselves; a guest session saves nothing)
+    def _chat_store(self):
+        from jarvis.app.chats import ChatStore
+        return ChatStore(self.cfg.profile_dir / "chats", guest=self.guest)
+
+    def save_chat(self) -> bool:
+        """Store the chat on screen. Called after every finished turn and when a new chat is started or the app closes."""
+        if self.guest or not self.transcript.entries:
+            return False
+        from jarvis.app import chats
+        try:
+            if self.chat_id is None:
+                self.chat_id = chats.new_id()
+            ok = self._chat_store().store(self.chat_id, self.transcript.entries)
+        except Exception:  # noqa: BLE001 - saving must never break chatting
+            return False
+        if ok:
+            self.on_update("chats")
+        return ok
+
+    def chat_list(self) -> list[dict]:
+        if self.guest:
+            return []
+        rows = self._chat_store().list()
+        for r in rows:
+            r["current"] = (r["id"] == self.chat_id)
+        return rows
+
+    def chat_open(self, chat_id: str) -> bool:
+        """Show a saved chat and carry on from it (the model gets its earlier messages back). Not while a reply is being written."""
+        if self.busy or self.guest:
+            return False
+        d = self._chat_store().load(chat_id)
+        if d is None:
+            return False
+        self.save_chat()
+        from jarvis.app.chats import ChatStore
+        self.transcript.clear()
+        for e in d["entries"]:
+            if e.get("kind") in ("user", "assistant", "system", "error"):
+                ent = self.transcript.add(e["kind"], e.get("text", ""))
+                ent.at = float(e.get("at") or ent.at)
+        hist = ChatStore.history_from(d["entries"])
+        if self.assistant is not None:
+            self.assistant.history = list(hist)
+        else:
+            self._restore_history = list(hist)
+        self.chat_id = chat_id
+        self.on_update("transcript")
+        self.on_update("chats")
+        return True
+
+    def chat_delete(self, chat_id: str) -> bool:
+        if self.guest:
+            return False
+        ok = self._chat_store().delete(chat_id)
+        if ok and chat_id == self.chat_id:
+            self.chat_id = None
+            if not self.busy:
+                if self.assistant is not None:
+                    self.assistant.reset()
+                self._restore_history = None
+                self.transcript.clear()
+                self.on_update("transcript")
+        self.on_update("chats")
+        return ok
+
+    def chat_rename(self, chat_id: str, title: str) -> bool:
+        ok = self._chat_store().rename(chat_id, title)
+        self.on_update("chats")
+        return ok
 
     # ------------------------------------------------------------------ missions (existing store/runner/service)
     def _store(self):
@@ -797,6 +920,14 @@ class AppController:
         finally:
             mem.close()
 
+    def memory_add(self, text: str) -> dict:
+        """Type a note for Jarvis to keep (the Memory page's box). Saved as personal context you asked it to remember; secrets are refused; you can edit or delete it there."""
+        mem = self._memory()
+        try:
+            return mem.add("approved_context", text, source="user_said")
+        finally:
+            mem.close()
+
     def memory_update(self, mid: int, text: str) -> dict:
         mem = self._memory()
         try:
@@ -874,6 +1005,15 @@ class AppController:
         """Runs on a helper thread. The SAME assistant (persona, safety, memory rules) as typed chat. The only thing reachable before it is quick launch
         (open an app, game or website you named; its own switch, off by default, and it asks first unless you turned that off); no desktop tool or executor is."""
         try:
+            from jarvis.app import desk_assist as DA
+            helped = DA.handle(text, self.cfg, guest=self.guest, backend=self.ql_backend)
+        except Exception:  # noqa: BLE001 - a screen-helper problem must never stop the normal answer
+            helped = None
+        if helped is not None and helped.reply:
+            return helped.reply, 1.0
+        if helped is not None and helped.model_text:
+            text = helped.model_text                           # the language model answers from the quoted screen text
+        try:
             from jarvis.app import quick_launch as QL
             launched = QL.handle(text, self.cfg, confirm=self.confirm, guest=self.guest, backend=self.ql_backend)
         except Exception:  # noqa: BLE001 - a quick-launch problem must never stop the normal answer
@@ -901,7 +1041,7 @@ class AppController:
 
     def _voice_reply(self, text: str) -> None:
         if text:
-            self._ui(lambda: (self.transcript.add("assistant", text), self.on_update("transcript")))
+            self._ui(lambda: (self.transcript.add("assistant", text), self.save_chat(), self.on_update("transcript")))
 
     def voice_autostart(self) -> dict | None:
         """Called once by the window after it is shown. Starts hands-free voice if the user enabled it earlier. On a fresh profile where the user has NEVER chosen, it turns
@@ -936,6 +1076,14 @@ class AppController:
 
     def voice_state(self) -> dict:
         return self._voice_service().state()
+
+    def background_options(self) -> dict:
+        from jarvis.app.background import BackgroundOptions
+        return BackgroundOptions(self.cfg.profile_dir, guest=self.guest).get()
+
+    def background_options_set(self, **kw) -> dict:
+        from jarvis.app.background import BackgroundOptions
+        return BackgroundOptions(self.cfg.profile_dir, guest=self.guest).set(**kw)
 
     def voice_live(self) -> dict:
         """In-memory snapshot for the Home screen's animation (many times a second): reads no file, creates nothing, never opens the microphone."""
@@ -978,8 +1126,47 @@ class AppController:
         if svc.alive() and svc._session is not None:
             vs = svc.settings()
             svc._session.s.rate, svc._session.s.volume = vs.rate, vs.volume      # takes effect on the next spoken reply
+        self._voice_live()
         self._notify("voice")
         return svc.state()
+
+    def _voice_live(self) -> None:
+        """A voice setting changed: push it into the running listener now, so nothing needs restarting."""
+        svc = self.voice
+        if svc is not None:
+            svc.refresh_live()
+
+    VOICE_OPTION_FIELDS = ("wake_greeting", "wake_greeting_on", "wait_after_speech_seconds", "barge_in", "follow_up_seconds")
+
+    def voice_options(self) -> dict:
+        """What the Voice page shows for the greeting, the pause before answering, interrupting and the wake phrases."""
+        vs = self.speech.settings()
+        return {"wake_greeting": vs.wake_greeting, "wake_greeting_on": vs.wake_greeting_on, "wait_after_speech_seconds": vs.wait_after_speech_seconds,
+                "barge_in": vs.barge_in, "follow_up_seconds": vs.follow_up_seconds, "wake_phrases": vs.all_wake_phrases()}
+
+    def voice_options_set(self, **kw) -> dict:
+        """Greeting after the wake phrase, how long you can pause before Jarvis answers, and whether you can interrupt it. Validated, saved, and applied at once (no restart)."""
+        if self.guest:
+            raise ValueError("Voice settings are not changed in a guest session.")
+        bad = set(kw) - set(self.VOICE_OPTION_FIELDS)
+        if bad:
+            raise ValueError(f"unknown voice option(s): {sorted(bad)}")
+        self.speech.update_options(**kw)
+        self._voice_live()
+        self._notify("voice")
+        return self.voice_options()
+
+    def voice_wake_phrases_set(self, phrases: list[str]) -> dict:
+        """Several wake phrases (the first is the main one). Validated and saved; if hands-free is running it restarts on a worker so the new phrases are listened for."""
+        if self.guest:
+            raise ValueError("Voice settings are not changed in a guest session.")
+        vs = self.speech.update_wake_phrases(list(phrases))
+        svc = self.voice
+        restarting = bool(svc is not None and svc.alive())
+        if restarting:
+            self.tasks.submit("voice-restart", lambda token: (None if self.closed else svc.retry()), lambda r, e: self._notify("voice"))
+        self._notify("voice")
+        return {"ok": True, "restarting": restarting, "wake_phrases": vs.all_wake_phrases()}
 
     # ------------------------------------------------------------------ optional start-with-Windows (separate from voice; explicit consent)
     def startup_state(self) -> dict:
@@ -1028,6 +1215,7 @@ class AppController:
         if self.guest:
             raise ValueError("Voice settings are not changed in a guest session.")
         out = self.speech.voices.apply(voice_id, persona)
+        self._voice_live()
         self._notify("voice")
         return out
 
@@ -1035,6 +1223,7 @@ class AppController:
         if self.guest:
             raise ValueError("Voice settings are not changed in a guest session.")
         out = self.speech.voices.clear_persona_voice(persona)
+        self._voice_live()
         self._notify("voice")
         return out
 
@@ -1109,6 +1298,7 @@ class AppController:
         if self.guest:
             raise ValueError("Voice settings are not changed in a guest session.")
         out = self.speech.voices.select_engine(engine_id)
+        self._voice_live()
         self._notify("voice")
         return out
 
@@ -1348,6 +1538,7 @@ class AppController:
         """Close cleanly. Pending confirmations are answered NO, running work is asked to stop, the lock is released. Returns what could not be
         stopped in time so the window can say so honestly (a mission step in progress cannot be interrupted)."""
         self.closed = True
+        self.save_chat()
         self.stop_speaking()
         try:
             self.voice_preview.close()

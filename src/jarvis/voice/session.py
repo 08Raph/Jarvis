@@ -27,6 +27,8 @@ CANCEL_WORDS = {"stop", "cancel", "never mind", "nevermind", "be quiet", "quiet"
 SLEEP_WORDS = {"go to sleep", "sleep", "stop listening"}
 NO_SPEECH_TIMEOUT = 6.0
 BARGE_FRAMES = 3
+GREETING_FOLLOW_SECONDS = 10.0   # after "Hello sir, how may I assist you?" you have at least this long to start your request
+ECHO_OVERLAP = 0.5            # smart barge-in: a partial phrase is Jarvis's own voice when at least this share of its words are words Jarvis is saying
 RETRY_DELAYS = (1.0, 2.0, 5.0, 10.0, 30.0)
 
 
@@ -80,6 +82,10 @@ class VoiceSession:
         self._spoken_at = -1e9
         self._last_key = ""                  # the last accepted utterance, to refuse an immediate duplicate
         self._last_key_t = -1e9
+        self._cap_parts: list[str] = []      # finished pieces of what you are saying now (the recogniser ends a piece at every short pause; Jarvis keeps waiting until you have really finished)
+        self._greeting_follow = False
+        self._after_greeting = False         # the wake greeting is being spoken: when it ends, listen for the request
+        self._cancel_flag = False            # you said "stop" while the reply was still being produced
         self.level = 0.0                     # RMS (0..1) of the newest microphone frame, for the window's meter. A number only: no audio is kept. 0 while the stream is closed.
 
     # ---------- state / mic plumbing ----------
@@ -125,6 +131,21 @@ class VoiceSession:
         self._retry += 1
         self._set(RECOVERING, f"microphone problem ({msg}); retrying")
         self._emit("error", f"microphone problem: {msg}")
+
+    LIVE_FIELDS = ("tts_voice", "voice_by_persona", "rate", "volume", "response_length", "barge_in", "follow_up_seconds", "silence_end_seconds",
+                   "wait_after_speech_seconds", "max_utterance_seconds", "pronunciations", "output_mode", "post_speech_guard_seconds", "wake_greeting",
+                   "wake_greeting_on", "sensitivity", "vad_min_rms")
+
+    def apply_live(self, new: VoiceSettings) -> None:
+        """Take over the settings that can change while running (voice, speed, volume, greeting, pauses, interrupting) so a change on the Voice page applies at once.
+        Not the microphone, model folder or wake phrases: those need the listener to restart (the controller does that)."""
+        for name in self.LIVE_FIELDS:
+            setattr(self.s, name, getattr(new, name))
+        self.vad.min_rms = float(self.s.vad_min_rms)
+
+    def take_cancel(self) -> bool:
+        flag, self._cancel_flag = self._cancel_flag, False
+        return flag
 
     # ---------- user controls ----------
     def start(self) -> None:
@@ -186,6 +207,7 @@ class VoiceSession:
             return
         self._ptt = True
         self.rec.reset()
+        self._cap_parts = []
         self._heard_speech = False
         self._silence = 0.0
         self._set(CAPTURING, "push-to-talk")
@@ -193,7 +215,7 @@ class VoiceSession:
     def ptt_release(self) -> None:
         if self._ptt:
             self._ptt = False
-            self._finish_capture(self.rec.flush())
+            self._finish_capture(self._take_text())
 
     # ---------- main step ----------
     def tick(self) -> None:
@@ -248,30 +270,73 @@ class VoiceSession:
                     if rest:
                         self._handle_text(rest)
                     else:
-                        self._begin_capture()
+                        self._greet_or_capture()
                     return
         if self.s.sleep_after_seconds and now - self._last_activity >= self.s.sleep_after_seconds:
             self.sleep()
 
     def _begin_capture(self):
         self.rec.reset()
+        self._cap_parts = []
         self._heard_speech = False
         self._silence = 0.0
         self._set(CAPTURING)
 
+    def _greet_or_capture(self):
+        """After the wake phrase with nothing else said: speak the greeting (if one is set and speech is on), then listen for the request."""
+        g = (self.s.wake_greeting or "").strip()
+        if g and self.s.wake_greeting_on and self.s.output_mode != "text_only" and not self.s.speaker_muted:
+            say = apply_pronunciations(g, self.s.pronunciations)
+            self.rec.reset()
+            self._spoken, self._spoken_at = " ".join(normalize(say)), self.clock()
+            self._barge = 0
+            self._after_greeting = True
+            try:
+                self.spk.speak(say, self._speech_rate(), self.s.volume, self.s.tts_voice)
+            except Exception as e:  # noqa: BLE001 - a speaker problem must not stop the request being heard
+                self._after_greeting = False
+                self._emit("error", f"greeting could not be spoken: {type(e).__name__}")
+                self._begin_capture()
+                return
+            self._emit("greeting", g)
+            self._set(SPEAKING)
+            return
+        self._begin_capture()
+
+    def _take_text(self) -> str:
+        """Everything said so far in this request: the finished pieces plus whatever the recogniser still holds."""
+        tail = self.rec.flush()
+        parts = [p for p in [*self._cap_parts, tail] if p]
+        self._cap_parts = []
+        return " ".join(parts).strip()
+
+    def _wait_seconds(self) -> float:
+        return max(float(self.s.silence_end_seconds), float(self.s.wait_after_speech_seconds))
+
+    def _add_piece(self, text: str | None) -> bool:
+        """Keep a finished piece. True when the whole request so far is just "stop" / "go to sleep", which needs no waiting."""
+        if text:
+            self._cap_parts.append(text)
+            if float(self.s.wait_after_speech_seconds) <= 0:
+                return True                          # the pause is switched off (0): the recogniser's own end-of-sentence is enough
+            norm = " ".join(normalize(" ".join(self._cap_parts)))
+            return norm in CANCEL_WORDS or norm in SLEEP_WORDS
+        return False
+
     def _capturing(self, frame, speech, now):
         text = self.rec.feed(frame, "dictation")
+        quick = self._add_piece(text)
         if self._ptt:
             return  # push-to-talk ends only on key release
-        if speech:
-            self._heard_speech, self._silence = True, 0.0
+        if speech or text:
+            self._heard_speech, self._silence = True, 0.0 if speech else self._silence
         else:
             self._silence += self.dt
         too_long = now - self._t0 >= self.s.max_utterance_seconds
-        done = text is not None or (self._heard_speech and self._silence >= self.s.silence_end_seconds) or too_long
-        if done:
-            self._finish_capture(text if text is not None else self.rec.flush())
-        elif not self._heard_speech and now - self._t0 >= NO_SPEECH_TIMEOUT:
+        waited = self._heard_speech and self._silence >= self._wait_seconds()      # you stopped talking and stayed quiet for the whole pause
+        if quick or waited or too_long:
+            self._finish_capture(self._take_text())
+        elif not self._heard_speech and not self._cap_parts and now - self._t0 >= NO_SPEECH_TIMEOUT:
             self.rec.reset()
             self._set(LISTENING, "heard nothing")
 
@@ -298,6 +363,7 @@ class VoiceSession:
             if self.state in (CAPTURING, FOLLOW_UP):
                 self._set(LISTENING, "duplicate ignored")
             return
+        self._after_greeting = False
         if self._echo_of_own_speech(norm):
             self._emit("ignored", "sounds like Jarvis's own voice")
             if self.state in (CAPTURING, FOLLOW_UP):
@@ -376,16 +442,78 @@ class VoiceSession:
             self._barge = self._barge + 1 if speech else 0
             if self._barge >= BARGE_FRAMES:
                 self.spk.stop()
+                self._after_greeting = False
                 self._begin_capture()
                 return
+        elif mode == "smart":
+            if self._smart_barge(frame):
+                return
         if not self.spk.is_speaking():
+            if self._after_greeting:
+                self._after_greeting = False
+                self.rec.reset()
+                self._guard_until = self.clock() + max(0.0, float(self.s.post_speech_guard_seconds))
+                self._heard_speech, self._silence = False, 0.0
+                self._cap_parts = []
+                self._set(FOLLOW_UP, "greeting finished")      # the request that follows needs no wake phrase
+                self._greeting_follow = True
+                return
             self._after_reply()
+
+    def _echo_share(self, norm: str) -> float:
+        words = norm.split()
+        if not words or not self._spoken:
+            return 0.0
+        said = set(self._spoken.split())
+        return sum(1 for w in words if w in said) / len(words)
+
+    def _smart_barge(self, frame) -> bool:
+        """While Jarvis speaks, listen for WORDS (not just sound, which would be its own echo). "stop" cuts it off; any other words that are not Jarvis's own cut it off too
+        and are kept as the start of your request. True when speech was interrupted."""
+        final = self.rec.feed(frame, "dictation")
+        partial = ""
+        getter = getattr(self.rec, "partial", None)
+        if callable(getter):
+            try:
+                partial = getter() or ""
+            except Exception:  # noqa: BLE001
+                partial = ""
+        text = final or partial
+        norm = " ".join(normalize(text))
+        if not norm:
+            return False
+        if norm in CANCEL_WORDS or norm in SLEEP_WORDS:
+            if norm in self._spoken and self._echo_share(norm) >= 1.0 and len(norm.split()) > 1:
+                return False                         # Jarvis is itself saying this phrase
+            self.spk.stop()
+            self.rec.reset()
+            self._after_greeting = False
+            self._pending_reply = None
+            if norm in SLEEP_WORDS:
+                self.sleep()
+            else:
+                self._set(LISTENING, "stopped")
+            return True
+        if self._echo_share(norm) >= ECHO_OVERLAP:
+            return False                             # mostly words Jarvis is saying: its own voice coming back through the microphone
+        self.spk.stop()
+        self._after_greeting = False
+        self.rec.reset()
+        self._cap_parts = [text] if final else ([partial] if partial else [])
+        self._heard_speech, self._silence = True, 0.0
+        self._set(CAPTURING, "you spoke over Jarvis")
+        self._emit("barge_in", text)
+        return True
 
     def observe(self, frame: np.ndarray) -> None:
         """Frames that arrive while the reply is being produced are not recognised, but the voice detector still sees them, so a reply is not
         spoken over a user who started talking in the meantime."""
         self._last_speech = self.vad.is_speech(frame)
         self.level = rms(frame)
+        if self.s.barge_in == "smart":
+            text = self.rec.feed(frame, "dictation")      # saying "stop" while Jarvis is still thinking cancels the reply
+            if text and " ".join(normalize(text)) in CANCEL_WORDS:
+                self._cancel_flag = True
 
     def set_speaker_muted(self, on: bool) -> None:
         """Speaker mute only: silences speech now and from here on; the microphone state is untouched."""
@@ -398,6 +526,7 @@ class VoiceSession:
         self._guard_until = self.clock() + max(0.0, float(self.s.post_speech_guard_seconds))
         if self.s.follow_up_seconds > 0:
             self._heard_speech, self._silence = False, 0.0
+            self._cap_parts = []
             self._set(FOLLOW_UP)
         else:
             self._last_activity = self.clock()
@@ -405,14 +534,22 @@ class VoiceSession:
 
     def _follow_up(self, frame, speech, now):
         text = self.rec.feed(frame, "dictation")
+        quick = self._add_piece(text)
         if speech:
             self._heard_speech, self._silence = True, 0.0
             self._t0_speech = now
         elif self._heard_speech:
             self._silence += self.dt
-        if text is not None or (self._heard_speech and self._silence >= self.s.silence_end_seconds):
-            self._finish_capture(text if text is not None else self.rec.flush())
-        elif not self._heard_speech and now - self._t0 >= self.s.follow_up_seconds:
+        if text:
+            self._heard_speech = True
+        window = self.s.follow_up_seconds
+        if self._greeting_follow:
+            window = max(window, GREETING_FOLLOW_SECONDS)
+        if quick or (self._heard_speech and self._silence >= self._wait_seconds()) or (self._heard_speech and now - self._t0 >= self.s.max_utterance_seconds):
+            self._greeting_follow = False
+            self._finish_capture(self._take_text())
+        elif not self._heard_speech and not self._cap_parts and now - self._t0 >= window:
+            self._greeting_follow = False
             self.rec.reset()
             self._last_activity = now
             self._set(LISTENING, "follow-up window closed")

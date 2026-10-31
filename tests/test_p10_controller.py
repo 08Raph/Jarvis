@@ -32,7 +32,7 @@ class SlowLlama(FakeLlama):
             SlowLlama.started.set()
             for i in range(300):
                 time.sleep(0.01)
-                yield {"choices": [{"delta": {"content": "word "}}]}
+                yield {"choices": [{"delta": {"content": f"word{i} "}}]}      # distinct words: a reply that only repeats itself is stopped by the loop guard
         return gen()
 
 

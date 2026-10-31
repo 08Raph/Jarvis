@@ -4,6 +4,7 @@ No network access. UNTESTED against a real model in the authoring sandbox (no ru
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import os
 import re
@@ -203,7 +204,22 @@ class GGUFEngine:
             pass
 
     def _gen_kwargs(self, temperature: float) -> dict:
-        return dict(self.sampling) if temperature and temperature > 0 else {}
+        if not (temperature and temperature > 0):
+            return {}
+        kw = {"repeat_penalty": 1.12} if self._accepts("repeat_penalty") else {}      # discourages the model from repeating itself (it sometimes said the same thing over and over); a publisher profile may override it
+        kw.update(self.sampling)
+        return kw
+
+    def _accepts(self, name: str) -> bool:
+        """Whether the loaded runtime's chat call takes this option (llama-cpp-python does; a stand-in with a fixed signature may not)."""
+        fn = getattr(getattr(self, "llm", None), "create_chat_completion", None)
+        if fn is None:
+            return True
+        try:
+            params = inspect.signature(fn).parameters
+        except (TypeError, ValueError):
+            return True
+        return name in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
 
     def _count(self, text: str) -> int:
         try:

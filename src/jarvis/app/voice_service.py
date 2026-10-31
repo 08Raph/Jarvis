@@ -307,6 +307,16 @@ class VoiceService:
         self._changed()
         return self.state()
 
+    def refresh_live(self) -> None:
+        """Push the saved voice settings (voice, speed, volume, greeting, pauses, interrupting) into the running listener, so a change takes effect at once without restarting the app."""
+        ses = self._session
+        if ses is not None and self.alive():
+            try:
+                ses.apply_live(self.settings())
+            except Exception as e:  # noqa: BLE001
+                self.last_error = f"could not apply the new voice settings: {type(e).__name__}"
+        self._changed()
+
     def cancel(self) -> None:
         """Silence speech NOW (direct, not queued), abandon the reply being produced, and return to listening."""
         self._cancel_turn.set()
@@ -481,6 +491,8 @@ class VoiceService:
                 if ses is not None and ses.mic_open:
                     try:
                         ses.observe(self._mic.read())       # drain and DISCARD (kept nowhere) so the audio buffer cannot grow
+                        if ses.take_cancel():               # you said "stop" while the reply was being produced
+                            self._cancel_turn.set()
                     except Exception:  # noqa: BLE001
                         self._stop.wait(self._dt)
                 else:

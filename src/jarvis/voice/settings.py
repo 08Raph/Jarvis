@@ -7,7 +7,9 @@ from pathlib import Path
 
 INPUT_MODES = ("wake_word", "push_to_talk", "off")
 OUTPUT_MODES = ("voice_and_text", "voice_only", "text_only")
-BARGE_IN = ("off", "wake_word_only", "speech")  # how the user may interrupt while Jarvis is speaking
+BARGE_IN = ("off", "wake_word_only", "speech", "smart")  # how the user may interrupt while Jarvis is speaking. "smart" (default since 2026-10-31): saying "stop" or simply talking over Jarvis cuts it off; words that match what Jarvis itself is saying (its own echo) are ignored
+MAX_WAKE_WORDS = 12
+DEFAULT_GREETING = "Hello sir, how may I assist you?"
 LENGTHS = ("brief", "normal", "detailed")
 
 
@@ -24,7 +26,7 @@ class VoiceSettings:
     rate: float = 1.0                       # 0.5 .. 2.0
     volume: float = 0.8                     # 0 .. 1
     response_length: str = "normal"
-    barge_in: str = "wake_word_only"        # safe default: no echo cancellation exists, so speech barge-in is opt-in
+    barge_in: str = "smart"                 # "smart" listens for words (not just sound) while Jarvis speaks, so its own echo does not cut it off; "off" disables interrupting
     follow_up_seconds: float = 8.0
     max_utterance_seconds: float = 20.0
     silence_end_seconds: float = 0.9
@@ -36,6 +38,9 @@ class VoiceSettings:
     speak_in_window: bool = False           # the window reads replies aloud (Windows SAPI) only when this is turned on
     voice_by_persona: dict[str, str] = field(default_factory=dict)   # OPTIONAL per-personality-mode voice ids; empty = every mode uses `tts_voice` (the global default)
     listening_choice_made: bool = False     # False = the user has never chosen: the window's first start turns wake-word listening ON (it still needs a sound device and a Vosk model before any microphone is opened). True once the user turns it ON or OFF themselves, so an OFF choice is never overridden
+    wake_greeting: str = DEFAULT_GREETING   # spoken right after the wake phrase when nothing else was said ("hey Jarvis" -> "Hello sir, how may I assist you?"); change it on the Voice page
+    wake_greeting_on: bool = True
+    wait_after_speech_seconds: float = 5.0  # how long you can pause (to think) before Jarvis decides you have finished and answers
     vad_min_rms: float = 0.01               # speech-detection floor (0.001..0.2): higher = needs louder speech to count as speaking
 
     def validate(self) -> "VoiceSettings":
@@ -65,6 +70,11 @@ class VoiceSettings:
              and all(isinstance(k, str) and 0 < len(k) <= 40 and isinstance(v, str) and 0 < len(v) <= 200 and "\x00" not in v for k, v in self.voice_by_persona.items()),
              "voice_by_persona must map personality mode ids to voice ids")
         need(isinstance(self.vad_min_rms, (int, float)) and not isinstance(self.vad_min_rms, bool) and 0.001 <= self.vad_min_rms <= 0.2, "vad_min_rms must be 0.001..0.2")
+        need(isinstance(self.wake_greeting, str) and len(self.wake_greeting) <= 200 and "\x00" not in self.wake_greeting, "wake_greeting must be text of at most 200 characters")
+        need(isinstance(self.wake_greeting_on, bool), "wake_greeting_on must be true or false")
+        need(isinstance(self.wait_after_speech_seconds, (int, float)) and not isinstance(self.wait_after_speech_seconds, bool) and 0.0 <= self.wait_after_speech_seconds <= 15.0,
+             "wait_after_speech_seconds must be 0..15")
+        need(len(self.wake_alternatives) < MAX_WAKE_WORDS, f"at most {MAX_WAKE_WORDS} wake phrases")
         need(isinstance(self.listening_choice_made, bool), "listening_choice_made must be true or false")
         need(isinstance(self.speaker_muted, bool), "speaker_muted must be true or false")
         need(isinstance(self.muted, bool), "muted must be true or false")
@@ -73,6 +83,24 @@ class VoiceSettings:
 
     def all_wake_phrases(self) -> list[str]:
         return [self.wake_phrase, *self.wake_alternatives]
+
+    def set_wake_phrases(self, phrases: list[str]) -> "VoiceSettings":
+        """Several wake phrases at once: the first is the main one. Each needs at least two words (one word triggers falsely). Duplicates are dropped."""
+        seen, clean = set(), []
+        for p in phrases:
+            q = " ".join(str(p).lower().replace(",", " ").split())
+            if q and q not in seen:
+                seen.add(q)
+                clean.append(q)
+        if not clean:
+            raise ValueError("give at least one wake phrase")
+        if len(clean) > MAX_WAKE_WORDS:
+            raise ValueError(f"at most {MAX_WAKE_WORDS} wake phrases")
+        for q in clean:
+            if len(q.split()) < 2 or len(q.split()) > 6 or len(q) > 60:
+                raise ValueError(f"the wake phrase {q!r} needs two to six words (one word triggers falsely)")
+        self.wake_phrase, self.wake_alternatives = clean[0], clean[1:]
+        return self.validate()
 
     def save(self, path: str | Path) -> None:
         self.validate()
@@ -91,6 +119,9 @@ class VoiceSettings:
         try:
             raw = json.loads(p.read_text(encoding="utf-8-sig"))
             names = {f.name for f in fields(cls)}
-            return cls(**{k: v for k, v in raw.items() if k in names}).validate()
+            vs = cls(**{k: v for k, v in raw.items() if k in names})
+            if vs.barge_in == "wake_word_only":      # the old default (written into every saved file): the new default lets you say "stop" or talk over Jarvis
+                vs.barge_in = "smart"
+            return vs.validate()
         except (ValueError, TypeError, OSError):
             return cls()

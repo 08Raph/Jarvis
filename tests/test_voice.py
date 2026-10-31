@@ -92,6 +92,9 @@ class Clock:
 
 def make(**kw):
     reply = kw.pop("reply", "Certainly. It is done.")
+    kw.setdefault("wait_after_speech_seconds", 0.0)      # these tests exercise the state machine, not the pause before answering
+    kw.setdefault("wake_greeting_on", False)
+    kw.setdefault("barge_in", "wake_word_only")
     s = VoiceSettings(input_mode=kw.pop("input_mode", "wake_word"), **kw)
     mic, rec, spk, clk = FakeMic(), FakeRec(), FakeSpk(), Clock()
     events = []
@@ -126,7 +129,10 @@ class SettingsTests(unittest.TestCase):
     def test_defaults_are_safe(self):
         s = VoiceSettings()
         self.assertEqual(s.input_mode, "off")
-        self.assertEqual(s.barge_in, "wake_word_only")
+        self.assertEqual(s.barge_in, "smart")                    # say "stop" or talk over Jarvis to cut it off (words are checked, so its own echo does not)
+        self.assertEqual(s.wait_after_speech_seconds, 5.0)
+        self.assertTrue(s.wake_greeting_on)
+        self.assertIn("how may I assist", s.wake_greeting)
 
     def test_validation_and_roundtrip_and_corrupt(self):
         for bad in ({"rate": 5}, {"volume": 2}, {"input_mode": "always"}, {"sensitivity": -1}):

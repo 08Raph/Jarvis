@@ -41,6 +41,9 @@ class DesktopBackend:
     def press(self, combo: list[int]) -> None: raise Unsupported(f"{self.name}: keyboard input is not supported here")
     def click(self, x: int, y: int, button: str, double: bool) -> None: raise Unsupported(f"{self.name}: mouse input is not supported here")
     def screenshot(self, hwnd: int | None) -> tuple[int, int, bytes]: raise Unsupported(f"{self.name}: screenshots are not supported here")
+    def monitors(self) -> list[dict]: raise Unsupported(f"{self.name}: listing screens is not supported here")
+    def move_window(self, hwnd: int, monitor_index: int) -> dict: raise Unsupported(f"{self.name}: moving windows is not supported here")
+    def selected_text(self) -> str | None: raise Unsupported(f"{self.name}: reading highlighted text is not supported here")
     def ocr(self, png_path: Path) -> dict:
         from jarvis.desktop.ocr import ocr_png
         return ocr_png(png_path)
@@ -193,6 +196,9 @@ class WindowsDesktop(DesktopBackend):
         self.w.send_vk_sequence([(vk, False) for vk in combo] + [(vk, True) for vk in reversed(combo)])
     def click(self, x, y, button, double): self.w.click(x, y, button, double)
     def screenshot(self, hwnd): return self.w.capture(hwnd)
+    def monitors(self): return self.w.monitors()
+    def move_window(self, hwnd, monitor_index): return self.w.move_window_to_monitor(hwnd, monitor_index)
+    def selected_text(self): return self.w.selected_text()
 
 
 # =============================================================================== other OSes (tests, dev)
@@ -270,6 +276,10 @@ class SimulatedDesktop(DesktopBackend):
             "sim:setup": {"id": "sim:setup", "name": "Sim Setup Installer", "kind": "sim", "target": "c:\\sim\\setup.exe", "source": "simulator"},
         }
         self.focus_refused: set[int] = set()
+        self.screens = [{"index": 1, "number": 1, "primary": True, "left": 0, "top": 0, "right": 1920, "bottom": 1040},
+                        {"index": 2, "number": 2, "primary": False, "left": 1920, "top": 0, "right": 3840, "bottom": 1040}]
+        self.highlighted: str | None = None
+        self.moves: list[tuple[int, int]] = []
 
     def _new_window(self, title, process, elements) -> SimWindow:
         self._next += 1
@@ -291,6 +301,17 @@ class SimulatedDesktop(DesktopBackend):
         return False
 
     def process_names(self): return {w.process for w in self.wins.values()} | self.extra_processes
+    def monitors(self): return [dict(m) for m in self.screens]
+
+    def move_window(self, hwnd, monitor_index):
+        if hwnd not in self.wins:
+            raise LookupError("that window is gone")
+        if not any(m["number"] == monitor_index for m in self.screens):
+            raise LookupError(f"there is no screen {monitor_index} (I see {len(self.screens)})")
+        self.moves.append((hwnd, monitor_index))
+        return {"screen": monitor_index, "maximized": False, "rect": [0, 0, 100, 100]}
+
+    def selected_text(self): return self.highlighted
     def discover_apps(self, allow): return list(self.catalog.values()) + appdisc.from_allowlist(allow)
 
     def launch(self, app, wait):

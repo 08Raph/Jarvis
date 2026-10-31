@@ -148,6 +148,15 @@ class VoskRecognizer:
             return text if text and text != "[unk]" else None
         return None
 
+    def partial(self) -> str:
+        """The words recognised so far in the sentence being spoken (not yet final). Used to notice that you started talking over Jarvis."""
+        if self._dict is None:
+            return ""
+        try:
+            return json.loads(self._dict.PartialResult()).get("partial", "").strip()
+        except (ValueError, AttributeError):
+            return ""
+
     def reset(self) -> None:
         if self._model is not None:
             self._wake.Reset()

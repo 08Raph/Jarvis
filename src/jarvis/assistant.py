@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from jarvis import disclosure
+from jarvis import clockfacts, disclosure, replyguard
 from jarvis.config import Config
 from jarvis.memory.interaction import MemoryAgent, Outcome
 from jarvis.memory.personal import PersonalMemory
@@ -100,6 +100,16 @@ class LocalAssistant:
         self.last_notice = ""
         self._protected: list[str] = []          # instruction text of the current turn (memory block excluded) for the disclosure check
         self._profile_dir = cfg.profile_dir
+        self.now = clockfacts.local_now          # replaceable in tests
+
+    def _clock_answer(self, user_text: str) -> str | None:
+        """A plain time or date question is answered from the computer's clock, never by the model (which cannot know it)."""
+        ans = clockfacts.answer(user_text, self.now)
+        if ans:
+            self.history.append({"role": "user", "content": user_text})
+            self.history.append({"role": "assistant", "content": ans})
+            self.history = self.history[-self.max_history:]
+        return ans
 
     def _prepare(self, user_text: str) -> Outcome:
         self.last_command = self.persona.command(user_text)                              # /normal etc.: explicit control, no model call
@@ -140,7 +150,7 @@ class LocalAssistant:
                 ctx = ""
                 self.last_notice = (self.last_notice + " Saved memory could not be read, so I answered without it.").strip()
         self._protected = [build_system_prompt(turn.guidance, "", self.prompt_variant)]
-        sys_msg = {"role": "system", "content": build_system_prompt(turn.guidance, ctx, self.prompt_variant)}
+        sys_msg = {"role": "system", "content": build_system_prompt(turn.guidance, ctx, self.prompt_variant) + "\n\n" + clockfacts.prompt_line(self.now())}
         return [sys_msg] + self.history
 
     def spoken_version(self, reply: str) -> str:
@@ -153,10 +163,14 @@ class LocalAssistant:
             return self._control_answer(user_text)
         if out.handled:
             return self._local_answer(user_text, out)
+        ans = self._clock_answer(user_text)
+        if ans:
+            return ans
         text = self._eng().chat(self._messages(user_text, out.extra_context), max_tokens, temperature)
         if disclosure.leaks_instructions(text, self._protected):
             text = disclosure.REFUSAL            # a verbatim copy of the instructions is withheld (heuristic; see jarvis/disclosure.py)
             self.last_notice = (self.last_notice + " Reply withheld: it repeated my internal instructions.").strip()
+        text, _looped = replyguard.trim_loop(text)
         text = self.persona.finish(self.last_turn, text) if self.last_turn else text
         self.history.append({"role": "assistant", "content": self.persona.strip_label(text)})     # the program-added label is not fed back to the model
         self.history = self.history[-self.max_history:]
@@ -170,6 +184,10 @@ class LocalAssistant:
         if out.handled:
             yield self._local_answer(user_text, out)
             return
+        ans = self._clock_answer(user_text)
+        if ans:
+            yield ans
+            return
         parts: list[str] = []
         turn = self.last_turn
         msgs = self._messages(user_text, out.extra_context)
@@ -182,6 +200,11 @@ class LocalAssistant:
             if turn and not turn.overridden and turn.style != "normal" and persona_safety.guard_reply("".join(parts))[1]:
                 parts[:] = [persona_safety.SAFE_OUT]
                 yield "\n" + persona_safety.SAFE_OUT
+                break
+            joined = "".join(parts)
+            if replyguard.repeating_unit(joined) or replyguard.sentence_loop(joined):      # the model is repeating itself: stop here and keep one copy
+                parts[:] = [replyguard.trim_loop(joined)[0] if replyguard.repeating_unit(joined) else joined]
+                self.last_notice = (self.last_notice + " The reply started repeating itself, so I stopped it.").strip()
                 break
             shown = guard.feed(piece)
             if shown:
