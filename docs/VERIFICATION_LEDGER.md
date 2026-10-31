@@ -97,3 +97,15 @@ On the owner's Windows 11 PC the build's `jarvis-gui.exe --selftest` hung (idle,
 | Real microphone, recognition quality, physical Windows 11 PC | NOT RUN |
 
 Disclosure: two ~41 MB downloads of the speech model (first probe's values were unreadable) plus one in this build.
+
+## 11. Quick launch, unlocked styles, voices list, no PowerShell flash, scrolling pages (2026-10-30/31)
+
+| Check | Result |
+|---|---|
+| Local suite (Linux sandbox, no PySide6) | PASS (3248 run, 0 failed, 49 skipped) |
+| `windows-ci` run 41155016548: Linux lane, Windows build, Windows unit suite, packaged worker gate, silent install | PASS |
+| Quick launch on a real PC (open an Epic/Steam game, a website, the scan) | NOT RUN; tested with fake launcher files and a fake desktop only |
+| PowerShell window no longer flashing when Jarvis speaks | NOT RUN on a PC; the hidden-window flags are set on both helper calls |
+| Layout fix (scrolling pages) and theme polish | NOT SEEN; no Qt in the sandbox, only the Windows unit suite ran |
+| Savage / Flirty / Sexy / Romantic | Unlocked at the owner's request; still UNREVIEWED with a real model; 18+ opt-in still required |
+| Kokoro natural voices | List extended; NOT usable in the installed app because Kokoro's Python packages are not bundled (GPL-licensed parts) |
