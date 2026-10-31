@@ -50,14 +50,16 @@ for mod in manifest.OPTIONAL_PACKAGES + ["PySide6"]:
         print(f"WARNING: could not collect {mod}: {e}")
 # The natural-voice engine (Kokoro) and everything it needs, only if it was installed in the build environment (build_windows.ps1 -WithKokoro).
 if importlib.util.find_spec("kokoro_onnx") is not None:
-    from PyInstaller.utils.hooks import collect_all
+    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
     for _dist in manifest.dist_closure(manifest.KOKORO_ROOT_DIST):
         for _mod in manifest.top_level_modules(_dist):
+            if _mod in manifest.KOKORO_SKIP_MODULES or importlib.util.find_spec(_mod) is None:
+                continue
             try:
-                _d, _b, _h = collect_all(_mod)
-                datas += _d
-                binaries += _b
-                hidden += _h
+                datas += collect_data_files(_mod)
+                binaries += collect_dynamic_libs(_mod)
+                hidden += [h for h in collect_submodules(_mod)
+                           if not any(part in manifest.KOKORO_SKIP_SUBMODULE_PARTS for part in h.split("."))]
             except Exception as e:   # a hook failure must be visible, not silent
                 print(f"WARNING: could not collect {_mod} (from {_dist}): {e}")
 hidden += collect_submodules("jarvis")

@@ -50,6 +50,8 @@ MANDATORY_PACKAGES_FOR_RELEASE = ["PySide6", "numpy", "cryptography"]    # the b
 # The optional natural-voice engine (Kokoro). Installed with `pip install -e ".[kokoro]"` (build_windows.ps1 -WithKokoro). It brings GPL-licensed parts (espeak-ng and the phonemizer
 # package), so a build that includes it must ship the notice and the source offer in docs/GPL_NOTICE.md. The spec bundles the package and everything it depends on.
 KOKORO_ROOT_DIST = "kokoro-onnx"
+KOKORO_SKIP_MODULES = {"test", "tests", "docs", "examples", "scripts", "tools", "benchmark"}      # never real run-time packages (some wheels list them by mistake)
+KOKORO_SKIP_SUBMODULE_PARTS = {"test", "tests", "transformers", "tools", "quantization", "datasets", "testing", "benchmark"}     # onnxruntime's training/conversion helpers are not needed to run a voice
 KOKORO_ALREADY_BUNDLED = {"numpy", "typing-extensions", "setuptools", "pip", "wheel"}      # handled elsewhere / never needed at run time
 
 
