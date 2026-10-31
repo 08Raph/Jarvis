@@ -450,7 +450,7 @@ class KokoroEngine(TTSEngine):
     fallback_ok = False              # a chosen Kokoro voice is never replaced by another engine behind the person's back
     requirements = ("Python packages 'kokoro-onnx' and 'sounddevice' (install: " + INSTALL_HINT + "), plus the Kokoro model files (about " + APPROX_SIZE + " in total) "
                     "downloaded from the Voice page after you confirm. Runs on the CPU; no GPU is required or enabled by Jarvis.")
-    licence_note = "kokoro-onnx: MIT. Kokoro-82M model: Apache-2.0. The espeak-ng text analyser it installs is GPL-3.0. Jarvis bundles none of them."
+    licence_note = "kokoro-onnx: MIT. Kokoro-82M model: Apache-2.0. The espeak-ng text analyser and the phonemizer package it uses are GPL-3.0. Installers built with natural voices include them; see docs/GPL_NOTICE.md."
     size_note = f"About {APPROX_SIZE} download (model about 310 MB, voices about 28 MB), then no internet is needed."
 
     def __init__(self, data_dir: str | Path, *, voice_ids: tuple[str, ...] = PRESET_VOICES, language: str = DEFAULT_LANGUAGE,

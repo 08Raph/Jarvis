@@ -127,7 +127,7 @@ def _setup_summary(cfg: Config) -> dict:
 PACKAGED_FILES = (
     "jarvis/telemetry/endpoint.txt", "jarvis/desktop/ocr_winrt.ps1", "config.sample.toml", "LICENSE", "THIRD_PARTY_NOTICES.md", "CHANGELOG.md", "build_info.json",
     "docs/RELEASE_NOTES.md", "docs/TROUBLESHOOTING.md", "docs/MODEL_DISTRIBUTION.md", "docs/PRIVACY_AND_NETWORK.md", "docs/LOCAL_MODEL.md",
-    "docs/DESKTOP_CONTROL.md", "docs/MEMORY.md", "docs/VOICE.md", "docs/WINDOWS_DISTRIBUTION.md", "docs/IN_APP_PREFLIGHT.md", "docs/QUICK_LAUNCH.md",
+    "docs/DESKTOP_CONTROL.md", "docs/MEMORY.md", "docs/VOICE.md", "docs/WINDOWS_DISTRIBUTION.md", "docs/IN_APP_PREFLIGHT.md", "docs/QUICK_LAUNCH.md", "docs/GPL_NOTICE.md",
     "jarvis_server/terms_en.md", "jarvis_server/learning_notice_en.md")      # the local sign-in server's text files (a source checkout keeps them in server/)
 GENERATED_AT_BUILD = ("build_info.json",)          # written by the build; a source checkout legitimately has none
 REQUIRED_MODULES = ("jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.app.controller", "jarvis.missions.runner", "jarvis.desktop.cli_desktop",

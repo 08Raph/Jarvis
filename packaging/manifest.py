@@ -21,7 +21,7 @@ BUNDLED_VOSK_RELDIR = "bundled_models/vosk-model-small-en-us-0.15"
 SERVER_PACKAGE = "jarvis_server"        # lives in server/, frozen into the app so `jarvis local-server` works; the spec adds server/ to the module search path
 # user-facing documentation shipped with the app (maintainer review notes and test checklists stay in the source repository)
 DOCS = ["RELEASE_NOTES.md", "TROUBLESHOOTING.md", "MODEL_DISTRIBUTION.md", "PRIVACY_AND_NETWORK.md", "LOCAL_MODEL.md", "DESKTOP_CONTROL.md",
-        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md", "IN_APP_PREFLIGHT.md", "QUICK_LAUNCH.md"]
+        "MEMORY.md", "VOICE.md", "WINDOWS_DISTRIBUTION.md", "IN_APP_PREFLIGHT.md", "QUICK_LAUNCH.md", "GPL_NOTICE.md"]
 
 # Files that MUST exist in the built folder (relative to dist/ProjectJarvis)
 REQUIRED_IN_DIST = ["jarvis.exe", "jarvis-gui.exe", "LICENSE", "THIRD_PARTY_NOTICES.md", "build_info.json", "config.sample.toml",
@@ -46,6 +46,55 @@ HIDDEN_REQUIRED = ["jarvis.cli", "jarvis.ui.app", "jarvis.ui.window", "jarvis.ap
                    "jarvis.selftest_core"]      # selftest supervisor + worker (the worker is this same program started again); System & Model Readiness page (imported lazily)
 OPTIONAL_PACKAGES = ["llama_cpp", "sounddevice", "_sounddevice_data", "vosk", "comtypes", "psutil", "pypdf"]
 MANDATORY_PACKAGES_FOR_RELEASE = ["PySide6", "numpy", "cryptography"]    # the build FAILS if these are missing
+
+# The optional natural-voice engine (Kokoro). Installed with `pip install -e ".[kokoro]"` (build_windows.ps1 -WithKokoro). It brings GPL-licensed parts (espeak-ng and the phonemizer
+# package), so a build that includes it must ship the notice and the source offer in docs/GPL_NOTICE.md. The spec bundles the package and everything it depends on.
+KOKORO_ROOT_DIST = "kokoro-onnx"
+KOKORO_ALREADY_BUNDLED = {"numpy", "typing-extensions", "setuptools", "pip", "wheel"}      # handled elsewhere / never needed at run time
+
+
+def dist_closure(root: str, metadata=None) -> list[str]:
+    """Names of an installed distribution and all it requires (extras skipped), found through importlib.metadata. Pure Python; ``metadata`` is injectable for tests."""
+    import importlib.metadata as md
+    import re
+    md = metadata or md
+    seen: dict[str, str] = {}
+    todo = [root]
+    while todo:
+        name = todo.pop()
+        key = re.sub(r"[-_.]+", "-", name).lower()
+        if key in seen:
+            continue
+        try:
+            d = md.distribution(name)
+        except md.PackageNotFoundError:
+            continue
+        seen[key] = d.metadata["Name"] or name
+        for r in d.requires or []:
+            if "extra ==" in r.replace('"', "").replace("'", ""):
+                continue
+            todo.append(re.split(r"[ ;<>=!~\[(]", r.strip(), maxsplit=1)[0])
+    return sorted(v for k, v in seen.items() if k not in KOKORO_ALREADY_BUNDLED)
+
+
+def top_level_modules(dist_name: str, metadata=None) -> list[str]:
+    import importlib.metadata as md
+    md = metadata or md
+    try:
+        d = md.distribution(dist_name)
+    except md.PackageNotFoundError:
+        return []
+    top = d.read_text("top_level.txt")
+    if top:
+        return [x.strip() for x in top.splitlines() if x.strip() and not x.strip().startswith("_")]
+    mods = set()
+    for f in d.files or []:
+        parts = str(f).replace("\\", "/").split("/")
+        if parts[0].endswith((".dist-info", ".data", "__pycache__")):
+            continue
+        mods.add(parts[0][:-3] if len(parts) == 1 and parts[0].endswith(".py") else parts[0])
+    return sorted(m for m in mods if m.isidentifier())
+
 
 # Qt modules this application never uses; excluding them keeps the folder smaller and the LGPL surface smaller
 QT_EXCLUDES = ["PySide6.QtWebEngineCore", "PySide6.QtWebEngineWidgets", "PySide6.QtWebEngineQuick", "PySide6.QtQml", "PySide6.QtQuick",

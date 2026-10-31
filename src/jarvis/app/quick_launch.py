@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Callable
 
 from jarvis.desktop import apps as appdisc
-from jarvis.desktop import sites
+from jarvis.desktop import places, sites
 
 STATE_FILE = "quick_launch.json"
 INDEX_FILE = "quick_launch_index.json"
@@ -172,12 +172,18 @@ def resolve(index: list[dict], target: str) -> tuple[str, object]:
     site = sites.https_url_for(target)
     if exact:
         return "app", exact[0]
+    for entry in (places.folder_entry(target), places.settings_entry(target)):
+        if entry:
+            return "app", entry
     if site:
         name, url = site
         return "web", {"id": "web:" + name, "name": name, "kind": "web", "url": url, "source": "website"}
     hits = [a for a in appdisc.match(index, q) if not appdisc.UNINSTALLER_NAME.search(a["name"])]
     if not hits:
-        return "none", None
+        files = places.find_files(target)           # last resort: an ordinary file in your own folders (documents, pictures, music, videos)
+        if len(files) == 1:
+            return "app", files[0]
+        return ("many", files) if files else ("none", None)
     starts = [a for a in hits if a["name"].lower().startswith(q)]
     pool = starts or hits
     if len(pool) == 1:
@@ -192,6 +198,7 @@ def resolve(index: list[dict], target: str) -> tuple[str, object]:
 # ------------------------------------------------------------------------------ doing it
 def _what_will_start(app: dict) -> str:
     return app.get("url") or app.get("uri") or app.get("target") or app.get("path") or app.get("aumid") or "(no path recorded)"
+
 
 
 def _audit(cfg, guest: bool, **rec) -> None:
@@ -273,5 +280,5 @@ def handle(text: str, cfg, *, confirm: Callable | None, guest: bool = False, bac
     if kind == "none":
         return f"I couldn't find “{cmd.target}” on this PC. Say “scan my PC” to refresh my list, or tell me the name as it appears in the Start menu." if cmd.strong else None
     if kind == "many":
-        return "I found several matches: " + ", ".join(a["name"] for a in found) + ". Which one do you want?"
+        return "I found several matches: " + ", ".join(a["name"] for a in found) + ". Which one do you want? Say the full name."
     return _launch(found, cfg, guest, confirm, backend, st, text)

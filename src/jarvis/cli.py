@@ -137,6 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     bs.add_argument("--max-tokens", type=int, default=None, help="reply token limit per turn (default 512)")
     rt = sub.add_parser("runtime", help="is the local AI runtime present in this installation?")
     rt.add_argument("--require", action="store_true", help="exit with an error if it is missing")
+    rt.add_argument("--require-kokoro", action="store_true", help="check that the natural-voice packages (Kokoro, ONNX Runtime, espeak-ng files) are inside this installation; exit 3 if not")
     ch = sub.add_parser("chat", help="chat with the active local model (one prompt, or interactive if none given)")
     ch.add_argument("prompt", nargs="?")
     ch.add_argument("--max-new-tokens", type=int, default=128)
@@ -1180,6 +1181,11 @@ def _main(argv: list[str] | None = None) -> int:
         rep = eng.run(args.model, confirm_download=consent, progress=lambda st, fr, msg: print(f"[{st}] {msg}", flush=True) if fr is None or int(fr * 100) % 10 == 0 else None)
         _dump({k: rep.get(k) for k in ("completed", "real", "model_id", "failed", "summary")})
         return 0 if rep.get("completed") else 3
+    if args.cmd == "runtime" and args.require_kokoro:
+        from jarvis.voice.kokoro_check import check
+        rep = check()
+        _dump(rep)
+        return 0 if rep["ok"] else 3
     if args.cmd == "runtime":
         from jarvis.inference.gguf_engine import runtime_info
         info = runtime_info()

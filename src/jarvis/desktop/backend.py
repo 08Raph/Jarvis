@@ -96,6 +96,21 @@ class WindowsDesktop(DesktopBackend):
             if not games.allowed_uri(app.get("uri", "")):
                 raise ValueError("refused: this is not a Steam or Epic Games launcher link")
             os.startfile(app["uri"])                                        # the launcher's own protocol link, handed to Windows
+        elif app["kind"] in ("folder", "file", "settings"):
+            from jarvis.desktop import places
+            if app["kind"] == "settings":
+                if not places.allowed_settings_uri(app.get("uri", "")):
+                    raise ValueError("refused: only Windows Settings links are opened this way")
+                os.startfile(app["uri"])
+            elif app["kind"] == "folder":
+                if not (Path(app.get("path", "")).is_dir() and places.is_inside_personal_roots(Path(app["path"]))):
+                    raise ValueError("refused: only your own personal folders are opened this way")
+                os.startfile(app["path"])
+            else:
+                if not places.file_allowed(Path(app.get("path", ""))):
+                    raise ValueError("refused: only ordinary documents, pictures, music and videos from your personal folders are opened this way (never programs or scripts)")
+                os.startfile(app["path"])
+            return {"verified": False, "handed_off": True, "evidence": "handed to Windows to open with your usual program; Jarvis does not check that it appeared"}
         elif app["kind"] == "web":
             from jarvis.desktop import sites
             if not sites.is_https(app.get("url", "")):

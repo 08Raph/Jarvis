@@ -38,6 +38,10 @@ RUNTIME_DEPENDENCIES = [
     ("sounddevice", "microphone access (optional voice extra)", "MIT; bundles/uses PortAudio (MIT-style). Verify before bundling"),
     ("vosk", "offline speech recognition (optional voice extra)", "Apache-2.0 for the library; each Vosk MODEL has its own "
      "licence: check it before redistributing any model"),
+    ("kokoro-onnx", "natural local voices (Kokoro; bundled when built with -WithKokoro)", "MIT; the Kokoro-82M voice model it uses is Apache-2.0 (downloaded by the person on the Voice page, not shipped)"),
+    ("onnxruntime", "runs the Kokoro voice model on the CPU (bundled with Kokoro)", "MIT"),
+    ("phonemizer-fork", "text to phonemes for Kokoro (bundled with Kokoro)", "GPL-3.0 (see docs/GPL_NOTICE.md; verify with counsel)"),
+    ("espeakng-loader", "ships the espeak-ng library and data for phonemizer (bundled with Kokoro)", "its own metadata, plus espeak-ng itself which is GPL-3.0 (see docs/GPL_NOTICE.md; verify with counsel)"),
     ("comtypes", "Windows UI Automation access for desktop control (Windows only)", "MIT; keep notice"),
     ("psutil", "optional network interface state for system_info (not bundled unless installed)", "BSD-3-Clause; keep notice"),
     ("pyinstaller", "build tool (not shipped, but its bootloader is embedded)", "GPL-2.0 with bootloader exception; verify"),
@@ -87,6 +91,8 @@ def generate_notices(out: Path) -> str:
          "(shown with the installed model); other builds include no model weights and the app can download that model from its publisher on the "
          "user's request. "
          "Any model package carries its own LICENSE.txt, which you must read before installing or redistributing it.", "",
+         "Installers built with -WithKokoro also include the natural-voice engine, which contains GPL-3.0 licensed components (espeak-ng and the phonemizer package); "
+         "their licence text, the source offer and your rights to replace them are in docs/GPL_NOTICE.md.", "",
          "Installers built with -BundleVoiceModel also include the speech-recognition model **vosk-model-small-en-us-0.15** (folder "
          "`bundled_models/vosk-model-small-en-us-0.15`): Copyright 2020 Alpha Cephei Inc; listed as Apache 2.0 on the publisher's page "
          "https://alphacephei.com/vosk/models ; licence text https://www.apache.org/licenses/LICENSE-2.0 . Its own README ships in the folder.", "",
@@ -150,7 +156,7 @@ def build_info(root: Path, env=None) -> dict:
             "note": "Written by scripts/release_tools.py build-info. Not a signature and not a statement that the build was tested."}
 
 
-KEY_PACKAGES = ["numpy", "cryptography", "PySide6", "llama-cpp-python", "pyinstaller", "comtypes", "psutil", "pypdf", "sounddevice", "vosk", "torch"]
+KEY_PACKAGES = ["kokoro-onnx", "onnxruntime", "phonemizer-fork", "espeakng-loader", "numpy", "cryptography", "PySide6", "llama-cpp-python", "pyinstaller", "comtypes", "psutil", "pypdf", "sounddevice", "vosk", "torch"]
 
 
 def installed_versions(names=KEY_PACKAGES, getter=metadata.version) -> dict:

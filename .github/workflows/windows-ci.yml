@@ -108,7 +108,7 @@ jobs:
           $bundle = "${{ github.event_name == 'workflow_dispatch' && inputs.bundle_model_consent == 'yes-bundle-qwen3-1.7b-q4_k_m' }}"
           $bundleVoice = "${{ github.event_name == 'workflow_dispatch' && inputs.bundle_voice_model_consent == 'yes-bundle-vosk-small-en' }}"
           $extra = @{}; if ($bundle -eq "true") { $extra["BundleModel"] = $true }; if ($bundleVoice -eq "true") { $extra["BundleVoiceModel"] = $true }      # a hashtable splat passes a NAMED switch (an array splat would pass it as a positional value)
-          try { & { .\scripts\build_windows.ps1 -SkipTorch -SkipTests -WithVoice @extra } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
+          try { & { .\scripts\build_windows.ps1 -SkipTorch -SkipTests -WithVoice -WithKokoro @extra } *>&1 | Tee-Object -FilePath ci-logs\build.log } catch { ("TERMINATING ERROR: " + ($_ | Out-String)) | Tee-Object -FilePath ci-logs\build.log -Append; exit 1 }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - id: unit
         name: Windows unit tests (full suite, real counts)

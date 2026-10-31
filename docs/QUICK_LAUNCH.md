@@ -25,3 +25,11 @@ Safety page, **Quick launch**: tick "Let Jarvis open apps, games and websites wh
 ## Honesty
 Every attempt (started, declined, failed) is written to the local action log shown on the Safety page. "Opened X" is said only when a matching window was seen;
 otherwise Jarvis says it *asked Windows* to open it. This was tested with fake launcher files and a fake desktop; it has **not** been run on a real PC by the authoring sandbox.
+
+## Folders, Settings pages and files ("open anything")
+
+Besides programs, games and websites, quick launch can open: your personal folders (Downloads, Documents, Desktop, Pictures, Videos, Music, including OneDrive copies),
+Windows Settings pages (only links starting with `ms-settings:`, from a fixed list), and ordinary files found by name in those personal folders (documents, pictures,
+music, video). Programs and scripts (`.exe`, `.bat`, `.ps1`, `.msi`, `.lnk`, `.url`, ...) are never opened this way, symbolic links are not followed, and the file search is
+bounded in size, depth and time. Each open still asks for confirmation while "confirm each" is on, is audit-logged, and honours the emergency STOP. Typing or clicking inside
+other programs is NOT part of this; it needs the separate advanced desktop permissions.

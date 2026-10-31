@@ -14,6 +14,7 @@ param(
     [switch]$WithVoice,
     [switch]$BundleModel,
     [switch]$BundleVoiceModel,
+    [switch]$WithKokoro,
     [switch]$SkipGuiSelfTest,
     [string]$TelemetryUrl = "",
     [switch]$SkipLocalRuntime,
@@ -119,6 +120,12 @@ if (-not $SkipLocalRuntime) {
     }
 }
 if ($WithVoice) { Run "$py -m pip install $cArg -e `".[voice]`"" }
+# -WithKokoro: the natural-voice engine (Kokoro) goes INSIDE the app. It brings GPL-licensed parts (espeak-ng, phonemizer): the notice and source offer in docs\GPL_NOTICE.md ship with it.
+if ($WithKokoro) {
+    if (-not $WithVoice) { throw "-WithKokoro needs -WithVoice (Kokoro plays its audio through sounddevice)" }
+    Write-Host "NOTE: -WithKokoro bundles GPL-3.0 licensed components (espeak-ng, phonemizer). See docs\GPL_NOTICE.md." -ForegroundColor Yellow
+    Run "$py -m pip install $cArg -e `".[kokoro]`""
+}
 # Mandatory packages and files: stop with a clear message instead of building a half-working package.
 Run "$py scripts\check_release_assets.py --packages"
 # Record exact versions of this release build. --exclude-editable: an editable line holds this PC's folder and pip refuses it in a constraints file. Out-File: PowerShell 5.1's > would write UTF-16.
@@ -176,7 +183,8 @@ if ($SkipGuiSelfTest) {
         throw "jarvis-gui.exe --selftest failed: exit code $($g.ExitCode) (0 = pass, 1 = a check failed or it was blocked and wrote a stack dump, 3 = Qt could not load); full report in $env:TEMP\jarvis-gui-selftest.txt and .json"
     }
 }
-if (-not $SkipLocalRuntime) { Run ".\dist\ProjectJarvis\jarvis.exe runtime --require" }   # the frozen exe must contain the runtime
+if (-not $SkipLocalRuntime) { Run ".\dist\ProjectJarvis\jarvis.exe runtime --require" }
+if ($WithKokoro) { Run ".\dist\ProjectJarvis\jarvis.exe runtime --require-kokoro" }      # the frozen exe must contain the Kokoro packages and espeak-ng's library and data files   # the frozen exe must contain the runtime
 # The packaged selftest worker is this same exe started again. This starts it with NO model (readiness lists jarvis.selftest_core, `selftest` without a model
 # exits 2, `selftest-worker` is dispatched, writes its result and stops at the missing model file). It proves dispatch only, not inference.
 $workerArgs = ""
