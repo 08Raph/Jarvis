@@ -87,6 +87,9 @@ def generate_notices(out: Path) -> str:
          "(shown with the installed model); other builds include no model weights and the app can download that model from its publisher on the "
          "user's request. "
          "Any model package carries its own LICENSE.txt, which you must read before installing or redistributing it.", "",
+         "Installers built with -BundleVoiceModel also include the speech-recognition model **vosk-model-small-en-us-0.15** (folder "
+         "`bundled_models/vosk-model-small-en-us-0.15`): Copyright 2020 Alpha Cephei Inc; listed as Apache 2.0 on the publisher's page "
+         "https://alphacephei.com/vosk/models ; licence text https://www.apache.org/licenses/LICENSE-2.0 . Its own README ships in the folder.", "",
          "## Runtime and build dependencies", "",
          "Versions and licenses below were read from the packages installed in the build environment when this "
          "file was generated. Regenerate it on the build machine (`python scripts/release_tools.py notices`).", ""]

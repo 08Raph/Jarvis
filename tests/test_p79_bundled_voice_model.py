@@ -246,6 +246,8 @@ class RealPinTests(unittest.TestCase):
 
     def test_the_licence_notice_is_shipped(self):
         self.assertIn("vosk-model-small-en-us-0.15", (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8"))
+        import release_tools as RT
+        self.assertIn("vosk-model-small-en-us-0.15", RT.generate_notices(Path(tempfile.mkdtemp()) / "n.md"))      # the build regenerates the file from this generator
 
 
 class WiringTests(unittest.TestCase):
