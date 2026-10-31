@@ -85,3 +85,15 @@ On the owner's Windows 11 PC the build's `jarvis-gui.exe --selftest` hung (idle,
 * Observed: `vosk-model-small-en-us-0.15.zip` from alphacephei.com = 41,205,931 bytes, SHA-256 `30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498`; unpacked 14 files, folder digest `4750b6f6db7fc6e28ac4318db4832305c51fe1a49cb5c7e45bab33bc79dab852`. These are pinned in `src/jarvis/voice/bundled_vosk.py`. They are observed values; the publisher does not sign the file.
 * Licence: the publisher's models page (read by the probe) lists `vosk-model-small-en-us-0.15 40M ... Apache 2.0`. The folder's README says "Copyright 2020 Alpha Cephei Inc" and carries no licence text. Not legally reviewed.
 * NOT shown by this probe: the model working with a real microphone, recognition quality, or a build that contains it (see below once run).
+
+### 10b. Build with the speech model inside (workflow_dispatch run 41146714089, `bundle_voice_model_consent`)
+
+| Check | Result |
+|---|---|
+| Build with `-BundleVoiceModel`: download, zip and folder pins matched, release-asset check with the folder required | PASS (installer 241,995,819 bytes; no Qwen model in this build) |
+| Windows unit suite | PASS except one test that expected the notice line in the regenerated THIRD_PARTY_NOTICES.md (fixed in the generator) |
+| Silent install: first run copied the speech model to the profile and set `vosk_model`, no network | PASS (`bundled_speech_model_set_up_from_installer`) |
+| Linux lane | failed once on my own probe test under GitHub Actions; fixed; later runs 41148611106 / 41150104952 green on that lane, and 41150104952 green overall (that run does not bundle the model) |
+| Real microphone, recognition quality, physical Windows 11 PC | NOT RUN |
+
+Disclosure: two ~41 MB downloads of the speech model (first probe's values were unreadable) plus one in this build.
