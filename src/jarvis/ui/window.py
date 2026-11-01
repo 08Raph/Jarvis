@@ -19,9 +19,9 @@ from jarvis import version as V
 from jarvis.app.controller import AppController, explain_error
 from jarvis.brains import viewmodel as BVM
 from jarvis.ui import hud_model as HM
-from jarvis.online.account import AccountController
+from jarvis.online.localaccounts import LocalAccounts
 from jarvis.ui import theme
-from jarvis.ui.account_page import AccountPage
+from jarvis.ui.local_account_page import LocalAccountPage
 from jarvis.ui.hud import HudWidget
 from jarvis.ui.background_ui import BackgroundManager, app_icon
 from jarvis.voice import viewmodel as VVM
@@ -143,6 +143,10 @@ class MainWindow(QMainWindow):
         self.op_timer.setInterval(30000)
         self.op_timer.timeout.connect(self.ctl.operator_tick)           # does nothing unless computer control is ON; then runs due workflows, event triggers and reminders
         self.op_timer.start()
+        self.tb_timer = QTimer(self)
+        self.tb_timer.setInterval(1000)
+        self.tb_timer.timeout.connect(self.ctl.toolbox_tick)             # timers, alarms and reminders that came due
+        self.tb_timer.start()
         self.timer.timeout.connect(self.ctl.run_due_schedules)           # started ONLY by the checkbox on the Schedules page
         self._apply_theme()
         self.refresh_all()
@@ -174,7 +178,7 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentIndex(row)
             self.refresh(PAGES[row])
             if PAGES[row] == ACCOUNT:
-                self.account_page.check_session()          # the person opened the page: one request to the service they confirmed, only if a sign-in is saved
+                self.account_page.check_session()          # local files only: there is no service to contact
             if PAGES[row] == "Home":
                 self.home_timer.start()
             else:
@@ -2242,8 +2246,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ Import Brain (the logic is in jarvis.brains; this page only shows it and calls the controller)
     def _account_page(self):
-        self.account_ctl = AccountController.from_config(self.ctl.cfg)
-        self.account_page = AccountPage(self.account_ctl, guest=bool(self.ctl.guest), parent=self)
+        self.account_ctl = LocalAccounts(self.ctl.cfg.profile_dir, guest=bool(self.ctl.guest))       # accounts live on this PC: no address, no server
+        self.account_page = LocalAccountPage(self.account_ctl, guest=bool(self.ctl.guest), parent=self)
         return self.account_page
 
     def _refresh_account(self):
@@ -2628,6 +2632,7 @@ class MainWindow(QMainWindow):
                 return
         self.timer.stop()
         self.op_timer.stop()
+        self.tb_timer.stop()
         self.home_timer.stop()
         self.hud.timer.stop()                  # no frame or refresh may run against a controller that is shutting down
         res = self.ctl.shutdown(timeout=3.0)

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
-ALLOWED_URI_SCHEMES = ("steam://", "com.epicgames.launcher://")
+ALLOWED_URI_SCHEMES = ("steam://", "com.epicgames.launcher://", "roblox://", "roblox-player:")
 SKIP_NAMES = re.compile(r"(redistributable|steamworks common|proton\b|steam linux runtime|uninstall|crash ?report|easyanticheat|battleye)", re.I)
 MAX_FILE = 262_144
 

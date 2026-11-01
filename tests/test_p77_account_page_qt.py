@@ -353,7 +353,7 @@ class RealQt(unittest.TestCase):
             win.nav.setCurrentRow(W.PAGES.index("Account"))
             win.refresh_all()
             self.app.processEvents()
-        self.assertEqual(win.account_page.stack.currentIndex(), 0)                           # nothing configured: the connect screen
+        self.assertEqual(win.account_page.stack.currentIndex(), 1)                           # no account yet: the sign-up screen (accounts are local; there is no address to connect to)
 
 
 if __name__ == "__main__":

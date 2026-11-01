@@ -182,6 +182,8 @@ def resolve(index: list[dict], target: str) -> tuple[str, object]:
         name, url = site
         return "web", {"id": "web:" + name, "name": name, "kind": "web", "url": url, "source": "website"}
     hits = [a for a in appdisc.match(index, q) if not appdisc.UNINSTALLER_NAME.search(a["name"])]
+    if not hits and re.fullmatch(r"[a-z]{2,6}\d{0,2}", q):          # "cs2" -> Counter-Strike 2, "lol" -> League of Legends, "gta5" -> Grand Theft Auto 5
+        hits = [a for a in index if _acronym(a["name"]) == q and not appdisc.UNINSTALLER_NAME.search(a["name"])]
     if not hits:
         files = places.find_files(target)           # last resort: an ordinary file in your own folders (documents, pictures, music, videos)
         if len(files) == 1:
@@ -196,6 +198,58 @@ def resolve(index: list[dict], target: str) -> tuple[str, object]:
     if len(shortest) == 1 and len(pool) <= 3:
         return "app", shortest[0]
     return "many", sorted(pool, key=lambda a: a["name"].lower())[:6]
+
+
+# ------------------------------------------------------------------------------ well-known games (used when the scan did not list them)
+# Steam's own "run this game" links for popular Steam games: the Steam app id is public. They are only used when the name is NOT found on this PC, only with steam://rungameid/<number>
+# (a scheme the launcher code already allows), and Steam itself decides whether the game is installed.
+STEAM_IDS = {
+    "counter-strike 2": 730, "cs2": 730, "counter strike 2": 730, "csgo": 730, "cs go": 730, "dota 2": 570, "dota": 570, "team fortress 2": 440, "tf2": 440,
+    "apex legends": 1172470, "apex": 1172470, "pubg": 578080, "rust": 252490, "gta 5": 271590, "gta v": 271590, "grand theft auto v": 271590, "terraria": 105600,
+    "stardew valley": 413150, "among us": 945360, "left 4 dead 2": 550, "l4d2": 550, "portal 2": 620, "elden ring": 1245620, "baldur's gate 3": 1086940, "bg3": 1086940,
+    "cyberpunk 2077": 1091500, "cyberpunk": 1091500, "helldivers 2": 553850, "palworld": 1623730, "valheim": 892970, "lethal company": 1966720, "fall guys": 1097150,
+    "rainbow six siege": 359550, "r6": 359550, "warframe": 230410, "destiny 2": 1085660, "marvel rivals": 2767030, "schedule i": 3164500, "schedule 1": 3164500,
+    "phasmophobia": 739630, "content warning": 2881650, "peak": 3527290, "repo": 3241660, "r.e.p.o": 3241660, "hollow knight": 367520, "hades": 1145360, "euro truck simulator 2": 227300,
+    "garry's mod": 4000, "gmod": 4000, "7 days to die": 251570, "ark survival evolved": 346110, "the forest": 242760, "sons of the forest": 1326470, "war thunder": 236390,
+    "path of exile": 238960, "delta force": 2507950, "overwatch 2": 2357570, "call of duty": 1938090, "cod": 1938090, "battlefield 6": 2807960, "fc 25": 2669320, "ea fc 25": 2669320,
+}
+# Programs that are often installed in a way the Start menu scan can not start (their shortcut points into a folder that changes with every update). Tried in this order.
+FALLBACKS = {
+    "roblox": [("uri", "roblox://"), ("web", "https://www.roblox.com/home")],
+    "roblox player": [("uri", "roblox://"), ("web", "https://www.roblox.com/home")],
+    "roblox studio": [("web", "https://create.roblox.com/")],
+    "minecraft": [("web", "https://www.minecraft.net/")],
+    "spotify": [("web", "https://open.spotify.com/")],
+    "discord": [("web", "https://discord.com/app")],
+    "steam": [("uri", "steam://open/main")],
+}
+
+
+def _norm(name: str) -> str:
+    return re.sub(r"[^a-z0-9' .]+", " ", name.lower()).replace(".", "").strip()
+
+
+def _acronym(name: str) -> str:
+    words = re.findall(r"[A-Za-z]+|\d+", name)
+    return "".join(w if w.isdigit() else w[0] for w in words).lower()
+
+
+def known_game(target: str) -> dict | None:
+    q = re.sub(r"\s+", " ", target.strip().lower())
+    sid = STEAM_IDS.get(q) or STEAM_IDS.get(_norm(q))
+    if sid:
+        return {"id": f"steam:known:{sid}", "name": target.strip().title() if target.islower() else target.strip(), "kind": "uri", "uri": f"steam://rungameid/{sid}", "source": "Steam (known game)"}
+    return None
+
+
+def fallbacks_for(app: dict) -> list[dict]:
+    key = _norm(app.get("name", ""))
+    out = []
+    for name, steps in FALLBACKS.items():
+        if key == name or key.startswith(name + " ") and name == "roblox":
+            for kind, target in steps:
+                out.append({"id": f"fallback:{name}:{kind}", "name": app["name"], "kind": kind, ("uri" if kind == "uri" else "url"): target, "source": "fallback"})
+    return out
 
 
 # ------------------------------------------------------------------------------ doing it
@@ -229,11 +283,24 @@ def _launch(app: dict, cfg, guest: bool, confirm, backend, st: dict, spoken: str
         if not ok:
             _audit(cfg, guest, args={"app": app["id"]}, status="declined", summary=f"you did not allow opening {name}")
             return f"Okay, I did not open {name}."
+    res, used = None, app
     try:
         res = _backend(backend).launch(app, 8.0)
     except Exception as e:      # noqa: BLE001
         _audit(cfg, guest, args={"app": app["id"]}, status="failed", summary=f"{type(e).__name__}: {str(e)[:150]}")
-        return f"Windows would not start {name} ({type(e).__name__}). Nothing was opened."
+        why = f"{type(e).__name__}: {str(e)[:100]}"
+        for alt in fallbacks_for(app):                       # the saved shortcut is often stale (apps update into a new folder): try the program's own link, then its website
+            try:
+                res = _backend(backend).launch(alt, 8.0)
+                used = alt
+                break
+            except Exception as e2:      # noqa: BLE001
+                _audit(cfg, guest, args={"app": alt["id"]}, status="failed", summary=f"{type(e2).__name__}: {str(e2)[:150]}")
+        if res is None:
+            return f"Windows would not start {name} ({why}). Nothing was opened."
+        if used.get("kind") == "web":
+            _audit(cfg, guest, args={"app": used["id"], "name": name}, status="unverified", summary=f"opened the {name} website because the app would not start")
+            return f"I couldn't start the {name} app (its shortcut looks out of date), so I opened its website instead."
     verified, handed = bool(res.get("verified")), bool(res.get("handed_off"))
     _audit(cfg, guest, args={"app": app["id"], "name": name}, status="verified" if verified else "unverified", verified=verified,
            summary=("opened " if verified else "asked Windows to open ") + name, evidence=str(res.get("evidence", ""))[:300])
@@ -282,6 +349,10 @@ def handle(text: str, cfg, *, confirm: Callable | None, guest: bool = False, bac
     if kind == "none":
         index = load_index(cfg, backend, refresh=True)           # it may have been installed since the last scan
         kind, found = resolve(index, cmd.target)
+    if kind == "none" and cmd.strong:
+        known = known_game(cmd.target)
+        if known:
+            return _launch(known, cfg, guest, confirm, backend, st, text)
     if kind == "none":
         return f"I couldn't find “{cmd.target}” on this PC. Say “scan my PC” to refresh my list, or tell me the name as it appears in the Start menu." if cmd.strong else None
     if kind == "many":

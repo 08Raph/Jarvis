@@ -582,6 +582,8 @@ class AppController:
                     self.transcript.add("system", SEC.warn_text(kinds))
             except Exception:  # noqa: BLE001
                 pass
+        if not _skip_launch and self._try_toolbox(text):
+            return True
         if not _skip_launch and (self._try_operator(text) or self._try_desk_assist(text) or self._try_quick_launch(text)):
             return True
         ms = self.model_status() if self.assistant is None else None
@@ -1014,6 +1016,12 @@ class AppController:
         """Runs on a helper thread. The SAME assistant (persona, safety, memory rules) as typed chat. The only thing reachable before it is quick launch
         (open an app, game or website you named; its own switch, off by default, and it asks first unless you turned that off); no desktop tool or executor is."""
         try:
+            said = self.toolbox().handle(text)
+        except Exception:  # noqa: BLE001
+            said = None
+        if said:
+            return said, 1.0
+        try:
             from jarvis.operator import commands as OC
             operated = OC.handle(text, self._operator())
         except Exception:  # noqa: BLE001 - an operator problem must never stop the normal answer
@@ -1219,6 +1227,41 @@ class AppController:
             if notes:
                 self.on_update("transcript")
         self.tasks.submit("operator-tick", work, done)
+
+    def toolbox(self):
+        if getattr(self, "_toolbox", None) is None:
+            from jarvis.app.toolbox import Toolbox
+            self._toolbox = Toolbox(self.cfg.profile_dir, guest=self.guest)
+        return self._toolbox
+
+    def _try_toolbox(self, text: str) -> bool:
+        """Timers, maths, conversions, clocks, dice, notes and lists: instant, offline, no model needed."""
+        try:
+            reply = self.toolbox().handle(text)
+        except Exception:  # noqa: BLE001 - a helper problem must never stop the normal answer
+            return False
+        if not reply:
+            return False
+        self.transcript.add("user", text)
+        self.transcript.add("assistant", reply)
+        self.speech.speak(reply, 1.0)
+        self.save_chat()
+        self.on_update("transcript")
+        return True
+
+    def toolbox_tick(self) -> None:
+        """Called every second by the window: announces timers, alarms and reminders that came due."""
+        if self.closed:
+            return
+        try:
+            msgs = self.toolbox().tick()
+        except Exception:  # noqa: BLE001
+            return
+        for m in msgs:
+            self.transcript.add("system", m)
+            self.speech.speak(m, 1.0)
+        if msgs:
+            self.on_update("transcript")
 
     def _try_operator(self, text: str) -> bool:
         from jarvis.operator import commands as OC
