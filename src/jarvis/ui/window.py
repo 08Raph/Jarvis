@@ -147,6 +147,7 @@ class MainWindow(QMainWindow):
         self.tb_timer.setInterval(1000)
         self.tb_timer.timeout.connect(self.ctl.toolbox_tick)             # timers, alarms and reminders that came due
         self.tb_timer.start()
+        QApplication.clipboard().dataChanged.connect(self._clip_changed)         # clipboard history (only when you turned it on)
         self.timer.timeout.connect(self.ctl.run_due_schedules)           # started ONLY by the checkbox on the Schedules page
         self._apply_theme()
         self.refresh_all()
@@ -2613,6 +2614,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Diagnostics copied.", 5000)
 
     # ------------------------------------------------------------ closing
+    def _clip_changed(self) -> None:
+        try:
+            self.ctl.toolbox_note_clipboard(QApplication.clipboard().text())
+        except Exception:  # noqa: BLE001 - a clipboard hiccup must never reach the user
+            pass
+
     def closeEvent(self, e):
         bg = getattr(self, "bg", None)
         if bg is not None and bg.wants_background():

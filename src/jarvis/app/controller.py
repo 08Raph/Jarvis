@@ -555,7 +555,7 @@ class AppController:
             return False
         return True
 
-    def send(self, text: str, _echo: bool = True, _skip_launch: bool = False) -> bool:
+    def send(self, text: str, _echo: bool = True, _skip_launch: bool = False, _skip_toolbox: bool = False) -> bool:
         """Start a reply. Returns False (with an explanation in the transcript) if it cannot start. Nothing is faked: with no working model,
         the transcript shows the actionable reason and no assistant text."""
         text = (text or "").strip()
@@ -582,7 +582,7 @@ class AppController:
                     self.transcript.add("system", SEC.warn_text(kinds))
             except Exception:  # noqa: BLE001
                 pass
-        if not _skip_launch and self._try_toolbox(text):
+        if not _skip_launch and not _skip_toolbox and self._try_toolbox(text):
             return True
         if not _skip_launch and (self._try_operator(text) or self._try_desk_assist(text) or self._try_quick_launch(text)):
             return True
@@ -1232,21 +1232,75 @@ class AppController:
         if getattr(self, "_toolbox", None) is None:
             from jarvis.app.toolbox import Toolbox
             self._toolbox = Toolbox(self.cfg.profile_dir, guest=self.guest)
+            self._toolbox.step_runner = self._scene_step
         return self._toolbox
 
-    def _try_toolbox(self, text: str) -> bool:
-        """Timers, maths, conversions, clocks, dice, notes and lists: instant, offline, no model needed."""
+    def _scene_step(self, step: str) -> str | None:
+        """One step of a scene, run exactly as if it had been typed: helpers, then quick launch, then the operator. Runs on a worker thread."""
+        r = self.toolbox().handle(step)
+        if r:
+            return r
         try:
-            reply = self.toolbox().handle(text)
-        except Exception:  # noqa: BLE001 - a helper problem must never stop the normal answer
-            return False
-        if not reply:
-            return False
+            from jarvis.app import quick_launch as QL
+            r = QL.handle(step, self.cfg, confirm=self.confirm, guest=self.guest, backend=self.ql_backend)
+            if r:
+                return r
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            from jarvis.operator import commands as OC
+            out = OC.handle(step, self._operator())
+            return out.reply if out is not None and out.reply else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def toolbox_note_clipboard(self, text: str) -> None:
+        if not self.closed:
+            try:
+                self.toolbox().note_clipboard(text)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _try_toolbox(self, text: str) -> bool:
+        """Timers, maths, sound, habits, calendar, scenes and the other helpers: no model and no internet. Sentences that may talk to Windows (sound, clipboard, scenes) run on a
+        worker so the window never freezes; the rest are instant."""
+        from jarvis.app import toolbox as TB
+        tb = self.toolbox()
+        if not TB.needs_host(text):
+            try:
+                reply = tb.handle(text)
+            except Exception:  # noqa: BLE001 - a helper problem must never stop the normal answer
+                return False
+            if not reply:
+                return False
+            self.transcript.add("user", text)
+            self.transcript.add("assistant", reply)
+            self.speech.speak(reply, 1.0)
+            self.save_chat()
+            self.on_update("transcript")
+            return True
         self.transcript.add("user", text)
-        self.transcript.add("assistant", reply)
-        self.speech.speak(reply, 1.0)
-        self.save_chat()
+        self.busy = True
         self.on_update("transcript")
+        self.on_update("busy")
+
+        def work(token):
+            return tb.handle(text)
+
+        def done(reply, err):
+            self.busy = False
+            if err or not reply:
+                self.on_update("busy")
+                self.send(text, _echo=False, _skip_toolbox=True)            # not for the helpers after all: the rest of the assistant answers
+                return
+            self.transcript.add("assistant", reply)
+            self.speech.speak(reply, 1.0)
+            self.save_chat()
+            self.on_update("transcript")
+            self.on_update("busy")
+        if self.tasks.submit("toolbox", work, done) is None:
+            self.busy = False
+            return False
         return True
 
     def toolbox_tick(self) -> None:

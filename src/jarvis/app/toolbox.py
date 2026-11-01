@@ -19,6 +19,8 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from jarvis.app.lifestyle import LifeMixin
+
 STATE_FILE = "toolbox.json"
 MAX_TIMERS = 30
 MAX_NOTES = 200
@@ -338,6 +340,15 @@ def _zone(name: str):
 
 
 # ------------------------------------------------------------------------------ the toolbox
+_HOSTY = re.compile(r"\b(?:mute|unmute|un-mute|silence|volume|louder|quieter|softer|sound|audio|speakers?|clipboard|snippets?|scene|mode|routine|meeting|bedtime|good night|movie time|"
+                    r"turn (?:it|the \w+) (?:up|down)|copy|paste|save this|restore|playing|game)\b", re.I)
+
+
+def needs_host(text: str) -> bool:
+    """True for sentences that may have to ask Windows (sound, clipboard) or run other steps (scenes): those are run on a worker so the window never freezes."""
+    return bool(_HOSTY.search(text or ""))
+
+
 _JOKES = ["Why don't scientists trust atoms? Because they make up everything.", "I told my computer I needed a break, and now it won't stop sending me vacation ads.",
           "Why did the developer go broke? Because he used up all his cache.", "There are only 10 kinds of people: those who understand binary and those who don't.",
           "Why was the math book sad? It had too many problems.", "I would tell you a UDP joke, but you might not get it.",
@@ -353,11 +364,12 @@ _BALL = ["Yes, definitely.", "It is certain.", "Most likely.", "Signs point to y
 _LISTS = {"shopping": "shopping", "grocery": "shopping", "groceries": "shopping", "todo": "to-do", "to-do": "to-do", "to do": "to-do", "packing": "packing", "wish": "wish", "gift": "gift"}
 
 
-class Toolbox:
-    def __init__(self, profile_dir: Path, guest: bool = False, now=time.time, rng=None):
+class Toolbox(LifeMixin):
+    def __init__(self, profile_dir: Path, guest: bool = False, now=time.time, rng=None, host=None):
         self.dir, self.guest, self.now = Path(profile_dir), guest, now
         self.rng = rng or random.SystemRandom()
         self._mem: dict | None = None
+        self._life_init(host)
 
     # ------------------------------------------------------------ state
     @property
@@ -367,7 +379,8 @@ class Toolbox:
     def _state(self) -> dict:
         if self._mem is not None:
             return self._mem
-        d = {"timers": [], "stopwatch": {"start": None, "elapsed": 0.0, "laps": []}, "notes": [], "lists": {}}
+        d = {"timers": [], "stopwatch": {"start": None, "elapsed": 0.0, "laps": []}, "notes": [], "lists": {}, "habits": {}, "events": [], "repeats": [], "snippets": {}, "cards": [], "scenes": {},
+             "playtime": [], "focus": {}, "focus_log": {}, "clip_on": False, "alerts": False}
         if not self.guest:
             try:
                 raw = json.loads(self.file.read_text(encoding="utf-8"))
@@ -402,25 +415,49 @@ class Toolbox:
         return t
 
     def tick(self) -> list[str]:
-        """Messages for everything that has come due. Cheap: no file is read after the first call."""
-        st = self._state()
-        if not st["timers"]:
-            return []
-        now = self.now()
-        due = [t for t in st["timers"] if t["due"] <= now]
-        if not due:
-            return []
-        st["timers"] = [t for t in st["timers"] if t["due"] > now]
-        self._save()
-        out = []
-        for t in sorted(due, key=lambda x: x["due"]):
-            late = now - t["due"] > 120
-            what = {"timer": "Timer done", "alarm": "Alarm", "reminder": "Reminder"}.get(t["kind"], "Timer done")
-            msg = f"{what}: {t['label']}." if t["label"] else (f"{what}." if t["kind"] != "alarm" else "Alarm! Time's up.")
-            if t["kind"] == "reminder" and t["label"]:
-                msg = f"Reminder: {t['label']}."
-            out.append(msg + (f" (This was due at {say_time(t['due'])}, while Jarvis was not running.)" if late else ""))
-        return out
+        """Messages for everything that has come due (timers, alarms, reminders, repeats, focus sessions, PC alerts). Cheap when nothing is set."""
+        if not self._lock.acquire(blocking=False):
+            return []                     # a slow request (sound, clipboard) is running on a worker: this second's check is skipped, never waited for
+        try:
+            return self._tick_locked()
+        finally:
+            self._lock.release()
+
+    def _tick_locked(self) -> list[str]:
+        if True:
+            st = self._state()
+            now = self.now()
+            out: list[str] = []
+            if st["timers"]:
+                due = [t for t in st["timers"] if t["due"] <= now]
+                if due:
+                    st["timers"] = [t for t in st["timers"] if t["due"] > now]
+                    self._save()
+                    for t in sorted(due, key=lambda x: x["due"]):
+                        late = now - t["due"] > 120
+                        fin = self._finish_due(t)
+                        if fin:
+                            out.append(fin)
+                            continue
+                        what = {"timer": "Timer done", "alarm": "Alarm", "reminder": "Reminder"}.get(t["kind"], "Timer done")
+                        msg = f"{what}: {t['label']}." if t["label"] else (f"{what}." if t["kind"] != "alarm" else "Alarm! Time's up.")
+                        if t["kind"] == "reminder" and t["label"]:
+                            msg = f"Reminder: {t['label']}."
+                        out.append(msg + (f" (This was due at {say_time(t['due'])}, while Jarvis was not running.)" if late else ""))
+            if st["repeats"]:
+                from jarvis.app.lifestyle import next_repeat
+                hit = False
+                for r in st["repeats"]:
+                    if r["next"] <= now:
+                        out.append(f"Reminder: {r['label']}.")
+                        r["next"] = next_repeat(r, now)
+                        hit = True
+                if hit:
+                    self._save()
+            if st.get("alerts") and not self.guest and now - self._alert_at >= 60:
+                self._alert_at = now
+                out.extend(self.alerts_check())
+            return out
 
     def _list_timers(self) -> str:
         st, now = self._state(), self.now()
@@ -429,9 +466,9 @@ class Toolbox:
             return "You have no timers, alarms or reminders set."
         parts = []
         for t in items:
-            kind = {"timer": "timer", "alarm": "alarm", "reminder": "reminder"}[t["kind"]]
+            kind = {"timer": "timer", "alarm": "alarm", "reminder": "reminder", "focus": "focus session", "meeting": "meeting mode"}.get(t["kind"], "timer")
             lab = f" for {t['label']}" if t["label"] and t["kind"] == "timer" else (f" to {t['label']}" if t["label"] else "")
-            if t["kind"] == "timer":
+            if t["kind"] in ("timer", "focus", "meeting"):
                 parts.append(f"{kind}{lab}: {say_duration(t['due'] - now)} left")
             else:
                 parts.append(f"{kind}{lab}: {say_when(t['due'], now)}")
@@ -529,13 +566,15 @@ class Toolbox:
         if not t or len(t) > 300 or "\n" in t:
             return None
         low = t.lower()
-        try:
-            for fn in (self._timers_rules, self._stopwatch_rules, self._time_rules, self._random_rules, self._notes_rules, self._math_rules, self._misc_rules):
-                r = fn(low, t)
-                if r is not None:
-                    return r
-        except (ValueError, OverflowError, ZeroDivisionError, KeyError):
-            return None
+        with self._lock:
+            try:
+                for fn in (self._audio_rules, self._cards_rules, self._focus_rules, self._scenes_rules, self._play_rules, self._habits_rules, self._events_rules, self._clip_rules, self._alerts_rules,
+                           self._timers_rules, self._stopwatch_rules, self._time_rules, self._random_rules, self._notes_rules, self._math_rules, self._misc_rules):
+                    r = fn(low, t)
+                    if r is not None:
+                        return r
+            except (ValueError, OverflowError, ZeroDivisionError, KeyError, IndexError):
+                return None
         return None
 
     def _timers_rules(self, low: str, t: str) -> str | None:
@@ -547,9 +586,8 @@ class Toolbox:
         m = re.fullmatch(r"(?:cancel|stop|delete|clear|remove|turn off|dismiss|end|kill)(?: all)?(?: of)?(?: my| the)?(?: (all))?(?: (timers?|alarms?|reminders?))?(?: for .+)?", low)
         if m and (m.group(2) or " all" in " " + low or low.endswith(("timer", "alarm", "reminder"))):
             return self._cancel(m.group(2) or "all")
-        if re.search(r"\b(?:pomodoro|focus (?:session|timer))\b", low) and re.match(r"(?:start|begin|set|run)", low):
-            self.add_timer(now + 1500, "focus session over, take a 5 minute break", "timer")
-            return "Focus session started: 25 minutes. I'll tell you when it's time for a break."
+        if re.search(r"\bpomodoro\b", low) and re.match(r"(?:start|begin|set|run)", low):
+            return self._focus_start(1500, "focus")
         if re.search(r"\btake a (?:short |quick )?break\b", low) and re.match(r"(?:start|set|begin)", low):
             self.add_timer(now + 300, "break is over", "timer")
             return "Break timer set for 5 minutes."
@@ -811,8 +849,17 @@ class Toolbox:
         if re.fullmatch(r"(?:what(?:'s| is) on my plate|what(?:'s| is) my day(?: like)?|what do i have (?:today|going on|coming up)|my day|daily summary|good morning|morning briefing|brief me)", low):
             nowdt = datetime.fromtimestamp(self.now())
             parts = [f"It's {say_time(self.now())} on {nowdt.strftime('%A, %B ')}{nowdt.day}."]
-            parts.append(self._list_timers())
             st = self._state()
+            greet = "Good morning. " if low in ("good morning", "morning briefing") else ""
+            parts[0] = greet + parts[0]
+            today = nowdt.date()
+            lo = datetime.combine(today, datetime.min.time()).timestamp()
+            evs = sorted([e for e in st["events"] if lo <= e["ts"] < lo + 86400], key=lambda e: e["ts"])
+            parts.append(("Today: " + "; ".join(f"{e['title']} {say_time(e['ts']) if e.get('time', True) else '(all day)'}" for e in evs) + ".") if evs else "Nothing on the calendar today.")
+            parts.append(self._list_timers())
+            undone = [k for k, v in st["habits"].items() if today.isoformat() not in v]
+            if undone:
+                parts.append("Habits still to do: " + ", ".join(undone) + ".")
             if st["notes"]:
                 parts.append(f"You have {len(st['notes'])} note{'' if len(st['notes']) == 1 else 's'}.")
             for name, items in st["lists"].items():
@@ -824,7 +871,9 @@ class Toolbox:
         return None
 
 
-HELP = ("Besides chatting, I can: set timers, alarms and reminders (“set a timer for 10 minutes”, “remind me to call mom at 5 pm”); run a stopwatch; do maths (“what is 15 percent of 240”), "
-        "convert units (“convert 5 miles to kilometers”, “how many cups in a liter”); tell the time, the date and the time in other cities, count days until a date; roll dice, flip a coin, "
-        "pick a number or choose between options; keep notes and lists (“add milk to my shopping list”); split a bill or work out a tip; tell jokes, facts and quotes; open apps, games "
-        "and websites; and, once you turn on computer control, run your PC: windows, volume, files, backups, system checks and more.")
+HELP = ("Besides chatting, I can: mute and unmute the sound, set the volume; set timers, alarms and reminders (also repeating ones: “remind me every Monday at 9 am to ...”); run a stopwatch; "
+        "do maths and convert units; tell the time and date, other cities' clocks and days until a date; keep a calendar (“add event dentist tomorrow at 3 pm”, “what's on tomorrow”); "
+        "track habits and streaks; keep notes and lists; save clipboard snippets and clipboard history; quiz you with flashcards; start focus mode or meeting mode; run scenes such as "
+        "movie mode, work mode, bedtime or game mode (and your own: “create scene NAME: step, step”); track your game playtime; warn you about low battery, a full drive or full memory "
+        "(“turn on PC alerts”); roll dice, flip a coin, pick for you; split a bill; tell jokes, facts and quotes; open apps, games and websites; read your screen; and, once you turn on "
+        "computer control, run your PC: windows, files, backups, system checks and more. Say “good morning” for a summary of your day.")
