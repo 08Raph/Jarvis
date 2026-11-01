@@ -86,6 +86,15 @@ class Network(OpCase):
         self.assertIsNotNone(self.op.run("network.status").message)
         self.assertIsNotNone(self.op.run("network.diagnose").message)
 
+    def test_dns_latency_and_diagnose_use_windows_tools_from_fixed_argv(self):
+        self.op.set_category("network", True)
+        self.fake.run_answers["ping.exe"] = (0, "Packets: Sent = 4, Received = 3, Lost = 1\n Minimum = 9ms, Maximum = 14ms, Average = 11ms", "")
+        self.fake.run_answers["nslookup.exe"] = (0, "Server: x\nAddress: 1.1.1.1\n\nName: example.com\nAddress: 93.184.216.34", "")
+        self.assertIn("11.0 ms", self.op.run("network.latency", host="example.com").message)
+        self.assertIn("93.184.216.34", self.op.run("network.dns", host="example.com").message)
+        self.assertIn("Everything I tested works", self.op.run("network.diagnose").message + "")
+        self.assertTrue(all(r[0] in ("ping.exe", "nslookup.exe", "powershell") for r in self.fake.runs))
+
     def test_bad_host_is_refused(self):
         self.op.set_category("network", True)
         self.assertEqual(self.op.run("network.latency", host="bad host; rm -rf", port=80).status, "refused")
@@ -124,6 +133,7 @@ class EventsAndSettings(OpCase):
         self.assertEqual(self.op.run("settings.open", page="x; calc").status, "refused")
         self.assertEqual(len(self.fake.opened), n)
 
+    @unittest.skipUnless(__import__('importlib.util').util.find_spec('PIL'), 'Pillow not installed')
     def test_wallpaper_only_from_allowed_folders(self):
         img = self.dl / "w.png"
         from PIL import Image

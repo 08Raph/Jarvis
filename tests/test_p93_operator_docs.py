@@ -8,7 +8,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from operator_fakes import OpCase  # noqa: E402
 
 
+def _have(*mods):
+    import importlib.util
+    return all(importlib.util.find_spec(m) for m in mods)
+
+
+need_docx = unittest.skipUnless(_have("docx"), "python-docx not installed")
+need_pdf = unittest.skipUnless(_have("pypdf", "reportlab"), "pypdf/reportlab not installed")
+need_xlsx = unittest.skipUnless(_have("openpyxl"), "openpyxl not installed")
+need_pil = unittest.skipUnless(_have("PIL"), "Pillow not installed")
+
+
 class Docs(OpCase):
+    @need_docx
     def test_create_read_docx_and_txt(self):
         out = self.op.run("docs.create", path="report.docx", title="Weekly", paragraphs=["Hello world", "Second paragraph"])
         self.assertEqual(out.status, "verified", out.message)
@@ -36,6 +48,7 @@ class Docs(OpCase):
         self.assertEqual(self.fake.runs, [])
 
 
+@need_pdf
 class Pdf(OpCase):
     def make_pdf(self, name, pages=3):
         from reportlab.pdfgen import canvas
@@ -71,6 +84,7 @@ class Sheets(OpCase):
         self.assertEqual(dd.status, "verified", dd.message)
         self.assertEqual(p.read_text(), "name,amount\nb,5\na,3\na,3\n")
 
+    @need_xlsx
     def test_xlsx_summary(self):
         from openpyxl import Workbook
         wb = Workbook()
@@ -83,6 +97,7 @@ class Sheets(OpCase):
         self.assertIn("3", self.op.run("sheet.summary", path=str(p), column="v").message)
 
 
+@need_pil
 class Images(OpCase):
     def img(self, name="p.png", size=(200, 100)):
         from PIL import Image

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-import socket
 import time
 
 from jarvis.operator.core import LOW, Outcome, OperatorError, Unavailable, cap, human_size
@@ -21,7 +20,7 @@ def status(op) -> Outcome:
     stats, addrs = ps.net_if_stats(), ps.net_if_addrs()
     rows = []
     for name, st in stats.items():
-        ips = [a.address for a in addrs.get(name, []) if a.family == socket.AF_INET]
+        ips = [a.address for a in addrs.get(name, []) if int(a.family) == 2]      # 2 = IPv4 (AF_INET); this module deliberately imports no network library
         rows.append({"name": name, "up": st.isup, "speed_mbps": st.speed, "ipv4": ips})
     up = [r for r in rows if r["up"] and r["ipv4"] and not r["ipv4"][0].startswith("127.")]
     msg = (f"{len(up)} connection(s) up: " + "; ".join(f"{r['name']} {', '.join(r['ipv4'])}" + (f" ({r['speed_mbps']} Mbps)" if r["speed_mbps"] else "") for r in up) if up else "No network adapter has an address: you appear to be offline.")
@@ -51,42 +50,44 @@ def throughput(op, seconds: float = 2.0) -> Outcome:
     return Outcome("info", f"Right now: download {human_size(down)}/s, upload {human_size(up)}/s (all programs together; Windows doesn't let me split it per program).", {"down": down, "up": up})
 
 
-@cap("network.dns", "network", "Check that a website name resolves", LOW, ("host",), False, "19,20")
+def _ping(op, host: str, tries: int = 4) -> dict:
+    """Windows' own ping.exe from a fixed argument list. Nothing here opens a socket."""
+    code, out, _e = op.ops.run(["ping.exe", "-n", str(tries), "-w", "2000", host], 25)
+    rec = re.search(r"Received = (\d+)", out)
+    ok = int(rec.group(1)) if rec else 0
+    avg = re.search(r"Average = (\d+)ms", out)
+    mx = re.search(r"Maximum = (\d+)ms", out)
+    return {"host": host, "ok": ok, "lost": max(0, tries - ok), "avg_ms": float(avg.group(1)) if avg else None, "max_ms": float(mx.group(1)) if mx else None}
+
+
+def _resolve(op, host: str) -> list[str]:
+    code, out, _e = op.ops.run(["nslookup.exe", host], 15)
+    tail = out.split("Name:", 1)[1] if "Name:" in out else ""
+    return sorted(set(re.findall(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b", tail)))
+
+
+@cap("network.dns", "network", "Check that a website name resolves", LOW, ("host",), True, "19,20")
 def dns(op, host: str = "example.com") -> Outcome:
     if not HOST_RE.match(host or ""):
         raise OperatorError("That doesn't look like a website name.")
     t = time.time()
-    try:
-        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
-    except socket.gaierror as e:
-        return Outcome("failed", f"{host} did not resolve ({e.strerror or 'DNS lookup failed'}).")
-    ips = sorted({i[4][0] for i in infos})
+    ips = _resolve(op, host)
+    if not ips:
+        return Outcome("failed", f"{host} did not resolve.")
     return Outcome("info", f"{host} resolves to {', '.join(ips[:4])} in {int((time.time() - t) * 1000)} ms.", ips)
 
 
-def tcp_latency(host: str, port: int = 443, tries: int = 4, timeout: float = 2.0) -> dict:
-    times, lost = [], 0
-    for _ in range(tries):
-        t = time.time()
-        try:
-            with socket.create_connection((host, port), timeout=timeout):
-                times.append((time.time() - t) * 1000)
-        except OSError:
-            lost += 1
-    return {"host": host, "port": port, "ok": len(times), "lost": lost, "avg_ms": round(sum(times) / len(times), 1) if times else None, "max_ms": round(max(times), 1) if times else None}
-
-
-@cap("network.latency", "network", "Measure connection time and packet loss to a host", LOW, ("host", "port"), False, "19,20")
+@cap("network.latency", "network", "Measure round-trip time and packet loss to a host (ping)", LOW, ("host", "port"), True, "19,20")
 def latency(op, host: str = "1.1.1.1", port: int = 443) -> Outcome:
     if not HOST_RE.match(host or "") or not (1 <= int(port) <= 65535):
         raise OperatorError("That host or port isn't valid.")
-    r = tcp_latency(host, int(port))
+    r = _ping(op, host)
     if not r["ok"]:
-        return Outcome("failed", f"I couldn't connect to {host}:{port} at all ({r['lost']} of {r['lost']} attempts failed).", r)
-    return Outcome("info", f"{host}: average {r['avg_ms']} ms, slowest {r['max_ms']} ms, {r['lost']} of {r['lost'] + r['ok']} connection attempts failed. (This is connection time, not a ping.)", r)
+        return Outcome("failed", f"{host} did not answer ({r['lost']} of {r['lost']} pings failed; some servers ignore ping).", r)
+    return Outcome("info", f"{host}: average {r['avg_ms']} ms, slowest {r['max_ms']} ms, {r['lost']} of {r['lost'] + r['ok']} pings lost.", r)
 
 
-@cap("network.diagnose", "network", "Diagnose a 'no internet' problem step by step", LOW, (), False, "19,20,47")
+@cap("network.diagnose", "network", "Diagnose a 'no internet' problem step by step", LOW, (), True, "19,20,47")
 def diagnose(op) -> Outcome:
     steps, verdict = [], None
     st = status(op)
@@ -94,26 +95,21 @@ def diagnose(op) -> Outcome:
     steps.append(("A network adapter has an address", bool(up)))
     if not up:
         verdict = "No adapter has a usable address. Evidence: " + st.message + " Likely causes: Wi-Fi/Ethernet is off or unplugged, or the router isn't handing out addresses. Try reconnecting; I can open the network settings."
-    ip = tcp_latency("1.1.1.1", 443, 3, 2.0)
+    ip = _ping(op, "1.1.1.1", 3)
     steps.append(("The internet answers by address (1.1.1.1)", bool(ip["ok"])))
-    resolved = None
     if verdict is None:
-        try:
-            socket.getaddrinfo("example.com", None)
-            resolved = True
-        except socket.gaierror:
-            resolved = False
+        resolved = bool(_resolve(op, "example.com"))
         steps.append(("Names resolve (DNS)", resolved))
-        if not ip["ok"] and resolved is False:
+        if not ip["ok"] and not resolved:
             verdict = "Your PC has an address but nothing beyond it answers: the router or the line is likely down (evidence: no reply by address and no DNS). Restart the router; if it persists, contact your provider."
-        elif ip["ok"] and resolved is False:
-            verdict = "The internet is reachable by address but names don't resolve: this looks like a DNS problem (evidence: connection to 1.1.1.1 works, name lookup fails). Try another DNS server or restart the router. I won't change DNS settings without you asking."
+        elif ip["ok"] and not resolved:
+            verdict = "The internet is reachable by address but names don't resolve: this looks like a DNS problem (evidence: 1.1.1.1 answers, name lookup fails). Try another DNS server or restart the router. I won't change DNS settings without you asking."
         elif not ip["ok"]:
-            verdict = "Names resolve but connections fail: something between you and the internet is blocking (a firewall, VPN or the router)."
+            verdict = "Names resolve but pings fail: pings may be blocked, or a firewall, VPN or the router is in the way."
         else:
-            verdict = f"Everything I tested works (connection {ip['avg_ms']} ms, DNS fine). If a specific site fails, the problem is with that site."
+            verdict = f"Everything I tested works (ping {ip['avg_ms']} ms, DNS fine). If a specific site fails, the problem is with that site."
     lines = "; ".join(f"{'OK' if ok else 'FAIL'}: {n}" for n, ok in steps)
-    return Outcome("info", lines + ". " + verdict + " (This test makes a connection to 1.1.1.1 and looks up example.com.)", dict(steps))
+    return Outcome("info", lines + ". " + verdict + " (This test pings 1.1.1.1 and looks up example.com using Windows' own tools.)", dict(steps))
 
 
 @cap("network.open_settings", "network", "Open Windows network settings", LOW, (), True, "20")

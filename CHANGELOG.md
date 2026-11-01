@@ -2,9 +2,6 @@
 
 Earlier (p1-p14): untracked.
 
-## Computer Operator (183 capabilities) — NOT run on a real Windows PC
-New `jarvis.operator` package, Operator page, typed + spoken commands, workflows/schedules/events, capability matrix. Off by default; permissions, confirmations, STOP, audit, verification. `docs/OPERATOR.md`, `docs/CAPABILITY_MATRIX.md`. Tests p90-p95 (real files, fake Windows layer). Not implemented: browser automation, software install, email/calendar sync, camera, messaging.
-
 ## p15 Prompts 13-20: retries, styles, models
 `docs/PROMPT13_REVIEW.md` .. `PROMPT20_REVIEW.md`; setup wizard.
 
@@ -248,3 +245,6 @@ The small English Vosk model can ship inside the installer (`-BundleVoiceModel`,
 - Chats are saved automatically and can be reopened; memory learns "my name is..." style facts and accepts typed notes; both stay on this PC.
 - Screen helper (off switch on the Safety page): reads highlighted text or the front window, and moves a window to another monitor ("move Discord to monitor 2").
 - Closing the window can keep Jarvis running in the tray (default) or quit completely; optional wallpaper display. Nothing here has been run on a physical PC yet; interrupting by voice works best with headphones.
+
+## Computer Operator (183 capabilities) — NOT run on a real Windows PC
+New `jarvis.operator` package, Operator page, typed + spoken commands, workflows/schedules/events, capability matrix. Off by default; permissions, confirmations, STOP, audit, verification. `docs/OPERATOR.md`, `docs/CAPABILITY_MATRIX.md`. Tests p90-p95 (real files, fake Windows layer). Not implemented: browser automation, software install, email/calendar sync, camera, messaging.
