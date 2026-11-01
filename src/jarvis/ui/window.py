@@ -2635,4 +2635,5 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, V.APP_NAME, "These were still running and could not be interrupted: " + ", ".join(res["still_running"])
                                     + ". They end by themselves; their results are recorded in the mission history.")
         e.accept()
-        QTimer.singleShot(0, QApplication.quit)         # the application no longer quits on its own when the last window closes (tray mode)
+        if not QApplication.quitOnLastWindowClosed():
+            QTimer.singleShot(0, QApplication.quit)     # tray mode (set by run_gui) no longer quits on its own when the last window closes; elsewhere Qt still does

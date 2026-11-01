@@ -111,30 +111,41 @@ class BackgroundManager:
         self.tray = None
         self.wall = None
         self._told = False
+
+    def _ensure_tray(self):
+        """The tray icon is created only when it is really needed (the first time the window is hidden to it), never while building the window: a tray icon that exists
+        in tests or in a self-test has nothing to do there and was the prime suspect of a Windows CI crash."""
+        if self.tray is not None:
+            return self.tray
         try:
             ok = bool(QSystemTrayIcon.isSystemTrayAvailable())
         except Exception:  # noqa: BLE001
             ok = False
-        if ok:
-            self.tray = QSystemTrayIcon(app_icon(), win)
-            self.tray.setToolTip(f"{V.APP_NAME} (running)")
-            menu = QMenu()
-            a_open = QAction("Open Jarvis", menu)
-            a_open.triggered.connect(self.show_window)
-            a_quit = QAction("Quit Jarvis completely", menu)
-            a_quit.triggered.connect(self.quit_now)
-            menu.addAction(a_open)
-            menu.addAction(a_quit)
-            self._menu = menu
-            self.tray.setContextMenu(menu)
-            self.tray.activated.connect(lambda r: self.show_window() if r in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick) else None)
+        if not ok:
+            return None
+        self.tray = QSystemTrayIcon(app_icon(), self.win)
+        self.tray.setToolTip(f"{V.APP_NAME} (running)")
+        menu = QMenu(self.win)                       # parented, so it is destroyed with the window and never outlives the tray icon that points at it
+        a_open = QAction("Open Jarvis", menu)
+        a_open.triggered.connect(self.show_window)
+        a_quit = QAction("Quit Jarvis completely", menu)
+        a_quit.triggered.connect(self.quit_now)
+        menu.addAction(a_open)
+        menu.addAction(a_quit)
+        self._menu = menu
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(lambda r: self.show_window() if r in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick) else None)
+        return self.tray
 
     # ---- window
     def wants_background(self) -> bool:
-        return (not self.force_quit) and self.tray is not None and self.ctl.background_options()["on_close"] == "background"
+        # tray mode exists only in the real application (run_gui turns "quit on last window closed" off); a window opened by a test or the self-test closes normally
+        if self.force_quit or QApplication.quitOnLastWindowClosed():
+            return False
+        return self.ctl.background_options()["on_close"] == "background" and self._ensure_tray() is not None
 
     def hide_to_tray(self) -> None:
-        self.tray.show()
+        self._ensure_tray().show()
         self.win.hide()
         if not self._told:
             self._told = True
