@@ -388,7 +388,16 @@ class VoiceService:
             if not vs.vosk_model:
                 raise Unavailable("No Vosk speech model folder is set. Download a small English Vosk model yourself, unzip it, and set its folder with: jarvis voice set vosk_model <folder>.", kind="model")
             if not Path(vs.vosk_model).is_dir():
-                raise Unavailable(f"The Vosk model folder was not found: {vs.vosk_model}", kind="model")
+                from jarvis.voice import bundled_vosk
+                found = bundled_vosk.recover(self.cfg)          # the saved folder is gone: use the shipped model again (local files only)
+                if found is None:
+                    raise Unavailable(f"The Vosk model folder was not found: {vs.vosk_model}. Jarvis also could not find the speech model that ships with the installer. "
+                                      "Install Jarvis from a build made with the speech model included, or download a small English Vosk model, unzip it, and choose its folder on the Voice page.", kind="model")
+                vs.vosk_model = str(found)
+                try:
+                    vs.save(self.path)
+                except Exception:  # noqa: BLE001 - not saving only means the same check happens next time
+                    pass
             rec = VoskRecognizer(vs.vosk_model, vs.all_wake_phrases())
         try:
             if hasattr(rec, "preload"):

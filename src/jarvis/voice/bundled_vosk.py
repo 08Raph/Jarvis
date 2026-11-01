@@ -143,3 +143,30 @@ def seed(cfg, root: Path | None = None) -> dict:
         return {"state": "refused", "detail": f"{type(e).__name__}: {str(e)[:200]}"}
     return {"state": "installed", "model": MODEL_NAME, "setting_applied": applied, "path": str(dst),
             "detail": "set up from the folder shipped with the installer; no network was used"}
+
+
+def recover(cfg, root: Path | None = None) -> Path | None:
+    """The saved speech-model folder has gone (a rebuilt app folder, a moved or deleted copy). Find the shipped model again WITHOUT the network: first the copy already in the
+    user's data folder, then the one shipped next to the program (copied in, checked against the pinned checksum). Returns a usable folder or None; changes nothing else."""
+    if not pinned():
+        return None
+    dst = install_dir(cfg)
+    if folder_matches_pin(dst):
+        return dst
+    src = bundled_dir(root)
+    if src is None or not folder_matches_pin(src):
+        return None
+    tmp = dst.with_name(dst.name + ".tmp-" + uuid.uuid4().hex[:8])
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(src, tmp)
+        if not folder_matches_pin(tmp):
+            return None
+        if dst.exists():
+            shutil.rmtree(dst)
+        os.replace(tmp, dst)
+        return dst
+    except OSError:
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
