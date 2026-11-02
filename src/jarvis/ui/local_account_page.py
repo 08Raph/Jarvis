@@ -48,13 +48,17 @@ def _field(name, accessible, placeholder="", password=False):
 
 
 class LocalAccountPage(QWidget):
-    def __init__(self, accounts: LocalAccounts, guest: bool = False, parent=None, on_change=None):
+    def __init__(self, accounts: LocalAccounts, guest: bool = False, parent=None, on_change=None, compact: bool = False):
         super().__init__(parent)
-        self.acc, self.guest, self.on_change = accounts, guest, on_change
+        self.acc, self.guest, self.on_change, self.compact = accounts, guest, on_change, compact
         self.stack = QStackedWidget()
         lay = QVBoxLayout(self)
-        lay.addWidget(_label("Account", heading=True))
+        if compact:
+            lay.setContentsMargins(0, 0, 0, 0)               # inside the startup window: no page title, the window has its own
+        else:
+            lay.addWidget(_label("Account", heading=True))
         self.status = _label("", muted=True, name="account_status")
+        self.status.setVisible(not compact)
         lay.addWidget(self.status)
         lay.addWidget(self.stack, 1)
         self.stack.addWidget(self._login_view())
@@ -78,6 +82,7 @@ class LocalAccountPage(QWidget):
         v.addLayout(form)
         self.li_stay = QCheckBox("Keep me signed in on this PC")
         self.li_stay.setObjectName("li_stay")
+        self.li_stay.setChecked(self.compact)              # at startup it is on by default: sign in once and Jarvis does not ask again
         v.addWidget(self.li_stay)
         self.li_msg = _label("", name="li_message")
         v.addWidget(self.li_msg)
@@ -90,8 +95,17 @@ class LocalAccountPage(QWidget):
         v.addLayout(row)
         self.li_pass.returnPressed.connect(self._do_login)
         v.addWidget(_label("Accounts are stored on this PC only. Jarvis works without one.", muted=True))
+        if not self.compact:
+            v.addWidget(self._ask_box())
         v.addStretch(1)
         return w
+
+    def _ask_box(self):
+        cb = QCheckBox("Ask me to log in when Jarvis starts")
+        cb.setObjectName("ask_at_start")
+        cb.setChecked(self.acc.ask_at_start())
+        cb.toggled.connect(lambda on: self.acc.set_ask_at_start(bool(on)))
+        return cb
 
     def _signup_view(self):
         w = QWidget()
@@ -110,6 +124,7 @@ class LocalAccountPage(QWidget):
         self.su_ok.setObjectName("su_accept")
         v.addWidget(self.su_ok)
         self.su_stay = QCheckBox("Keep me signed in on this PC")
+        self.su_stay.setChecked(self.compact)
         v.addWidget(self.su_stay)
         self.su_msg = _label("", name="su_message")
         v.addWidget(self.su_msg)
@@ -139,6 +154,8 @@ class LocalAccountPage(QWidget):
             f2.addRow(lab, f)
         v.addLayout(f2)
         v.addWidget(_btn("Change password", self._do_change_pw, name="change_pw_btn"))
+        if not self.compact:
+            v.addWidget(self._ask_box())
         self.in_msg = _label("", name="in_message")
         v.addWidget(self.in_msg)
         row = QHBoxLayout()

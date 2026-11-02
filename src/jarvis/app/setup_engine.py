@@ -81,9 +81,48 @@ class SetupEngine:
         except (OSError, ValueError):
             return {}
 
+    def usable_models(self) -> list[str]:
+        """Ids of every installed brain that is present and intact (a quick check: no model is loaded). Newest first, so the one you imported last comes first."""
+        out = []
+        try:
+            for meta in self.store.installed():
+                mid = meta.get("id") if isinstance(meta, dict) else None
+                if not isinstance(mid, str):
+                    continue
+                try:
+                    ok, _ = self.store.verify(mid, quick=True)
+                except Exception:  # noqa: BLE001 - one unreadable brain must not hide the others
+                    ok = False
+                if ok:
+                    try:
+                        when = (self.store.path(mid) / "meta.json").stat().st_mtime
+                    except OSError:
+                        when = 0.0
+                    out.append((when, mid))
+        except OSError:
+            return []
+        return [mid for _, mid in sorted(out, reverse=True)]
+
     def needs_setup(self) -> bool:
-        """True until a REAL verified setup finished for a model that is still installed and intact."""
+        """True only when there is no usable brain. Jarvis scans the model folder: if ANY installed brain is intact (for example an 8B model you imported after deleting the
+        small one that came with Jarvis), it is used and nothing is offered. A damaged or missing brain with nothing else to use asks again.
+        (A test engine with injected fakes keeps the strict rule: only a REAL verified setup counts.)"""
         st = self.load_state()
+        if self.real:
+            found = self.usable_models()
+            if not found:
+                return True
+            active = self.store.active()
+            if active not in found:
+                try:
+                    self.store.set_active(found[0])               # the saved choice is gone: take the newest intact brain instead of asking
+                except Exception:  # noqa: BLE001
+                    return True
+                active = found[0]
+            if not st.get("completed") or st.get("model_id") != active:
+                self._save_state({"completed": True, "model_id": active, "version_major": V.__version__.split(".")[0], "adopted": True,
+                                  "at": datetime.now(timezone.utc).isoformat()})
+            return False
         if not st.get("completed") or st.get("version_major") != V.__version__.split(".")[0]:
             return True
         mid = st.get("model_id")

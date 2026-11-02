@@ -98,6 +98,10 @@ def run_gui(cfg, guest: bool = False, simulate: bool = False) -> int:
         win.show()
         app.setQuitOnLastWindowClosed(False)       # closing the window may only hide it (tray); quitting is decided in closeEvent / the tray menu
         win.bg.apply_wallpaper()
+        if not simulate and win.account_ctl.should_welcome():        # nobody signed in (a kept sign-in is honoured): the Log in / Sign up window opens first
+            from jarvis.ui.welcome_dialog import WelcomeDialog
+            WelcomeDialog(win.account_ctl, win).exec()
+            win.account_page.refresh_view()
         if ctl.needs_setup():          # first run (or the model is missing/damaged): the wizard opens by itself; "Set up later" is always available
             from jarvis.ui.setup_dialog import SetupDialog
             SetupDialog(ctl, win).exec()
@@ -153,6 +157,11 @@ def _qt_checks(rep, cfg) -> None:
     dlg.show()
     app.processEvents()
     dlg.close()
+    from jarvis.ui.welcome_dialog import WelcomeDialog
+    wd = WelcomeDialog(win.account_ctl, win)       # the startup Log in / Sign up window must build and show too
+    wd.show()
+    app.processEvents()
+    wd.close()
     names = [win.nav.item(i).text() for i in range(win.nav.count())]
     for i in range(win.nav.count()):
         win.nav.setCurrentRow(i)

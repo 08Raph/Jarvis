@@ -53,3 +53,8 @@ From the source folder, with Python 3.11+: `python -m jarvis_server --db data\ja
 7. Stop the server (Ctrl+C) and press **Renew session**: expect a plain "could not be reached" message, and Chat still answers locally.
 8. Restart the server, **Delete account** (confirm, password): expect the sign-in screen and that the account no longer signs in.
 Report anything that looks wrong with a screenshot. Remember me needs Windows DPAPI: tick it at sign-in, close and reopen Jarvis, open Account: you should still be signed in; Sign out should remove it.
+
+## Startup window and the brain check (November 2026)
+
+- **Log in / Sign up window.** When Jarvis starts and nobody is signed in, a clean Log in / Sign up card opens before anything else. "Keep me signed in on this PC" is ticked by default there, so after one login it never asks again. It does not open in a guest session, after "Don't ask me again", or when a kept sign-in is found. "Continue without an account" (or closing it) just carries on. The Account page has "Ask me to log in when Jarvis starts" to turn it back on. Accounts live on this PC only; there is no address and no server.
+- **Brain check.** At startup Jarvis scans the installed brains. If any one is present and intact (for example an 8B model you imported after deleting the small one), it is used and nothing is offered. The install wizard opens only when no usable brain is left.

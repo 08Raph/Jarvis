@@ -26,6 +26,7 @@ MAX_FAILURES = 5
 LOCK_SECONDS = 15 * 60
 FILE = "local_accounts.json"
 SESSION_FILE = "local_session.json"
+WELCOME_FILE = "welcome.json"
 GENERIC_BAD_LOGIN = "That username and password do not match."
 
 
@@ -94,6 +95,26 @@ class LocalAccounts:
         finally:
             if os.path.exists(tmp):
                 os.unlink(tmp)
+
+    def ask_at_start(self) -> bool:
+        """Whether Jarvis opens the Log in / Sign up window at startup when nobody is signed in. On by default; "Don't ask me again" turns it off (the Account page turns it back on)."""
+        if self.guest:
+            return False
+        try:
+            raw = json.loads((self.dir / WELCOME_FILE).read_text(encoding="utf-8"))
+            return not (isinstance(raw, dict) and raw.get("ask") is False)
+        except (OSError, ValueError):
+            return True
+
+    def set_ask_at_start(self, on: bool) -> None:
+        if self.guest:
+            return
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / WELCOME_FILE).write_text(json.dumps({"ask": bool(on)}), encoding="utf-8")
+
+    def should_welcome(self) -> bool:
+        """True when the startup window should be shown: not a guest, nobody signed in (a kept sign-in is honoured), and the person has not turned it off."""
+        return (not self.guest) and self.ask_at_start() and self.current() is None
 
     def has_accounts(self) -> bool:
         return bool(self._load()["users"])
