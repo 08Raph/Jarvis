@@ -18,6 +18,16 @@ Typed or spoken, instant, no model and no internet. Say "what can you do" for th
 | Daily summary | "good morning", "my day": calendar, timers, habits still to do, notes, lists. |
 | Maths and more | percentages, units, tip and bill split, binary/hex/roman, dice, coin, random, jokes, facts, quotes, world clocks, day counts. |
 
+| Setup check | "check my setup" / "test Jarvis": tests sound, clipboard, timers, maths, system readings, the AI model, the app list and voice, and names what is broken. |
+| Learning | After "I couldn't find X", say "it's Counter-Strike 2" and Jarvis remembers the nickname (only if the open works). "When I say cs two open Counter-Strike 2". "When I say see ess two it means CS2" fixes words the microphone mishears (spoken input only). "list corrections", "forget the nickname X". |
+| Follow-ups | After a calendar, clock, days-until, playtime, streak or prime question (within 10 minutes): "and Friday?", "and in Paris?", "and new year?". |
+| Scheduled scenes | "every weekday at 8 am run work mode", "run movie mode every day at 9 pm" (Jarvis must be running; a scene that was due while it was closed is skipped). |
+| Calculators | "payment on a 20000 loan at 6% for 5 years", "if I save $200 a month at 5% for 10 years", "compound interest on 1000 at 5% for 10 years", "days between 2026-01-01 and 2026-03-01". Currency: "set rate USD to CAD 1.35", then "convert 100 USD to CAD" (only your rates; nothing is looked up). |
+| Clipboard text tasks | "summarize my clipboard", "fix the grammar of what I copied", "translate my clipboard to French", "rewrite my clipboard more professionally" (uses the AI model; the copied text is treated only as data). |
+| Files | "find the PDF I downloaded yesterday", "find my images", "find a file called invoice"; "what's taking up my space" (Downloads, Desktop, Documents, Pictures, Videos, Music; read-only). |
+| Auto playtime | "turn on auto playtime" checks every 30 seconds for well-known games; add yours with "track program mygame.exe as My Game". "how's my PC doing" gives CPU, memory, drive and the biggest memory users (no graphics-card numbers). |
+| Voice | "change wake word to hey computer", "speak slower / faster / normally". |
+
 Not included (need the internet, so they stay off): weather, news, currency rates, sports scores.
 
 The Account tab is a local Log in / Sign up screen (accounts live on this PC only; no address or server). Spoken lists read every step.

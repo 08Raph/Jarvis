@@ -19,6 +19,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from jarvis.app.extras import ExtraMixin
 from jarvis.app.lifestyle import LifeMixin
 
 STATE_FILE = "toolbox.json"
@@ -341,7 +342,8 @@ def _zone(name: str):
 
 # ------------------------------------------------------------------------------ the toolbox
 _HOSTY = re.compile(r"\b(?:mute|unmute|un-mute|silence|volume|louder|quieter|softer|sound|audio|speakers?|clipboard|snippets?|scene|mode|routine|meeting|bedtime|good night|movie time|"
-                    r"turn (?:it|the \w+) (?:up|down)|copy|paste|save this|restore|playing|game)\b", re.I)
+                    r"turn (?:it|the \w+) (?:up|down)|copy|paste|save this|restore|playing|game|setup|self.?check|test jarvis|find|search|locate|taking up|performance|wake|speak|talk|speed|summari[sz]e|translate|grammar|proofread|rewrite|"
+                    r"means|meant|called|when i say|if i say|when you hear|it's|its|i mean|how.s my|check|test|every)\b", re.I)
 
 
 def needs_host(text: str) -> bool:
@@ -364,12 +366,13 @@ _BALL = ["Yes, definitely.", "It is certain.", "Most likely.", "Signs point to y
 _LISTS = {"shopping": "shopping", "grocery": "shopping", "groceries": "shopping", "todo": "to-do", "to-do": "to-do", "to do": "to-do", "packing": "packing", "wish": "wish", "gift": "gift"}
 
 
-class Toolbox(LifeMixin):
+class Toolbox(LifeMixin, ExtraMixin):
     def __init__(self, profile_dir: Path, guest: bool = False, now=time.time, rng=None, host=None):
         self.dir, self.guest, self.now = Path(profile_dir), guest, now
         self.rng = rng or random.SystemRandom()
         self._mem: dict | None = None
         self._life_init(host)
+        self._extras_init()
 
     # ------------------------------------------------------------ state
     @property
@@ -380,7 +383,8 @@ class Toolbox(LifeMixin):
         if self._mem is not None:
             return self._mem
         d = {"timers": [], "stopwatch": {"start": None, "elapsed": 0.0, "laps": []}, "notes": [], "lists": {}, "habits": {}, "events": [], "repeats": [], "snippets": {}, "cards": [], "scenes": {},
-             "playtime": [], "focus": {}, "focus_log": {}, "clip_on": False, "alerts": False}
+             "playtime": [], "focus": {}, "focus_log": {}, "clip_on": False, "alerts": False,
+             "aliases": {}, "corrections": {}, "rates": {}, "autoplay": False, "game_exes": {}}
         if not self.guest:
             try:
                 raw = json.loads(self.file.read_text(encoding="utf-8"))
@@ -449,11 +453,22 @@ class Toolbox(LifeMixin):
                 hit = False
                 for r in st["repeats"]:
                     if r["next"] <= now:
-                        out.append(f"Reminder: {r['label']}.")
+                        if r.get("scene"):
+                            if now - r["next"] < 300:
+                                self._due_scenes.append(r["scene"])
+                        else:
+                            out.append(f"Reminder: {r['label']}.")
                         r["next"] = next_repeat(r, now)
                         hit = True
                 if hit:
                     self._save()
+            if st.get("autoplay") and not self.guest and now - self._auto_at >= 30:
+                self._auto_at = now
+
+                def _auto():
+                    with self._lock:
+                        self.autoplay_check()
+                self._bg(_auto)
             if st.get("alerts") and not self.guest and now - self._alert_at >= 60:
                 self._alert_at = now
                 out.extend(self.alerts_check())
@@ -560,7 +575,7 @@ class Toolbox(LifeMixin):
         return f"Your {name} list has {len(cur)} item{'' if len(cur) == 1 else 's'}: " + ", ".join(cur) + "." if cur else f"Your {name} list is empty."
 
     # ------------------------------------------------------------ the sentences
-    def handle(self, text: str) -> str | None:
+    def handle(self, text: str, _follow: bool = True) -> str | None:
         """The reply, or None when this is not one of the helpers' sentences."""
         t = clean(text)
         if not t or len(t) > 300 or "\n" in t:
@@ -568,10 +583,15 @@ class Toolbox(LifeMixin):
         low = t.lower()
         with self._lock:
             try:
-                for fn in (self._audio_rules, self._cards_rules, self._focus_rules, self._scenes_rules, self._play_rules, self._habits_rules, self._events_rules, self._clip_rules, self._alerts_rules,
-                           self._timers_rules, self._stopwatch_rules, self._time_rules, self._random_rules, self._notes_rules, self._math_rules, self._misc_rules):
+                if _follow and re.match(r"(?:and|what about|how about)\b", low):
+                    return self._followup(low)
+                for fn in (self._audio_rules, self._setup_rules, self._alias_rules, self._voice_rules, self._cards_rules, self._focus_rules, self._sched_rules, self._scenes_rules,
+                           self._play_rules, self._auto_rules, self._habits_rules, self._events_rules, self._clip_rules, self._alerts_rules, self._files_rules, self._timers_rules,
+                           self._stopwatch_rules, self._time_rules, self._random_rules, self._notes_rules, self._calc_rules, self._math_rules, self._misc_rules):
                     r = fn(low, t)
                     if r is not None:
+                        if fn.__name__ in ("_events_rules", "_time_rules", "_play_rules", "_habits_rules", "_math_rules"):
+                            self._ctx = (low, self.now())
                         return r
             except (ValueError, OverflowError, ZeroDivisionError, KeyError, IndexError):
                 return None
@@ -872,8 +892,10 @@ class Toolbox(LifeMixin):
 
 
 HELP = ("Besides chatting, I can: mute and unmute the sound, set the volume; set timers, alarms and reminders (also repeating ones: “remind me every Monday at 9 am to ...”); run a stopwatch; "
-        "do maths and convert units; tell the time and date, other cities' clocks and days until a date; keep a calendar (“add event dentist tomorrow at 3 pm”, “what's on tomorrow”); "
-        "track habits and streaks; keep notes and lists; save clipboard snippets and clipboard history; quiz you with flashcards; start focus mode or meeting mode; run scenes such as "
-        "movie mode, work mode, bedtime or game mode (and your own: “create scene NAME: step, step”); track your game playtime; warn you about low battery, a full drive or full memory "
-        "(“turn on PC alerts”); roll dice, flip a coin, pick for you; split a bill; tell jokes, facts and quotes; open apps, games and websites; read your screen; and, once you turn on "
-        "computer control, run your PC: windows, files, backups, system checks and more. Say “good morning” for a summary of your day.")
+        "do maths, loan and savings sums and convert units (and currency, using rates you tell me); tell the time and date, other cities' clocks and days until a date; "
+        "keep a calendar (“add event dentist tomorrow at 3 pm”, “what's on tomorrow”, then “and Friday?”); track habits and streaks; keep notes and lists; save clipboard snippets and history; "
+        "summarize, translate or proofread what you copied; quiz you with flashcards; start focus or meeting mode; run scenes such as movie mode, work mode, bedtime or game mode, "
+        "also on a schedule (“every weekday at 8 am run work mode”); track your game playtime, automatically if you like; find files (“find the PDF I downloaded yesterday”) and what is "
+        "using your disk; show how your PC is doing; warn you about low battery, a full drive or full memory; learn nicknames for apps and words I mishear; change my wake word and "
+        "speaking speed; roll dice, flip a coin, pick for you; tell jokes, facts and quotes; open apps, games and websites; read your screen; and, once you turn on computer control, "
+        "run your PC. Say “check my setup” to test what works, or “good morning” for a summary of your day.")

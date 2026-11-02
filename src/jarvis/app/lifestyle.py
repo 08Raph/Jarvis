@@ -337,7 +337,7 @@ class LifeMixin:
             return f"Stopped {n} repeating reminder{'' if n == 1 else 's'}." if n else "There was no repeating reminder to stop."
         return None
 
-    def _add_repeat(self, body: str, nowdt: datetime) -> str | None:
+    def _add_repeat(self, body: str, nowdt: datetime, scene: str | None = None) -> str | None:
         T = _T()
         mt = re.search(r"\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b|\bat\s+(\d{1,2}):(\d{2})\b|\bat (noon|midnight)\b", body)
         h = mi = None
@@ -384,10 +384,14 @@ class LifeMixin:
         if not label:
             return "What should I remind you about? For example: “remind me every day at 8 pm to take my vitamins”."
         rep.update(id=T.uuid.uuid4().hex[:6], label=label[:80])
+        if scene:
+            rep["scene"] = scene
         rep["next"] = next_repeat(rep, self.now())
         st = self._state()
         st["repeats"] = (st["repeats"] + [rep])[-40:]
         self._save()
+        if scene:
+            return f"Okay, I'll run {scene} mode {say_repeat(rep)}. (Jarvis has to be running at that time.)"
         return f"Okay, I'll remind you to {label} {say_repeat(rep)}."
 
     # ------------------------------------------------------------------ clipboard and snippets
@@ -734,8 +738,8 @@ class LifeMixin:
         m = re.fullmatch(r"(?:i'?m|i am|we'?re) (?:now |currently )?playing (.+)|(?:start|begin|log) playtime(?: for| on)? (.+)|(?:started|start) playing (.+)", t, re.I)
         if m:
             g = next(x for x in m.groups() if x).strip(" .!")
-            if len(g) > 60:
-                return None
+            if len(g) > 60 or re.search(r"\b(?:later|tomorrow|tonight|soon|today|with|at|in|on|after|before|when|if|because)\b", g, re.I):
+                return None                       # "I'm playing guitar later" is a remark, not a game session
             prev = close_open()
             pt.append({"game": g, "start": now, "end": None})
             del pt[:-500]
